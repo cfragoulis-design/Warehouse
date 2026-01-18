@@ -8,6 +8,7 @@
     :root{
       --bg:#0b1020; --panel:#111936; --panel2:#0f1730; --border:#243055;
       --text:#e7e9ee; --muted:#a7b0c7; --link:#8ab4ff; --btn:#2f7cf6;
+      --warn:#ff6b6b;
     }
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;}
     .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:var(--panel);border-bottom:1px solid var(--border);}
@@ -30,6 +31,7 @@
     .sku{font-size:12px;color:var(--muted);margin-top:2px}
     .num{font-variant-numeric:tabular-nums;font-weight:900}
     .pill{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:12px}
+    .pillLow{border-color:var(--warn);color:var(--warn)}
     .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .btnIcon{
       width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;
@@ -40,11 +42,6 @@
     .btnPrimary{background:var(--btn);border-color:transparent}
     .btnPrimary:hover{filter:brightness(1.05)}
     form{margin:0}
-    .rowGrid{display:grid;grid-template-columns: 1.2fr 90px 1fr 1fr 90px 110px;gap:0}
-    @media (max-width: 900px){
-      .rowGrid{grid-template-columns:1.2fr 70px 1fr 1fr 70px 90px}
-      .btnIcon{width:30px;height:30px}
-    }
   </style>
 </head>
 <body>
@@ -66,7 +63,7 @@
   <div class="wrap">
     <div class="card">
       <h1 class="title">Βασικό Στοκ</h1>
-      <div class="muted">Μονάδα μέτρησης: <b>Κιβώτια</b>. Οι ποσότητες εμφανίζονται χωρίς δεκαδικά. Τα κουμπιά γράφουν κίνηση με ποσότητα <b>1</b>.</div>
+      <div class="muted">Οι ποσότητες εμφανίζονται χωρίς δεκαδικά. Τα κουμπιά γράφουν κίνηση με ποσότητα <b>1</b> στη μονάδα του προϊόντος (Τεμ/Κιβ).</div>
 
       {% set cats = [
         ("Κοτόπουλα", grouped.get("Κοτόπουλα", [])),
@@ -96,26 +93,28 @@
           </tr>
 
           {% for r in items %}
+          {% set u = (r.unit or '')|lower %}
+          {% set unit_label = 'Τεμ' if u in ['pcs','piece','pieces','τεμ','tem'] else ('Κιβ' if u in ['box','boxes','κιβ','kiv'] else (r.unit or '')) %}
+
           <tr>
             <td>
               <div class="pname">{{ r.name }}</div>
               <div class="sku">{{ r.sku or r.id }}</div>
             </td>
-            <td class="muted">Κιβ</td>
+
+            <td class="muted">{{ unit_label }}</td>
 
             <!-- CENTRAL -->
             <td>
               <div class="actions">
                 <span class="num">{{ r.central_qty|int }}</span>
 
-                <!-- Central OUT (-1) -->
                 <form method="post" action="/stock/central/out">
                   <input type="hidden" name="product_id" value="{{ r.id }}">
                   <input type="hidden" name="qty" value="1">
                   <button class="btnIcon" title="Κεντρικό: OUT (-1)" aria-label="Central OUT" type="submit">−</button>
                 </form>
 
-                <!-- Transfer Central -> Workshop (→) -->
                 <form method="post" action="/stock/transfer/central-to-workshop">
                   <input type="hidden" name="product_id" value="{{ r.id }}">
                   <input type="hidden" name="qty" value="1">
@@ -129,21 +128,18 @@
               <div class="actions">
                 <span class="num">{{ r.workshop_qty|int }}</span>
 
-                <!-- Workshop IN (+1) -->
                 <form method="post" action="/stock/workshop/in">
                   <input type="hidden" name="product_id" value="{{ r.id }}">
                   <input type="hidden" name="qty" value="1">
                   <button class="btnIcon btnPrimary" title="Υποκατάστημα: IN (+1)" aria-label="Workshop IN" type="submit">+</button>
                 </form>
 
-                <!-- Workshop OUT (-1) -->
                 <form method="post" action="/stock/workshop/out">
                   <input type="hidden" name="product_id" value="{{ r.id }}">
                   <input type="hidden" name="qty" value="1">
                   <button class="btnIcon" title="Υποκατάστημα: OUT (-1)" aria-label="Workshop OUT" type="submit">−</button>
                 </form>
 
-                <!-- Transfer Workshop -> Central (←) -->
                 <form method="post" action="/stock/transfer/workshop-to-central">
                   <input type="hidden" name="product_id" value="{{ r.id }}">
                   <input type="hidden" name="qty" value="1">
@@ -153,7 +149,13 @@
             </td>
 
             <td class="num">{{ r.total_qty|int }}</td>
-            <td><span class="pill">{{ 'Active' if r.is_active else 'Inactive' }}</span></td>
+            <td>
+              {% if r.is_low %}
+                <span class="pill pillLow">LOW</span>
+              {% else %}
+                <span class="pill">{{ 'Active' if r.is_active else 'Inactive' }}</span>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </table>
