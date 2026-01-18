@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>{% if product %}Edit{% else %}New{% endif %} Product</title>
+</head>
+<body>
+  <h1>{% if product %}Edit{% else %}New{% endif %} Product</h1>
+
+  <form method="post" action="{{ action }}">
+    <p>
+      <label>Name</label><br>
+      <input name="name" required value="{{ product.name if product else '' }}">
+    </p>
+
+    <p>
+      <label>SKU</label><br>
+      <input name="sku" value="{{ product.sku if product else '' }}">
+    </p>
+
+    <p>
+      <label>Category</label><br>
+      <input name="category" value="{{ product.category if product else '' }}">
+    </p>
+
+    <p>
+      <label>Unit</label><br>
+      <select name="unit">
+        <option value="pcs" {% if not product or product.unit == 'pcs' %}selected{% endif %}>Τεμ</option>
+        <option value="kg" {% if product and product.unit == 'kg' %}selected{% endif %}>Kg</option>
+      </select>
+    </p>
+
+    <button type="submit">Save</button>
+    <a href="/products">Cancel</a>
+  </form>
+</body>
+</html>
