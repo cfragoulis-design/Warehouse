@@ -5,175 +5,162 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stock</title>
   <style>
-    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
-    .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#111936;border-bottom:1px solid #243055;}
-    .card{max-width:1200px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
-    .muted{color:#a7b0c7}
-    a{color:#8ab4ff;text-decoration:none}
+    :root{
+      --bg:#0b1020; --panel:#111936; --panel2:#0f1730; --border:#243055;
+      --text:#e7e9ee; --muted:#a7b0c7; --link:#8ab4ff; --btn:#2f7cf6;
+    }
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;}
+    .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:var(--panel);border-bottom:1px solid var(--border);}
+    .brand{font-weight:900}
+    .sub{color:var(--muted);font-size:13px;margin-top:2px}
+    .nav{display:flex;gap:14px;align-items:center}
+    a{color:var(--link);text-decoration:none}
+    .wrap{max-width:1150px;margin:26px auto;padding:0 16px;}
+    .card{padding:18px 18px 8px;background:var(--panel);border:1px solid var(--border);border-radius:14px;}
+    .title{margin:0 0 6px 0;font-size:22px;font-weight:900}
+    .muted{color:var(--muted)}
+    .section{margin-top:14px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--panel2);}
+    .sectionHead{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(255,255,255,0.02);border-bottom:1px solid var(--border);font-weight:900}
+    .count{font-size:12px;color:var(--muted);font-weight:800}
     table{width:100%;border-collapse:collapse}
-    th,td{border-bottom:1px solid #243055;padding:10px 8px;text-align:left;vertical-align:middle}
-    th{color:#c9d1ea;font-weight:800}
-    .right{text-align:right}
-    .pill{display:inline-block;padding:2px 8px;border:1px solid #243055;border-radius:999px;font-size:12px}
-    .pill.low{border-color:#7a2a2a;color:#ffb4b4;background:rgba(255,0,0,.06);font-weight:900}
-    .qtycell{display:flex;gap:8px;justify-content:flex-end;align-items:center}
-    .qtynum{min-width:80px;text-align:right;font-variant-numeric:tabular-nums;font-weight:800}
-    .btnsm{
-      background:#0b1020;border:1px solid #243055;color:#e7e9ee;
-      border-radius:10px;padding:6px 10px;font-weight:900;cursor:pointer
+    th,td{border-bottom:1px solid var(--border);padding:10px 8px;text-align:left;vertical-align:middle}
+    th{color:#c9d1ea;font-weight:900;font-size:13px}
+    tr:last-child td{border-bottom:none}
+    .pname{font-weight:900}
+    .sku{font-size:12px;color:var(--muted);margin-top:2px}
+    .num{font-variant-numeric:tabular-nums;font-weight:900}
+    .pill{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:12px}
+    .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .btnIcon{
+      width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;
+      border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,0.15);
+      color:var(--text);font-weight:900;cursor:pointer;user-select:none;
     }
-    .btnsm:hover{border-color:#3a4b80}
-    .section{margin-top:18px}
-    .section:first-of-type{margin-top:0}
-    .section-title{
-      display:flex;align-items:center;justify-content:space-between;
-      padding:10px 12px;border:1px solid #243055;border-radius:10px;
-      background:#0f1732;margin-bottom:8px;
-      font-weight:900
+    .btnIcon:hover{border-color:#3a4a7a}
+    .btnPrimary{background:var(--btn);border-color:transparent}
+    .btnPrimary:hover{filter:brightness(1.05)}
+    form{margin:0}
+    .rowGrid{display:grid;grid-template-columns: 1.2fr 90px 1fr 1fr 90px 110px;gap:0}
+    @media (max-width: 900px){
+      .rowGrid{grid-template-columns:1.2fr 70px 1fr 1fr 70px 90px}
+      .btnIcon{width:30px;height:30px}
     }
-    .badge{font-size:12px;color:#a7b0c7;font-weight:700}
-    .empty{padding:10px 12px;border:1px dashed #243055;border-radius:10px;color:#a7b0c7}
-    .namewrap{display:flex;gap:10px;align-items:flex-start}
-    .nameleft{min-width:0}
-    .nameright{margin-left:auto;display:flex;gap:8px;align-items:center;justify-content:flex-end}
   </style>
 </head>
 <body>
   <div class="top">
     <div>
-      <div style="font-weight:900">EasyProInv</div>
-      <div class="muted">Stock (Central / Workshop / Total)</div>
+      <div class="brand">EasyProInv</div>
+      <div class="sub">Stock (Central / Workshop / Total)</div>
     </div>
-    <div style="display:flex;gap:12px;align-items:center">
+    <div class="nav">
       <a href="/dashboard">Dashboard</a>
       <a href="/products">Products</a>
       <a href="/movements">Movements</a>
+      <form method="post" action="/logout">
+        <button class="btnIcon" title="Logout" aria-label="Logout" type="submit">⎋</button>
+      </form>
     </div>
   </div>
 
-  <div class="card">
-    <h2 style="margin-top:0">Βασικό Στοκ</h2>
-    <p class="muted">
-      Μονάδα μέτρησης: <strong>Κιβώτια</strong>. Οι ποσότητες εμφανίζονται χωρίς δεκαδικά.
-      <span style="margin-left:10px" class="pill low">LOW</span> = κάτω από το ελάχιστο απόθεμα (min stock).
-    </p>
+  <div class="wrap">
+    <div class="card">
+      <h1 class="title">Βασικό Στοκ</h1>
+      <div class="muted">Μονάδα μέτρησης: <b>Κιβώτια</b>. Οι ποσότητες εμφανίζονται χωρίς δεκαδικά. Τα κουμπιά γράφουν κίνηση με ποσότητα <b>1</b>.</div>
 
-    {% set order = ['Κοτόπουλα','Χοιρινά','Μοσχάρι','Διάφορα'] %}
+      {% set cats = [
+        ("Κοτόπουλα", grouped.get("Κοτόπουλα", [])),
+        ("Χοιρινά", grouped.get("Χοιρινά", [])),
+        ("Μοσχάρι", grouped.get("Μοσχάρι", [])),
+        ("Διάφορα", grouped.get("Διάφορα", [])),
+      ] %}
 
-    {% for cat in order %}
-      {% set items = grouped.get(cat, []) %}
+      {% for cname, items in cats %}
       <div class="section">
-        <div class="section-title">
-          <div>{{ cat }}</div>
-          <div class="badge">{{ items|length }} είδη</div>
+        <div class="sectionHead">
+          <div>{{ cname }}</div>
+          <div class="count">{{ items|length }} είδη</div>
         </div>
 
         {% if items|length == 0 %}
-          <div class="empty">—</div>
+          <div class="muted" style="padding:12px 12px;">—</div>
         {% else %}
-          <table>
-            <tr>
-              <th>Είδος</th>
-              <th>Μον.</th>
-              <th class="right">Κεντρικό</th>
-              <th class="right">Υποκατάστημα</th>
-              <th class="right">Σύνολο</th>
-              <th class="right">Min</th>
-              <th>Status</th>
-            </tr>
+        <table>
+          <tr>
+            <th>Είδος</th>
+            <th>Μον.</th>
+            <th>Κεντρικό</th>
+            <th>Υποκατάστημα</th>
+            <th>Σύνολο</th>
+            <th>Status</th>
+          </tr>
 
-            {% for r in items %}
-            <tr data-product="{{ r.id }}">
-              <td>
-                <div class="namewrap">
-                  <div class="nameleft">
-                    <div style="font-weight:800">{{ r.name }}</div>
-                    <div class="muted" style="font-size:12px">{{ r.sku or '' }}</div>
-                  </div>
-                  <div class="nameright">
-                    {% if r.is_low %}
-                      <span class="pill low">LOW</span>
-                    {% endif %}
-                  </div>
-                </div>
-              </td>
+          {% for r in items %}
+          <tr>
+            <td>
+              <div class="pname">{{ r.name }}</div>
+              <div class="sku">{{ r.sku or r.id }}</div>
+            </td>
+            <td class="muted">Κιβ</td>
 
-              <td>Κιβ</td>
+            <!-- CENTRAL -->
+            <td>
+              <div class="actions">
+                <span class="num">{{ r.central_qty|int }}</span>
 
-              <td class="right">
-                <div class="qtycell">
-                  <div class="qtynum">{{ r.central_qty | int }}</div>
-                  <button class="btnsm" data-action="central-out">−</button>
-                  <button class="btnsm" data-action="central-to-workshop">←</button>
-                </div>
-              </td>
+                <!-- Central OUT (-1) -->
+                <form method="post" action="/stock/central/out">
+                  <input type="hidden" name="product_id" value="{{ r.id }}">
+                  <input type="hidden" name="qty" value="1">
+                  <button class="btnIcon" title="Κεντρικό: OUT (-1)" aria-label="Central OUT" type="submit">−</button>
+                </form>
 
-              <td class="right">
-                <div class="qtycell">
-                  <div class="qtynum">{{ r.workshop_qty | int }}</div>
-                  <button class="btnsm" data-action="workshop-in">+</button>
-                  <button class="btnsm" data-action="workshop-out">−</button>
-                  <button class="btnsm" data-action="workshop-to-central">→</button>
-                </div>
-              </td>
+                <!-- Transfer Central -> Workshop (→) -->
+                <form method="post" action="/stock/transfer/central-to-workshop">
+                  <input type="hidden" name="product_id" value="{{ r.id }}">
+                  <input type="hidden" name="qty" value="1">
+                  <button class="btnIcon" title="Μεταφορά: Κεντρικό → Υποκατάστημα (+1 εκεί / -1 εδώ)" aria-label="Transfer Central to Workshop" type="submit">→</button>
+                </form>
+              </div>
+            </td>
 
-              <td class="right">
-                <div class="qtynum">{{ r.total_qty | int }}</div>
-              </td>
+            <!-- WORKSHOP -->
+            <td>
+              <div class="actions">
+                <span class="num">{{ r.workshop_qty|int }}</span>
 
-              <td class="right">
-                <div class="qtynum">{{ (r.min_stock or 0) | int }}</div>
-              </td>
+                <!-- Workshop IN (+1) -->
+                <form method="post" action="/stock/workshop/in">
+                  <input type="hidden" name="product_id" value="{{ r.id }}">
+                  <input type="hidden" name="qty" value="1">
+                  <button class="btnIcon btnPrimary" title="Υποκατάστημα: IN (+1)" aria-label="Workshop IN" type="submit">+</button>
+                </form>
 
-              <td class="right">
-                <span class="pill">{{ 'Active' if r.is_active else 'Inactive' }}</span>
-              </td>
-            </tr>
-            {% endfor %}
-          </table>
+                <!-- Workshop OUT (-1) -->
+                <form method="post" action="/stock/workshop/out">
+                  <input type="hidden" name="product_id" value="{{ r.id }}">
+                  <input type="hidden" name="qty" value="1">
+                  <button class="btnIcon" title="Υποκατάστημα: OUT (-1)" aria-label="Workshop OUT" type="submit">−</button>
+                </form>
+
+                <!-- Transfer Workshop -> Central (←) -->
+                <form method="post" action="/stock/transfer/workshop-to-central">
+                  <input type="hidden" name="product_id" value="{{ r.id }}">
+                  <input type="hidden" name="qty" value="1">
+                  <button class="btnIcon" title="Μεταφορά: Υποκατάστημα → Κεντρικό (+1 εκεί / -1 εδώ)" aria-label="Transfer Workshop to Central" type="submit">←</button>
+                </form>
+              </div>
+            </td>
+
+            <td class="num">{{ r.total_qty|int }}</td>
+            <td><span class="pill">{{ 'Active' if r.is_active else 'Inactive' }}</span></td>
+          </tr>
+          {% endfor %}
+        </table>
         {% endif %}
       </div>
-    {% endfor %}
+      {% endfor %}
+    </div>
   </div>
-
-<script>
-document.addEventListener("click", function(e){
-  const btn = e.target.closest("button[data-action]");
-  if(!btn) return;
-
-  const row = btn.closest("tr");
-  const productId = row.dataset.product;
-  const action = btn.dataset.action;
-
-  let url = null;
-  if(action === "central-out") url = "/stock/central/out";
-  if(action === "central-to-workshop") url = "/stock/transfer/central-to-workshop";
-  if(action === "workshop-in") url = "/stock/workshop/in";
-  if(action === "workshop-out") url = "/stock/workshop/out";
-  if(action === "workshop-to-central") url = "/stock/transfer/workshop-to-central";
-
-  if(!url) return;
-
-  const form = document.createElement("form");
-  form.method = "post";
-  form.action = url;
-
-  const pid = document.createElement("input");
-  pid.type = "hidden";
-  pid.name = "product_id";
-  pid.value = productId;
-
-  const qty = document.createElement("input");
-  qty.type = "hidden";
-  qty.name = "qty";
-  qty.value = "1";
-
-  form.appendChild(pid);
-  form.appendChild(qty);
-  document.body.appendChild(form);
-  form.submit();
-});
-</script>
-
 </body>
 </html>
