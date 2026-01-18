@@ -10,6 +10,11 @@ from .db import init_db, SessionLocal
 from .auth import seed_admins
 from .services import router as services_router
 from .auth import router as auth_router
+from app.seed import seed_locations
+
+@app.on_event("startup")
+def startup():
+    seed_locations()
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'change-me')
 
