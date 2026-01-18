@@ -213,7 +213,7 @@ def movement_create(
     note: str | None = Form(None),
 ):
     mt = (movement_type or "").strip().upper()
-    if mt not in {"IN", "OUT", "ADJ"}:
+    if mt not in {"IN", "OUT", "ADJ+", "ADJ-"}:
         return RedirectResponse(url="/movements/new?err=type", status_code=303)
 
     try:
