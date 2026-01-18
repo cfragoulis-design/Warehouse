@@ -1,10 +1,28 @@
-# app.py (root)
-# Wrapper για Railway – φορτώνει το σωστό FastAPI app
-from app.main import app  # noqa
+# app/app.py
+# Δεν γίνεται καμία σύνδεση DB εδώ.
+# Η βάση (PostgreSQL) διαχειρίζεται ΜΟΝΟ από app/db.py
 
-if __name__ == "__main__":
-    import os
-    import uvicorn
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
+from app.auth import router as auth_router
+from app.services import router as services_router
+
+app = FastAPI(title="Warehouse Inventory")
+
+# Static files
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# Templates
+templates = Jinja2Templates(directory="app/templates")
+
+# Routers
+app.include_router(auth_router)
+app.include_router(services_router)
+
+# NOTE:
+# ❌ ΟΧΙ sqlite
+# ❌ ΟΧΙ init_db εδώ
+# ❌ ΟΧΙ local filesystem DB
+# Όλα γίνονται μέσω SQLAlchemy + PostgreSQL στο app/db.py
