@@ -3,8 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select, func, case
 
 from .auth import require_user
 from .models import User, Product, StockMovement
@@ -239,3 +238,35 @@ def movement_create(
     db.add(m)
     db.commit()
     return RedirectResponse(url="/movements", status_code=303)
+
+# --------------------
+# CURRENT STOCK
+# --------------------
+
+@router.get("/stock", response_class=HTMLResponse)
+def stock_view(
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    # OUT, ADJ- => negative. Everything else => positive.
+    signed_qty = case(
+        (StockMovement.movement_type.in_(["OUT", "ADJ-"]), -StockMovement.qty),
+        else_=StockMovement.qty,
+    )
+
+    rows = db.execute(
+        select(
+            Product,
+            func.coalesce(func.sum(signed_qty), 0).label("stock_qty"),
+        )
+        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
+        .group_by(Product.id)
+        .order_by(Product.is_active.desc(), Product.name.asc())
+    ).all()
+
+    return templates.TemplateResponse(
+        "stock.html",
+        {"request": request, "user": user, "rows": rows},
+    )
+
