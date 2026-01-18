@@ -149,3 +149,93 @@ def product_toggle(
         product.is_active = not product.is_active
         db.commit()
     return RedirectResponse(url='/products', status_code=303)
+
+# --------------------
+# STOCK MOVEMENTS
+# --------------------
+
+@router.get("/movements", response_class=HTMLResponse)
+def movements_list(
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    # τελευταία 200 κινήσεις
+    rows = db.execute(
+        select(
+            StockMovement,
+            Product.name,
+            Product.unit,
+            Product.sku,
+            User.username,
+        )
+        .join(Product, Product.id == StockMovement.product_id)
+        .outerjoin(User, User.id == StockMovement.user_id)
+        .order_by(StockMovement.created_at.desc())
+        .limit(200)
+    ).all()
+
+    return templates.TemplateResponse(
+        "movements_list.html",
+        {"request": request, "user": user, "rows": rows},
+    )
+
+
+@router.get("/movements/new", response_class=HTMLResponse)
+def movement_new_form(
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    products = db.execute(
+        select(Product).where(Product.is_active == True).order_by(Product.name.asc())
+    ).scalars().all()
+
+    return templates.TemplateResponse(
+        "movement_form.html",
+        {
+            "request": request,
+            "user": user,
+            "products": products,
+            "action": "/movements/new",
+        },
+    )
+
+
+@router.post("/movements/new")
+def movement_create(
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    product_id: int = Form(...),
+    movement_type: str = Form(...),  # IN / OUT / ADJ
+    qty: str = Form(...),            # παίρνουμε string για να κάνουμε ασφαλές parsing
+    note: str | None = Form(None),
+):
+    mt = (movement_type or "").strip().upper()
+    if mt not in {"IN", "OUT", "ADJ"}:
+        return RedirectResponse(url="/movements/new?err=type", status_code=303)
+
+    try:
+        q = Decimal(qty.replace(",", ".").strip())
+    except Exception:
+        return RedirectResponse(url="/movements/new?err=qty", status_code=303)
+
+    if q <= 0:
+        return RedirectResponse(url="/movements/new?err=qty", status_code=303)
+
+    # επιβεβαίωση ότι το product υπάρχει και είναι active
+    p = db.get(Product, int(product_id))
+    if not p or not p.is_active:
+        return RedirectResponse(url="/movements/new?err=product", status_code=303)
+
+    m = StockMovement(
+        product_id=p.id,
+        qty=q,
+        movement_type=mt,
+        note=(note.strip() if note else None),
+        user_id=user.id,
+    )
+    db.add(m)
+    db.commit()
+    return RedirectResponse(url="/movements", status_code=303)
