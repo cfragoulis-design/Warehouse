@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EasyProInv - Dashboard</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
+    .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#111936;border-bottom:1px solid #243055;}
+    .card{max-width:900px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
+    .muted{color:#a7b0c7}
+    .btn{background:#2f7cf6;color:white;border:0;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
+    form{margin:0}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div>
+      <div style="font-weight:800">EasyProInv</div>
+      <div class="muted">Logged in as <strong>{{ user.username }}</strong> ({{ user.role }})</div>
+    </div>
+    <form method="post" action="/logout">
+      <button class="btn" type="submit">Logout</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Status</h2>
+    <p class="muted">App is running, session middleware works, Postgres connection works, and admin seeding works.</p>
+
+    <h3>Next steps</h3>
+    <ul>
+      <li>Create inventory tables (products, stock movements).</li>
+      <li>Add basic CRUD screens.</li>
+      <li>Add exports (Excel/PDF) once core flows are stable.</li>
+    </ul>
+
+    <h3>Health</h3>
+    <p><a href="/health" style="color:#8ab4ff">/health</a></p>
+  </div>
+</body>
+</html>
