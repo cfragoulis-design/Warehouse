@@ -8,11 +8,14 @@
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
     .top{padding:16px 20px;background:#111936;border-bottom:1px solid #243055}
     .card{max-width:520px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px}
-    label{display:block;margin-top:14px;font-weight:700}
+    label{display:block;margin-top:14px;font-weight:800}
     input,select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #243055;background:#0b1020;color:#e7e9ee}
-    .actions{margin-top:18px;display:flex;gap:10px}
-    .btn{background:#2f7cf6;color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:800;cursor:pointer}
-    .link{color:#8ab4ff;text-decoration:none;padding:10px 0}
+    .actions{margin-top:18px;display:flex;gap:10px;align-items:center}
+    .btn{background:#2f7cf6;color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:900;cursor:pointer}
+    .link{color:#8ab4ff;text-decoration:none}
+    .muted{color:#a7b0c7;font-size:12px;margin-top:6px}
+    .hide{display:none}
+    .warn{margin-bottom:12px;color:#ff8a8a;font-weight:800}
   </style>
 </head>
 <body>
@@ -23,6 +26,10 @@
   <div class="card">
     <h2 style="margin-top:0">{{ 'New Product' if not product else 'Edit Product' }}</h2>
 
+    {% if request.query_params.get('err') == 'sku' %}
+      <div class="warn">⚠️ Το SKU υπάρχει ήδη. Διάλεξε διαφορετικό.</div>
+    {% endif %}
+
     <form method="post" action="{{ action }}">
       <label>Όνομα</label>
       <input name="name" required value="{{ product.name if product else '' }}">
@@ -30,8 +37,28 @@
       <label>SKU</label>
       <input name="sku" value="{{ product.sku if product else '' }}">
 
+      {# ---- Category: dropdown + optional custom ---- #}
+      {% set cat = (product.category if product else '') %}
+      {% set preset = ['Κοτόπουλα','Χοιρινά','Μοσχάρι','Διάφορα'] %}
+      {% set is_custom = (cat and (cat not in preset)) %}
+
       <label>Κατηγορία</label>
-      <input name="category" value="{{ product.category if product else '' }}">
+      <select id="category_select">
+        <option value="">—</option>
+        {% for c in preset %}
+          <option value="{{ c }}" {% if cat == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+        <option value="__custom__" {% if is_custom %}selected{% endif %}>Άλλο…</option>
+      </select>
+      <div class="muted">Tip: Διάλεξε από εδώ για να ταξινομείται σωστά και στο Stock.</div>
+
+      <div id="custom_wrap" class="{% if not is_custom %}hide{% endif %}">
+        <label style="margin-top:10px">Custom κατηγορία</label>
+        <input id="custom_input" placeholder="π.χ. Αλλαντικά" value="{% if is_custom %}{{ cat }}{% endif %}">
+      </div>
+
+      {# This is what backend reads #}
+      <input type="hidden" name="category" id="category_hidden" value="{{ cat }}">
 
       <label>Μονάδα</label>
       <select name="unit">
@@ -45,5 +72,31 @@
       </div>
     </form>
   </div>
+
+<script>
+(function(){
+  const sel = document.getElementById("category_select");
+  const hidden = document.getElementById("category_hidden");
+  const wrap = document.getElementById("custom_wrap");
+  const custom = document.getElementById("custom_input");
+
+  function sync(){
+    const v = sel.value || "";
+    if(v === "__custom__"){
+      wrap.classList.remove("hide");
+      hidden.value = (custom.value || "").trim();
+    }else{
+      wrap.classList.add("hide");
+      hidden.value = v;
+    }
+  }
+
+  sel.addEventListener("change", sync);
+  if(custom) custom.addEventListener("input", sync);
+
+  sync();
+})();
+</script>
+
 </body>
 </html>
