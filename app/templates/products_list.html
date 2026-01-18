@@ -1,42 +1,96 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="el">
 <head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Products</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
+    .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#111936;border-bottom:1px solid #243055;}
+    .brand{font-weight:900}
+    .muted{color:#a7b0c7}
+    a{color:#8ab4ff;text-decoration:none}
+    .nav{display:flex;gap:12px;align-items:center}
+    .btn{background:#2f7cf6;color:#fff;border:0;border-radius:10px;padding:10px 12px;font-weight:800;cursor:pointer;text-decoration:none;display:inline-block}
+    .btn:visited{color:#fff}
+    .card{max-width:1200px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
+    table{width:100%;border-collapse:collapse}
+    th,td{border-bottom:1px solid #243055;padding:10px 8px;text-align:left;vertical-align:middle}
+    th{color:#c9d1ea;font-weight:800}
+    .right{text-align:right}
+    .pill{display:inline-block;padding:2px 10px;border:1px solid #243055;border-radius:999px;font-size:12px;white-space:nowrap}
+    .actions{display:flex;gap:10px;align-items:center;justify-content:flex-end}
+    .btnsm{
+      background:#0b1020;border:1px solid #243055;color:#e7e9ee;
+      border-radius:10px;padding:6px 10px;font-weight:900;cursor:pointer;text-decoration:none;display:inline-block
+    }
+    .btnsm:hover{border-color:#3a4b80}
+    .danger{border-color:#5a2a2a}
+    .danger:hover{border-color:#7a3a3a}
+    .name{font-weight:800}
+    .sub{font-size:12px}
+    form{margin:0}
+    .nowrap{white-space:nowrap}
+  </style>
 </head>
 <body>
-  <h1>Products</h1>
+  <div class="top">
+    <div>
+      <div class="brand">EasyProInv</div>
+      <div class="muted">Products</div>
+    </div>
+    <div class="nav">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/stock">Stock</a>
+      <a href="/movements">Movements</a>
+      <a class="btn" href="/products/new">+ Νέο Προϊόν</a>
+    </div>
+  </div>
 
-  <p>
-    <a href="/dashboard">← Dashboard</a> |
-    <a href="/products/new">+ New Product</a>
-  </p>
+  <div class="card">
+    <h2 style="margin-top:0">Προϊόντα</h2>
+    <p class="muted">Διαχείριση βασικών στοιχείων. Μονάδες: <strong>Κιβώτια</strong> / <strong>Τεμάχια</strong>.</p>
 
-  <table border="1" cellpadding="6" cellspacing="0">
-    <tr>
-      <th>Name</th>
-      <th>SKU</th>
-      <th>Category</th>
-      <th>Unit</th>
-      <th>Status</th>
-      <th>Actions</th>
-    </tr>
-    {% for p in products %}
-    <tr>
-      <td>{{ p.name }}</td>
-      <td>{{ p.sku or '' }}</td>
-      <td>{{ p.category or '' }}</td>
-      <td>{{ 'Τεμ' if p.unit == 'pcs' else 'Kg' }}</td>
-      <td>{{ 'Active' if p.is_active else 'Inactive' }}</td>
-      <td>
-        <a href="/products/{{ p.id }}/edit">Edit</a>
-        <form method="post" action="/products/{{ p.id }}/toggle" style="display:inline;">
-          <button type="submit">
-            {{ 'Deactivate' if p.is_active else 'Activate' }}
-          </button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
+    <table>
+      <tr>
+        <th>Όνομα</th>
+        <th class="nowrap">SKU</th>
+        <th>Κατηγορία</th>
+        <th class="nowrap">Μον.</th>
+        <th class="nowrap">Status</th>
+        <th class="right">Actions</th>
+      </tr>
+
+      {% for p in products %}
+      <tr>
+        <td>
+          <div class="name">{{ p.name }}</div>
+        </td>
+        <td class="muted nowrap">{{ p.sku or '' }}</td>
+        <td class="muted">{{ p.category or '' }}</td>
+        <td class="nowrap">
+          {% if p.unit == 'box' %}Κιβ
+          {% elif p.unit == 'pcs' %}Τεμ
+          {% else %}{{ p.unit }}
+          {% endif %}
+        </td>
+        <td class="nowrap">
+          <span class="pill">{{ 'Active' if p.is_active else 'Inactive' }}</span>
+        </td>
+        <td class="right">
+          <div class="actions">
+            <a class="btnsm" href="/products/{{ p.id }}/edit">Edit</a>
+
+            <form method="post" action="/products/{{ p.id }}/toggle">
+              <button class="btnsm danger" type="submit">
+                {{ 'Deactivate' if p.is_active else 'Activate' }}
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
 </body>
 </html>
