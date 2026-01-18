@@ -4,3 +4,4 @@ sqlalchemy
 psycopg[binary]
 passlib[bcrypt]
 python-multipart
+itsdangerous
