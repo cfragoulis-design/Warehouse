@@ -12,13 +12,14 @@ from .services import router as services_router
 from .auth import router as auth_router
 from app.seed import seed_locations
 
-@app.on_event("startup")
-def startup():
-    seed_locations()
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'change-me')
 
 app = FastAPI()
+
+@app.on_event("startup")
+def startup():
+    seed_locations()
 
 app.add_middleware(
     SessionMiddleware,
