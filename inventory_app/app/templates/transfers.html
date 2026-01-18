@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row between">
+  <h1>Ενδοδιακινήσεις</h1>
+  <a class="btn" href="/transfers/new">Νέα</a>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Ημερομηνία</th>
+        <th>Προς</th>
+        <th>Κατάσταση</th>
+        <th>Δημιουργός</th>
+        <th>Επιβεβαίωση</th>
+        <th>Προϊόντα</th>
+        <th>Σχόλιο</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in transfers %}
+        <tr>
+          <td class="mono">{{ t.id }}</td>
+          <td class="mono">{{ t.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ stores[t.to_store_id].name if stores.get(t.to_store_id) else t.to_store_id }}</td>
+          <td>
+            {% if t.status == 'confirmed' %}
+              <span class="pill ok">confirmed</span>
+            {% else %}
+              <span class="pill">draft</span>
+            {% endif %}
+          </td>
+          <td>{{ users[t.created_by_id].name if users.get(t.created_by_id) else t.created_by_id }}</td>
+          <td>
+            {% if t.status == 'confirmed' %}
+              <span class="muted">{{ t.confirmed_at.strftime('%Y-%m-%d %H:%M') if t.confirmed_at else '' }}
+                {{ '(' ~ users[t.confirmed_by_id].name ~ ')' if users.get(t.confirmed_by_id) else '' }}
+              </span>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td class="mono">{{ t.items|length }}</td>
+          <td class="muted">{{ t.note or '' }}</td>
+          <td>
+            {% if t.status == 'draft' and user.role == 'admin' %}
+              <form method="post" action="/transfers/confirm" style="margin:0">
+                <input type="hidden" name="transfer_id" value="{{ t.id }}">
+                <button class="btn small" type="submit">Confirm</button>
+              </form>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% if t.items|length > 0 %}
+          <tr class="subrow">
+            <td colspan="9">
+              <div class="items">
+                {% for it in t.items %}
+                  <span class="chip">{{ it.product.name }}: {{ '%.3f'|format(it.qty) }}</span>
+                {% endfor %}
+              </div>
+            </td>
+          </tr>
+        {% endif %}
+      {% endfor %}
+      {% if transfers|length == 0 %}
+        <tr><td colspan="9" class="muted">Δεν υπάρχουν κινήσεις.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

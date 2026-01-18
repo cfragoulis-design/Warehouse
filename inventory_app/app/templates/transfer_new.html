@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row between">
+  <h1>Νέα Ενδοδιακίνηση</h1>
+  <a class="btn secondary" href="/transfers">Πίσω</a>
+</div>
+
+<div class="card">
+  <form method="post" action="/transfers/new" class="form">
+    <label>Προς κατάστημα</label>
+    <select name="to_store_id" required>
+      {% for s in stores %}
+        <option value="{{ s.id }}">{{ s.name }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Σχόλιο (προαιρετικό)</label>
+    <input name="note" placeholder="π.χ. Ενίσχυση για Σάββατο">
+
+    <h2>Προϊόντα</h2>
+    <div class="muted">Βάλε ποσότητα μόνο όπου θες να μετακινηθεί. Τα μηδενικά αγνοούνται.</div>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Προϊόν</th>
+            <th>Μονάδα</th>
+            <th>Ποσότητα</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in products %}
+          <tr>
+            <td>{{ p.name }}</td>
+            <td class="mono">{{ p.unit }}</td>
+            <td>
+              <input type="hidden" name="product_id" value="{{ p.id }}">
+              <input name="qty" type="number" step="0.001" min="0" value="0" style="width:160px">
+            </td>
+          </tr>
+          {% endfor %}
+          {% if products|length == 0 %}
+            <tr><td colspan="3" class="muted">Δεν υπάρχουν προϊόντα. (Admin → Προϊόντα)</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% endif %}
+
+    <button type="submit">Αποθήκευση (Draft)</button>
+  </form>
+
+  <p class="muted">Σημείωση: Draft ενδοδιακίνηση δεν αλλάζει αποθέματα. Confirm (μόνο Admin) κάνει την κίνηση.</p>
+</div>
+{% endblock %}
