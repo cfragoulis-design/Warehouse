@@ -1,4 +1,7 @@
 # app/db.py
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL not set")
+
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
