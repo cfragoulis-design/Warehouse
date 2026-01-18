@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from passlib.hash import bcrypt
@@ -11,6 +12,7 @@ from .db import get_db
 from .models import User
 
 router = APIRouter()
+templates = Jinja2Templates(directory="app/templates")
 
 
 def _limit_bcrypt_secret(s: str) -> str:
@@ -41,7 +43,6 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User | 
 
 def require_user(user: User | None = Depends(get_current_user)) -> User:
     if not user:
-        # Dependencies must raise an exception; use 303 redirect via headers
         raise HTTPException(status_code=303, headers={"Location": "/login"})
     return user
 
@@ -53,6 +54,11 @@ def require_role(role: str):
         return user
 
     return _dep
+
+
+@router.get("/login", response_class=HTMLResponse)
+def login_form(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
 
 
 @router.post("/login")
