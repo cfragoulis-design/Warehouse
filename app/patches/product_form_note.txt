@@ -1,0 +1,6 @@
+# NOTE
+# This patch assumes you already have the category dropdown + unit dropdown + min_stock field.
+# Add ONE more field to product_form.html:
+#   target_central (integer, default 0)
+#
+# If you want, you can paste the snippet from patches/product_form_targetcentral_snippet.html
