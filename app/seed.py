@@ -9,7 +9,7 @@ def seed_locations():
 
     db.add_all([
         Location(code="CENTRAL", name="Κεντρικό"),
-        Location(code="WORKSHOP", name="Υποκατάστημα"),
+        Location(code="BRANCH", name="Υποκατάστημα / Εργαστήριο"),
     ])
     db.commit()
 
