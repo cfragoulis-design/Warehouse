@@ -39,11 +39,14 @@
         <th>Date</th>
         <th>Product</th>
         <th>Type</th>
+        <th>Loc</th>
         <th>Qty</th>
         <th>By</th>
         <th>Note</th>
       </tr>
-      {% for m, pname, unit, sku, uname in rows %}
+
+      {# IMPORTANT: services.py now returns 6 columns (includes Location.code) #}
+      {% for m, pname, unit, sku, uname, lcode in rows %}
       <tr>
         <td class="muted">{{ m.created_at }}</td>
         <td>
@@ -51,12 +54,16 @@
           <div class="muted" style="font-size:12px">{{ sku or '' }}</div>
         </td>
         <td>
-          <span class="pill">
-            {{ m.movement_type }}
-          </span>
+          <span class="pill">{{ m.movement_type }}</span>
         </td>
+        <td class="muted">{{ lcode or '' }}</td>
         <td>
-          {{ m.qty }} {{ 'Τεμ' if unit == 'pcs' else 'Kg' }}
+          {{ m.qty }}
+          {% if unit == 'pcs' %}Τεμ
+          {% elif unit == 'box' %}Κιβ
+          {% elif unit == 'kg' %}Kg
+          {% else %}{{ unit }}
+          {% endif %}
         </td>
         <td class="muted">{{ uname or '' }}</td>
         <td class="muted">{{ m.note or '' }}</td>
