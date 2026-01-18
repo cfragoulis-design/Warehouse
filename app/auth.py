@@ -42,7 +42,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User | 
 def require_user(user: User | None = Depends(get_current_user)) -> User:
     if not user:
         # Dependencies must raise an exception; use 303 redirect via headers
-        raise HTTPException(status_code=303, headers={"Location": "/ui/login"})
+        raise HTTPException(status_code=303, headers={"Location": "/login"})
     return user
 
 
@@ -67,7 +67,7 @@ def login(
 
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if not user or not verify_pin(pin, user.pin_hash):
-        return RedirectResponse(url="/ui/login?err=1", status_code=303)
+        return RedirectResponse(url="/login?err=1", status_code=303)
 
     request.session["uid"] = user.id
     return RedirectResponse(url="/dashboard", status_code=303)
@@ -76,7 +76,7 @@ def login(
 @router.post("/logout")
 def logout(request: Request):
     request.session.clear()
-    return RedirectResponse(url="/ui/login", status_code=303)
+    return RedirectResponse(url="/login", status_code=303)
 
 
 def seed_admins(db: Session) -> None:
