@@ -7,9 +7,11 @@
   <style>
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
     .top{padding:16px 20px;background:#111936;border-bottom:1px solid #243055}
-    .card{max-width:520px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px}
+    .card{max-width:560px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px}
     label{display:block;margin-top:14px;font-weight:800}
     input,select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #243055;background:#0b1020;color:#e7e9ee}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media (max-width:680px){.grid2{grid-template-columns:1fr}}
     .actions{margin-top:18px;display:flex;gap:10px;align-items:center}
     .btn{background:#2f7cf6;color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:900;cursor:pointer}
     .link{color:#8ab4ff;text-decoration:none}
@@ -34,8 +36,19 @@
       <label>Όνομα</label>
       <input name="name" required value="{{ product.name if product else '' }}">
 
-      <label>SKU</label>
-      <input name="sku" value="{{ product.sku if product else '' }}">
+      <div class="grid2">
+        <div>
+          <label>SKU</label>
+          <input name="sku" value="{{ product.sku if product else '' }}">
+        </div>
+        <div>
+          <label>Μονάδα</label>
+          <select name="unit">
+            <option value="box" {% if product and product.unit=='box' %}selected{% endif %}>Κιβώτια</option>
+            <option value="pcs" {% if product and product.unit=='pcs' %}selected{% endif %}>Τεμάχια</option>
+          </select>
+        </div>
+      </div>
 
       {# ---- Category: dropdown + optional custom ---- #}
       {% set cat = (product.category if product else '') %}
@@ -50,21 +63,19 @@
         {% endfor %}
         <option value="__custom__" {% if is_custom %}selected{% endif %}>Άλλο…</option>
       </select>
-      <div class="muted">Tip: Διάλεξε από εδώ για να ταξινομείται σωστά και στο Stock.</div>
+      <div class="muted">Χρησιμοποιείται για αυτόματη ομαδοποίηση στο Stock.</div>
 
       <div id="custom_wrap" class="{% if not is_custom %}hide{% endif %}">
         <label style="margin-top:10px">Custom κατηγορία</label>
         <input id="custom_input" placeholder="π.χ. Αλλαντικά" value="{% if is_custom %}{{ cat }}{% endif %}">
       </div>
 
-      {# This is what backend reads #}
+      {# What backend reads #}
       <input type="hidden" name="category" id="category_hidden" value="{{ cat }}">
 
-      <label>Μονάδα</label>
-      <select name="unit">
-        <option value="box" {% if product and product.unit=='box' %}selected{% endif %}>Κιβώτια</option>
-        <option value="pcs" {% if product and product.unit=='pcs' %}selected{% endif %}>Τεμάχια</option>
-      </select>
+      <label>Ελάχιστο Απόθεμα (Min Stock) — σε Κιβώτια</label>
+      <input name="min_stock" type="number" min="0" step="1" value="{{ product.min_stock if product and product.min_stock is not none else 0 }}">
+      <div class="muted">Αν είναι &gt; 0 και το Σύνολο πέσει κάτω, θα εμφανίζει ένδειξη LOW.</div>
 
       <div class="actions">
         <button class="btn" type="submit">Αποθήκευση</button>

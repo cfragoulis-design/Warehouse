@@ -7,82 +7,69 @@
   <style>
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
     .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#111936;border-bottom:1px solid #243055;}
-    .brand{font-weight:900}
+    .card{max-width:1200px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
     .muted{color:#a7b0c7}
     a{color:#8ab4ff;text-decoration:none}
-    .nav{display:flex;gap:12px;align-items:center}
-    .btn{background:#2f7cf6;color:#fff;border:0;border-radius:10px;padding:10px 12px;font-weight:800;cursor:pointer;text-decoration:none;display:inline-block}
-    .btn:visited{color:#fff}
-    .card{max-width:1200px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
     table{width:100%;border-collapse:collapse}
     th,td{border-bottom:1px solid #243055;padding:10px 8px;text-align:left;vertical-align:middle}
     th{color:#c9d1ea;font-weight:800}
+    .pill{display:inline-block;padding:2px 8px;border:1px solid #243055;border-radius:999px;font-size:12px}
+    .pill.off{opacity:.7}
+    .btn{background:#2f7cf6;color:white;border:0;border-radius:10px;padding:10px 12px;font-weight:900;cursor:pointer}
+    .btnlink{display:inline-block;border:1px solid #243055;border-radius:10px;padding:6px 10px;font-weight:800}
+    .btnlink:hover{border-color:#3a4b80}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}
     .right{text-align:right}
-    .pill{display:inline-block;padding:2px 10px;border:1px solid #243055;border-radius:999px;font-size:12px;white-space:nowrap}
-    .actions{display:flex;gap:10px;align-items:center;justify-content:flex-end}
-    .btnsm{
-      background:#0b1020;border:1px solid #243055;color:#e7e9ee;
-      border-radius:10px;padding:6px 10px;font-weight:900;cursor:pointer;text-decoration:none;display:inline-block
-    }
-    .btnsm:hover{border-color:#3a4b80}
-    .danger{border-color:#5a2a2a}
-    .danger:hover{border-color:#7a3a3a}
-    .name{font-weight:800}
-    .sub{font-size:12px}
-    form{margin:0}
-    .nowrap{white-space:nowrap}
+    .mono{font-variant-numeric:tabular-nums}
   </style>
 </head>
 <body>
   <div class="top">
     <div>
-      <div class="brand">EasyProInv</div>
+      <div style="font-weight:900">EasyProInv</div>
       <div class="muted">Products</div>
     </div>
-    <div class="nav">
+    <div style="display:flex;gap:12px;align-items:center">
       <a href="/dashboard">Dashboard</a>
       <a href="/stock">Stock</a>
       <a href="/movements">Movements</a>
-      <a class="btn" href="/products/new">+ Νέο Προϊόν</a>
+      <a class="btn" href="/products/new" style="color:white">+ New Product</a>
     </div>
   </div>
 
   <div class="card">
-    <h2 style="margin-top:0">Προϊόντα</h2>
-    <p class="muted">Διαχείριση βασικών στοιχείων. Μονάδες: <strong>Κιβώτια</strong> / <strong>Τεμάχια</strong>.</p>
+    <h2 style="margin-top:0">Products</h2>
+    <p class="muted">Διαχείριση προϊόντων (μονάδες: Κιβ / Τεμ). Min Stock είναι σε Κιβώτια.</p>
 
     <table>
       <tr>
-        <th>Όνομα</th>
-        <th class="nowrap">SKU</th>
-        <th>Κατηγορία</th>
-        <th class="nowrap">Μον.</th>
-        <th class="nowrap">Status</th>
-        <th class="right">Actions</th>
+        <th>Name</th>
+        <th>SKU</th>
+        <th>Category</th>
+        <th>Unit</th>
+        <th class="right">Min</th>
+        <th>Status</th>
+        <th>Actions</th>
       </tr>
-
       {% for p in products %}
       <tr>
+        <td style="font-weight:800">{{ p.name }}</td>
+        <td class="mono">{{ p.sku or '' }}</td>
+        <td>{{ p.category or '' }}</td>
+        <td>{{ 'Κιβ' if p.unit=='box' else 'Τεμ' }}</td>
+        <td class="right mono">{{ (p.min_stock or 0) }}</td>
         <td>
-          <div class="name">{{ p.name }}</div>
-        </td>
-        <td class="muted nowrap">{{ p.sku or '' }}</td>
-        <td class="muted">{{ p.category or '' }}</td>
-        <td class="nowrap">
-          {% if p.unit == 'box' %}Κιβ
-          {% elif p.unit == 'pcs' %}Τεμ
-          {% else %}{{ p.unit }}
+          {% if p.is_active %}
+            <span class="pill">Active</span>
+          {% else %}
+            <span class="pill off">Inactive</span>
           {% endif %}
         </td>
-        <td class="nowrap">
-          <span class="pill">{{ 'Active' if p.is_active else 'Inactive' }}</span>
-        </td>
-        <td class="right">
+        <td>
           <div class="actions">
-            <a class="btnsm" href="/products/{{ p.id }}/edit">Edit</a>
-
-            <form method="post" action="/products/{{ p.id }}/toggle">
-              <button class="btnsm danger" type="submit">
+            <a class="btnlink" href="/products/{{ p.id }}/edit">Edit</a>
+            <form method="post" action="/products/{{ p.id }}/toggle" style="display:inline;margin:0">
+              <button class="btnlink" type="submit" style="background:transparent;color:#e7e9ee;cursor:pointer">
                 {{ 'Deactivate' if p.is_active else 'Activate' }}
               </button>
             </form>

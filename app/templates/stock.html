@@ -15,6 +15,7 @@
     th{color:#c9d1ea;font-weight:800}
     .right{text-align:right}
     .pill{display:inline-block;padding:2px 8px;border:1px solid #243055;border-radius:999px;font-size:12px}
+    .pill.low{border-color:#7a2a2a;color:#ffb4b4;background:rgba(255,0,0,.06);font-weight:900}
     .qtycell{display:flex;gap:8px;justify-content:flex-end;align-items:center}
     .qtynum{min-width:80px;text-align:right;font-variant-numeric:tabular-nums;font-weight:800}
     .btnsm{
@@ -32,6 +33,9 @@
     }
     .badge{font-size:12px;color:#a7b0c7;font-weight:700}
     .empty{padding:10px 12px;border:1px dashed #243055;border-radius:10px;color:#a7b0c7}
+    .namewrap{display:flex;gap:10px;align-items:flex-start}
+    .nameleft{min-width:0}
+    .nameright{margin-left:auto;display:flex;gap:8px;align-items:center;justify-content:flex-end}
   </style>
 </head>
 <body>
@@ -51,6 +55,7 @@
     <h2 style="margin-top:0">Βασικό Στοκ</h2>
     <p class="muted">
       Μονάδα μέτρησης: <strong>Κιβώτια</strong>. Οι ποσότητες εμφανίζονται χωρίς δεκαδικά.
+      <span style="margin-left:10px" class="pill low">LOW</span> = κάτω από το ελάχιστο απόθεμα (min stock).
     </p>
 
     {% set order = ['Κοτόπουλα','Χοιρινά','Μοσχάρι','Διάφορα'] %}
@@ -73,14 +78,24 @@
               <th class="right">Κεντρικό</th>
               <th class="right">Υποκατάστημα</th>
               <th class="right">Σύνολο</th>
+              <th class="right">Min</th>
               <th>Status</th>
             </tr>
 
             {% for r in items %}
             <tr data-product="{{ r.id }}">
               <td>
-                <div style="font-weight:800">{{ r.name }}</div>
-                <div class="muted" style="font-size:12px">{{ r.sku or '' }}</div>
+                <div class="namewrap">
+                  <div class="nameleft">
+                    <div style="font-weight:800">{{ r.name }}</div>
+                    <div class="muted" style="font-size:12px">{{ r.sku or '' }}</div>
+                  </div>
+                  <div class="nameright">
+                    {% if r.is_low %}
+                      <span class="pill low">LOW</span>
+                    {% endif %}
+                  </div>
+                </div>
               </td>
 
               <td>Κιβ</td>
@@ -106,7 +121,11 @@
                 <div class="qtynum">{{ r.total_qty | int }}</div>
               </td>
 
-              <td>
+              <td class="right">
+                <div class="qtynum">{{ (r.min_stock or 0) | int }}</div>
+              </td>
+
+              <td class="right">
                 <span class="pill">{{ 'Active' if r.is_active else 'Inactive' }}</span>
               </td>
             </tr>
