@@ -1,0 +1,5 @@
+/* Qty widget: no typing, only +/- */
+.qty-row{display:flex;align-items:center;gap:8px}
+.qty-btn{width:36px;height:36px;font-size:20px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.25);color:#fff;cursor:pointer}
+.qty-display{width:70px;text-align:center;font-size:16px;background:rgba(0,0,0,.15);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:8px;user-select:none;pointer-events:none;caret-color:transparent}
+.qty-unit{height:36px;border-radius:8px;background:rgba(0,0,0,.15);color:#fff;border:1px solid rgba(255,255,255,.12)}
