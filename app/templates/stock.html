@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="el">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -16,10 +16,10 @@
     .right{text-align:right}
     .pill{display:inline-block;padding:2px 8px;border:1px solid #243055;border-radius:999px;font-size:12px}
     .qtycell{display:flex;gap:8px;justify-content:flex-end;align-items:center}
-    .qtynum{min-width:90px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+    .qtynum{min-width:90px;text-align:right;font-variant-numeric:tabular-nums;font-weight:800}
     .btnsm{
       background:#0b1020;border:1px solid #243055;color:#e7e9ee;
-      border-radius:10px;padding:6px 10px;font-weight:800;cursor:pointer
+      border-radius:10px;padding:6px 10px;font-weight:900;cursor:pointer
     }
     .btnsm:hover{border-color:#3a4b80}
   </style>
@@ -40,7 +40,7 @@
   <div class="card">
     <h2 style="margin-top:0">Βασικό Στοκ</h2>
     <p class="muted">
-      Η εικόνα υπολογίζεται από κινήσεις ανά αποθήκη. Το transfer γράφει 2 κινήσεις.
+      Μονάδα μέτρησης: <strong>Κιβώτια</strong>. Οι ποσότητες εμφανίζονται χωρίς δεκαδικά.
     </p>
 
     <table>
@@ -60,18 +60,13 @@
           <div class="muted" style="font-size:12px">{{ r.sku or '' }}</div>
         </td>
 
-        <td>
-          {% if r.unit == 'pcs' %}Τεμ
-          {% elif r.unit == 'box' %}Κιβ
-          {% elif r.unit == 'kg' %}Kg
-          {% else %}{{ r.unit }}
-          {% endif %}
-        </td>
+        <!-- FORCE UNIT: Κιβώτια -->
+        <td>Κιβ</td>
 
         <!-- CENTRAL -->
         <td class="right">
           <div class="qtycell">
-            <div class="qtynum">{{ r.central_qty }}</div>
+            <div class="qtynum">{{ r.central_qty | int }}</div>
             <button class="btnsm" data-action="central-out">−</button>
             <button class="btnsm" data-action="central-to-workshop">←</button>
           </div>
@@ -80,7 +75,7 @@
         <!-- WORKSHOP -->
         <td class="right">
           <div class="qtycell">
-            <div class="qtynum">{{ r.workshop_qty }}</div>
+            <div class="qtynum">{{ r.workshop_qty | int }}</div>
             <button class="btnsm" data-action="workshop-in">+</button>
             <button class="btnsm" data-action="workshop-out">−</button>
             <button class="btnsm" data-action="workshop-to-central">→</button>
@@ -89,7 +84,7 @@
 
         <!-- TOTAL -->
         <td class="right">
-          <div class="qtynum">{{ r.total_qty }}</div>
+          <div class="qtynum">{{ r.total_qty | int }}</div>
         </td>
 
         <td>
