@@ -1,45 +1,32 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+# app/app.py
+from __future__ import annotations
+
+import os
+from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
+from fastapi.staticfiles import StaticFiles
 
-from .db import init_db
-from .auth import router as auth_router
 from .services import router as services_router
+from .auth import router as auth_router
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    init_db()
-    yield
+SECRET_KEY = os.getenv("SECRET_KEY", "change-me")
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
-# Middleware
 app.add_middleware(
     SessionMiddleware,
-    SECRET_KEY="V#H;16=O$eT!JpKfJtP$NNxc3Wn{HsT2",
+    secret_key=SECRET_KEY,
     same_site="lax",
     https_only=True,
 )
 
-# Static + Templates
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
 
-# Routers
+# routers
 app.include_router(auth_router)
 app.include_router(services_router)
 
-# ROOT
-@app.get("/", response_class=HTMLResponse)
-def root(request: Request):
-    if request.session.get("user_id"):
-        return RedirectResponse("/dashboard")
-    return templates.TemplateResponse("login.html", {"request": request})
 
-# Health
 @app.get("/health")
 def health():
     return {"ok": True}
