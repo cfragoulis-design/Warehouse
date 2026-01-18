@@ -1,15 +1,18 @@
-def init_db():
-    from . import models  # noqa: F401
-    Base.metadata.create_all(bind=engine)
+from app.db import SessionLocal
+from app.models import Location
 
-    # seed locations (CENTRAL / WORKSHOP)
-    from sqlalchemy import select
-    from .models import Location
-    with SessionLocal() as db:
-        exists = db.execute(select(Location.id)).first()
-        if not exists:
-            db.add_all([
-                Location(code="CENTRAL", name="Κεντρικό"),
-                Location(code="WORKSHOP", name="Υποκατάστημα"),
-            ])
-            db.commit()
+db = SessionLocal()
+
+def seed_locations():
+    if db.query(Location).count() > 0:
+        return
+
+    db.add_all([
+        Location(code="CENTRAL", name="Κεντρικό"),
+        Location(code="WORKSHOP", name="Υποκατάστημα"),
+    ])
+    db.commit()
+
+if __name__ == "__main__":
+    seed_locations()
+    print("Locations seeded")
