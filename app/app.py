@@ -1,4 +1,3 @@
-# app/app.py
 from __future__ import annotations
 
 import os
@@ -17,22 +16,16 @@ SECRET_KEY = os.getenv("SECRET_KEY", "change-me")
 
 app = FastAPI()
 
-
 @app.on_event("startup")
 def startup() -> None:
-    # 1) create tables
     init_db()
 
-    # 2) seed locations (CENTRAL/WORKSHOP) if missing
-    seed_locations()
-
-    # 3) seed initial admin users (only if users table empty)
     db = SessionLocal()
     try:
         seed_admins(db)
+        seed_locations()
     finally:
         db.close()
-
 
 app.add_middleware(
     SessionMiddleware,
@@ -43,10 +36,8 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-# routers
 app.include_router(auth_router)
 app.include_router(services_router)
-
 
 @app.get("/health")
 def health():
