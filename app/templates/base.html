@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ APP_NAME }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="container row">
+    <div class="brand">{{ APP_NAME }}</div>
+    <nav class="nav">
+      {% if user %}
+        <a href="/">Αποθήκη</a>
+        <a href="/transfers">Ενδοδιακινήσεις</a>
+        {% if user.role == 'admin' %}
+          <a href="/products">Προϊόντα</a>
+          <a href="/users">Χρήστες</a>
+          <a href="/export/stocks">Export Αποθέματα</a>
+          <a href="/export/transfers">Export Transfers</a>
+        {% endif %}
+        <span class="pill">{{ user.name }} ({{ user.role }})</span>
+        <a class="danger" href="/logout">Έξοδος</a>
+      {% else %}
+        <a href="/login">Login</a>
+      {% endif %}
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer container">
+  <small>v1 — Γενική αποθήκη + Κεντρικό + Υποκατάστημα</small>
+</footer>
+</body>
+</html>

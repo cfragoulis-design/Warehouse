@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Προϊόντα</h1>
+
+<div class="grid2">
+  <div class="card">
+    <h2>Προσθήκη</h2>
+    <form method="post" action="/products/add" class="form">
+      <label>SKU</label>
+      <input name="sku" required placeholder="π.χ. KIMAS">
+      <label>Όνομα</label>
+      <input name="name" required placeholder="π.χ. Κιμάς">
+      <label>Μονάδα</label>
+      <select name="unit" required>
+        <option value="kg">kg</option>
+        <option value="pcs">τεμάχια</option>
+      </select>
+      <button type="submit">Προσθήκη</button>
+    </form>
+    <p class="muted">Με την προσθήκη δημιουργείται αυτόματα γραμμή στη Γενική (0.000).</p>
+  </div>
+
+  <div class="card">
+    <h2>Λίστα</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th>Όνομα</th>
+          <th>Μονάδα</th>
+          <th>Κατάσταση</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in products %}
+        <tr>
+          <td class="mono">{{ p.sku }}</td>
+          <td>{{ p.name }}</td>
+          <td class="mono">{{ p.unit }}</td>
+          <td>
+            {% if p.is_active %}
+              <span class="pill ok">Ενεργό</span>
+            {% else %}
+              <span class="pill">Ανενεργό</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="/products/toggle" style="margin:0">
+              <input type="hidden" name="product_id" value="{{ p.id }}">
+              <button class="btn small" type="submit">{% if p.is_active %}Disable{% else %}Enable{% endif %}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if products|length == 0 %}
+        <tr><td colspan="5" class="muted">Δεν υπάρχουν προϊόντα.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
