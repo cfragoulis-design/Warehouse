@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from .auth import require_user
 from .models import User, Product
 from .db import get_db
+from sqlalchemy import func
+from decimal import Decimal
 
 router = APIRouter()
 templates = Jinja2Templates(directory='app/templates')
