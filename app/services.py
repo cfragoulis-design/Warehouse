@@ -277,6 +277,29 @@ def movement_create(
 # STOCK VIEW (Central / Workshop / Total)
 # --------------------
 
+# --- PATCH: Stock categories grouping (Κοτόπουλα/Χοιρινά/Μοσχάρι/Διάφορα) ---
+# Replace your existing /stock route with the function below.
+# Also: make sure Product.category is present in the model/table (you already have it).
+#
+# Template change required:
+#   templates/stock.html must use 'grouped' instead of 'rows' (provided as stock_grouped.html).
+
+from decimal import Decimal
+from sqlalchemy import select, func, case
+
+def _group_from_category(cat: str | None) -> str:
+    c = (cat or "").strip().lower()
+
+    # Greek / English tolerant matching
+    if "κοτο" in c or "chick" in c or "poul" in c:
+        return "Κοτόπουλα"
+    if "χοι" in c or "pork" in c:
+        return "Χοιρινά"
+    if "μοσ" in c or "beef" in c or "veal" in c:
+        return "Μοσχάρι"
+    return "Διάφορα"
+
+
 @router.get("/stock", response_class=HTMLResponse)
 def stock_view(
     request: Request,
@@ -298,6 +321,7 @@ def stock_view(
             Product.name,
             Product.sku,
             Product.unit,
+            Product.category,
             Product.is_active,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
@@ -309,28 +333,33 @@ def stock_view(
             ).label("workshop_qty"),
         )
         .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .group_by(Product.id)
+        .group_by(Product.id, Product.name, Product.sku, Product.unit, Product.category, Product.is_active)
         .order_by(Product.is_active.desc(), Product.name.asc())
     ).all()
 
-    out = []
+    grouped = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
+
     for r in rows:
         c = Decimal(r.central_qty)
         w = Decimal(r.workshop_qty)
-        out.append(
-            {
-                "id": r.id,
-                "name": r.name,
-                "sku": r.sku,
-                "unit": r.unit,
-                "is_active": r.is_active,
-                "central_qty": c,
-                "workshop_qty": w,
-                "total_qty": c + w,
-            }
-        )
+        item = {
+            "id": r.id,
+            "name": r.name,
+            "sku": r.sku,
+            "unit": r.unit,
+            "category": r.category,
+            "is_active": r.is_active,
+            "central_qty": c,
+            "workshop_qty": w,
+            "total_qty": c + w,
+        }
+        grouped[_group_from_category(r.category)].append(item)
 
-    return templates.TemplateResponse("stock.html", {"request": request, "user": user, "rows": out})
+    return templates.TemplateResponse(
+        "stock.html",
+        {"request": request, "user": user, "grouped": grouped},
+    )
+# --- END PATCH ---
 
 
 # --------------------
