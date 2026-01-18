@@ -76,7 +76,10 @@ def stock_view(
     db: Session = Depends(get_db),
 ):
     locs = get_locations(db)
-    central = locs["CENTRAL"]
+    central = locs.get("CENTRAL")
+if not central:
+    raise RuntimeError("Location CENTRAL not found – check seed")
+
     workshop = locs["WORKSHOP"]
 
     signed_qty = case(
