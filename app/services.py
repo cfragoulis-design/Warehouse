@@ -353,7 +353,7 @@ def stock_view(
             "workshop_qty": w,
             "total_qty": c + w,
         }
-        grouped[_group_from_category(r.category)].append(item)
+        grouped[_group_from_category(r.category, r.name)].append(item)
 
     return templates.TemplateResponse(
         "stock.html",
