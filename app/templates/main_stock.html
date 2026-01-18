@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row between">
+  <h1>Γενική Αποθήκη</h1>
+  <a class="btn secondary" href="/">Πίσω</a>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Προϊόν</th>
+        <th>Συνολικό (qty_total)</th>
+        <th>Ενημέρωση</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for (p, q) in rows %}
+        <tr>
+          <td>{{ p.name }}</td>
+          <td class="num">{{ '%.3f'|format(q) }}</td>
+          <td>
+            <form method="post" action="/main/set" class="row" style="gap:8px;margin:0">
+              <input type="hidden" name="product_id" value="{{ p.id }}">
+              <input name="qty_total" type="number" step="0.001" min="0" value="{{ '%.3f'|format(q) }}" style="width:140px">
+              <button class="btn small" type="submit">Save</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      {% if rows|length == 0 %}
+        <tr><td colspan="3" class="muted">Πρώτα πρόσθεσε προϊόντα.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<p class="muted">Σημείωση: Οι ενδοδιακινήσεις μειώνουν τη Γενική και αυξάνουν το κατάστημα. Εδώ αλλάζεις μόνο το συνολικό stock της Γενικής.</p>
+{% endblock %}
