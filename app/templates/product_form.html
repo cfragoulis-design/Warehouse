@@ -1,37 +1,49 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="el">
 <head>
-  <title>{% if product %}Edit{% else %}New{% endif %} Product</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ 'New Product' if not product else 'Edit Product' }}</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
+    .top{padding:16px 20px;background:#111936;border-bottom:1px solid #243055}
+    .card{max-width:520px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px}
+    label{display:block;margin-top:14px;font-weight:700}
+    input,select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #243055;background:#0b1020;color:#e7e9ee}
+    .actions{margin-top:18px;display:flex;gap:10px}
+    .btn{background:#2f7cf6;color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:800;cursor:pointer}
+    .link{color:#8ab4ff;text-decoration:none;padding:10px 0}
+  </style>
 </head>
 <body>
-  <h1>{% if product %}Edit{% else %}New{% endif %} Product</h1>
+  <div class="top">
+    <strong>EasyProInv</strong>
+  </div>
 
-  <form method="post" action="{{ action }}">
-    <p>
-      <label>Name</label><br>
+  <div class="card">
+    <h2 style="margin-top:0">{{ 'New Product' if not product else 'Edit Product' }}</h2>
+
+    <form method="post" action="{{ action }}">
+      <label>Όνομα</label>
       <input name="name" required value="{{ product.name if product else '' }}">
-    </p>
 
-    <p>
-      <label>SKU</label><br>
+      <label>SKU</label>
       <input name="sku" value="{{ product.sku if product else '' }}">
-    </p>
 
-    <p>
-      <label>Category</label><br>
+      <label>Κατηγορία</label>
       <input name="category" value="{{ product.category if product else '' }}">
-    </p>
 
-    <p>
-      <label>Unit</label><br>
+      <label>Μονάδα</label>
       <select name="unit">
-        <option value="pcs" {% if not product or product.unit == 'pcs' %}selected{% endif %}>Τεμ</option>
-        <option value="kg" {% if product and product.unit == 'kg' %}selected{% endif %}>Kg</option>
+        <option value="box" {% if product and product.unit=='box' %}selected{% endif %}>Κιβώτια</option>
+        <option value="pcs" {% if product and product.unit=='pcs' %}selected{% endif %}>Τεμάχια</option>
       </select>
-    </p>
 
-    <button type="submit">Save</button>
-    <a href="/products">Cancel</a>
-  </form>
+      <div class="actions">
+        <button class="btn" type="submit">Αποθήκευση</button>
+        <a class="link" href="/products">Ακύρωση</a>
+      </div>
+    </form>
+  </div>
 </body>
 </html>
