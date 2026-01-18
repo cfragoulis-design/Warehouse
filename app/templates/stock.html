@@ -1,168 +1,156 @@
+{#
+  Stock page template (Jinja2)
+  Expects: rows = list of items with fields:
+    category, name, unit, central_qty, workshop_qty, target_central
+#}
 <!doctype html>
 <html lang="el">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Stock</title>
-  <style>
-    :root{
-      --bg:#0b1020; --panel:#111936; --panel2:#0f1730; --border:#243055;
-      --text:#e7e9ee; --muted:#a7b0c7; --link:#8ab4ff; --btn:#2f7cf6;
-      --warn:#ff6b6b;
-    }
-    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;}
-    .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:var(--panel);border-bottom:1px solid var(--border);}
-    .brand{font-weight:900}
-    .sub{color:var(--muted);font-size:13px;margin-top:2px}
-    .nav{display:flex;gap:14px;align-items:center}
-    a{color:var(--link);text-decoration:none}
-    .wrap{max-width:1150px;margin:26px auto;padding:0 16px;}
-    .card{padding:18px 18px 8px;background:var(--panel);border:1px solid var(--border);border-radius:14px;}
-    .title{margin:0 0 6px 0;font-size:22px;font-weight:900}
-    .muted{color:var(--muted)}
-    .section{margin-top:14px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--panel2);}
-    .sectionHead{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(255,255,255,0.02);border-bottom:1px solid var(--border);font-weight:900}
-    .count{font-size:12px;color:var(--muted);font-weight:800}
-    table{width:100%;border-collapse:collapse}
-    th,td{border-bottom:1px solid var(--border);padding:10px 8px;text-align:left;vertical-align:middle}
-    th{color:#c9d1ea;font-weight:900;font-size:13px}
-    tr:last-child td{border-bottom:none}
-    .pname{font-weight:900}
-    .sku{font-size:12px;color:var(--muted);margin-top:2px}
-    .num{font-variant-numeric:tabular-nums;font-weight:900}
-    .pill{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:12px}
-    .pillLow{border-color:var(--warn);color:var(--warn)}
-    .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    .btnIcon{
-      width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;
-      border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,0.15);
-      color:var(--text);font-weight:900;cursor:pointer;user-select:none;
-    }
-    .btnIcon:hover{border-color:#3a4a7a}
-    .btnPrimary{background:var(--btn);border-color:transparent}
-    .btnPrimary:hover{filter:brightness(1.05)}
-    form{margin:0}
-  </style>
+  <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body>
-  <div class="top">
-    <div>
-      <div class="brand">EasyProInv</div>
-      <div class="sub">Stock (Central / Workshop / Total)</div>
+  <div class="container">
+    <div class="page-title">
+      <h1>Stock</h1>
+      <div class="subtitle">CENTRAL / WORKSHOP • Target Central • Pending</div>
     </div>
-    <div class="nav">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/products">Products</a>
-      <a href="/movements">Movements</a>
-      <form method="post" action="/logout">
-        <button class="btnIcon" title="Logout" aria-label="Logout" type="submit">⎋</button>
-      </form>
-    </div>
-  </div>
 
-  <div class="wrap">
-    <div class="card">
-      <h1 class="title">Βασικό Στοκ</h1>
-      <div class="muted">Οι ποσότητες εμφανίζονται χωρίς δεκαδικά. Τα κουμπιά γράφουν κίνηση με ποσότητα <b>1</b> στη μονάδα του προϊόντος (Τεμ/Κιβ).</div>
-
-      {% set cats = [
-        ("Κοτόπουλα", grouped.get("Κοτόπουλα", [])),
-        ("Χοιρινά", grouped.get("Χοιρινά", [])),
-        ("Μοσχάρι", grouped.get("Μοσχάρι", [])),
-        ("Διάφορα", grouped.get("Διάφορα", [])),
-      ] %}
-
-      {% for cname, items in cats %}
-      <div class="section">
-        <div class="sectionHead">
-          <div>{{ cname }}</div>
-          <div class="count">{{ items|length }} είδη</div>
-        </div>
-
-        {% if items|length == 0 %}
-          <div class="muted" style="padding:12px 12px;">—</div>
-        {% else %}
-        <table>
-          <tr>
-            <th>Είδος</th>
-            <th>Μον.</th>
-            <th>Κεντρικό</th>
-            <th>Υποκατάστημα</th>
-            <th>Σύνολο</th>
-            <th>Status</th>
-          </tr>
-
-          {% for r in items %}
-          {% set u = (r.unit or '')|lower %}
-          {% set unit_label = 'Τεμ' if u in ['pcs','piece','pieces','τεμ','tem'] else ('Κιβ' if u in ['box','boxes','κιβ','kiv'] else (r.unit or '')) %}
-
-          <tr>
-            <td>
-              <div class="pname">{{ r.name }}</div>
-              <div class="sku">{{ r.sku or r.id }}</div>
-            </td>
-
-            <td class="muted">{{ unit_label }}</td>
-
-            <!-- CENTRAL -->
-            <td>
-              <div class="actions">
-                <span class="num">{{ r.central_qty|int }}</span>
-
-                <form method="post" action="/stock/central/out">
-                  <input type="hidden" name="product_id" value="{{ r.id }}">
-                  <input type="hidden" name="qty" value="1">
-                  <button class="btnIcon" title="Κεντρικό: OUT (-1)" aria-label="Central OUT" type="submit">−</button>
-                </form>
-
-                <form method="post" action="/stock/transfer/central-to-workshop">
-                  <input type="hidden" name="product_id" value="{{ r.id }}">
-                  <input type="hidden" name="qty" value="1">
-                  <button class="btnIcon" title="Μεταφορά: Κεντρικό → Υποκατάστημα (+1 εκεί / -1 εδώ)" aria-label="Transfer Central to Workshop" type="submit">→</button>
-                </form>
-              </div>
-            </td>
-
-            <!-- WORKSHOP -->
-            <td>
-              <div class="actions">
-                <span class="num">{{ r.workshop_qty|int }}</span>
-
-                <form method="post" action="/stock/workshop/in">
-                  <input type="hidden" name="product_id" value="{{ r.id }}">
-                  <input type="hidden" name="qty" value="1">
-                  <button class="btnIcon btnPrimary" title="Υποκατάστημα: IN (+1)" aria-label="Workshop IN" type="submit">+</button>
-                </form>
-
-                <form method="post" action="/stock/workshop/out">
-                  <input type="hidden" name="product_id" value="{{ r.id }}">
-                  <input type="hidden" name="qty" value="1">
-                  <button class="btnIcon" title="Υποκατάστημα: OUT (-1)" aria-label="Workshop OUT" type="submit">−</button>
-                </form>
-
-                <form method="post" action="/stock/transfer/workshop-to-central">
-                  <input type="hidden" name="product_id" value="{{ r.id }}">
-                  <input type="hidden" name="qty" value="1">
-                  <button class="btnIcon" title="Μεταφορά: Υποκατάστημα → Κεντρικό (+1 εκεί / -1 εδώ)" aria-label="Transfer Workshop to Central" type="submit">←</button>
-                </form>
-              </div>
-            </td>
-
-            <td class="num">{{ r.total_qty|int }}</td>
-            <td>
-              {% if r.is_low %}
-                <span class="pill pillLow">LOW</span>
-              {% else %}
-                <span class="pill">{{ 'Active' if r.is_active else 'Inactive' }}</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </table>
-        {% endif %}
+    <div class="toolbar">
+      <div class="left">
+        <select class="select" id="locationFilter" onchange="applyFilters()">
+          <option value="all">Τοποθεσία: Όλες</option>
+          <option value="central">CENTRAL</option>
+          <option value="workshop">WORKSHOP</option>
+        </select>
+        <input class="input" id="searchInput" placeholder="Search προϊόντος…" oninput="applyFilters()" />
       </div>
-      {% endfor %}
+      <div class="right">
+        <span class="badge badge-zero">0 = OK</span>
+        <span class="badge badge-pending">Pending</span>
+        <span class="badge badge-low">Low</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table id="stockTable">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Product</th>
+              <th class="col-unit">Unit</th>
+              <th class="col-central">Central</th>
+              <th class="col-workshop">Workshop</th>
+              <th class="col-target">Target (Central)</th>
+              <th class="col-pending">Pending</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set ns = namespace(last_cat=None) %}
+            {% for r in rows %}
+              {% set cat = r.category %}
+              {% if ns.last_cat != cat %}
+                <tr class="section-row" data-cat="{{ cat|e }}">
+                  <td colspan="8">{{ cat }}</td>
+                </tr>
+                {% set ns.last_cat = cat %}
+              {% endif %}
+
+              {% set central = (r.central_qty or 0) %}
+              {% set workshop = (r.workshop_qty or 0) %}
+              {% set target = (r.target_central or 0) %}
+              {% set pending = (target - central) if (target - central) > 0 else 0 %}
+              {% set low = (target > 0) and (central < target) %}
+
+              <tr class="data-row" data-name="{{ r.name|lower|e }}" data-cat="{{ cat|e }}">
+                <td class="muted">{{ cat }}</td>
+                <td>
+                  <div class="product-name">{{ r.name }}</div>
+                  {% if low %}
+                    <div style="margin-top:8px;"><span class="badge badge-low">Low</span></div>
+                  {% endif %}
+                </td>
+                <td class="col-unit">{{ r.unit }}</td>
+                <td class="col-central" data-central="{{ central }}">{{ central }}</td>
+                <td class="col-workshop" data-workshop="{{ workshop }}">{{ workshop }}</td>
+                <td class="col-target" data-target="{{ target }}">{{ target }}</td>
+                <td class="col-pending">
+                  {% if pending > 0 %}
+                    <span class="badge badge-pending">+{{ pending }} {{ r.unit }}</span>
+                  {% else %}
+                    <span class="badge badge-zero">0</span>
+                  {% endif %}
+                </td>
+                <td class="col-actions">
+                  <div class="actions">
+                    <form method="post" action="/stock/adjust" style="display:inline;">
+                      <input type="hidden" name="product" value="{{ r.name|e }}" />
+                      <input type="hidden" name="location" value="CENTRAL" />
+                      <input type="hidden" name="delta" value="-1" />
+                      <button class="btn btn-sm btn-danger" type="submit" aria-label="-1">−</button>
+                    </form>
+                    <form method="post" action="/stock/adjust" style="display:inline;">
+                      <input type="hidden" name="product" value="{{ r.name|e }}" />
+                      <input type="hidden" name="location" value="CENTRAL" />
+                      <input type="hidden" name="delta" value="1" />
+                      <button class="btn btn-sm" type="submit" aria-label="+1">+</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
+
+<script>
+function applyFilters() {
+  const q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+  const loc = document.getElementById('locationFilter').value;
+  const rows = document.querySelectorAll('#stockTable tbody tr.data-row');
+  const sectionRows = document.querySelectorAll('#stockTable tbody tr.section-row');
+
+  // Show/hide data rows
+  rows.forEach(tr => {
+    const name = tr.getAttribute('data-name') || '';
+    let show = !q || name.includes(q);
+
+    if (show && loc !== 'all') {
+      // If filtering by location, keep row visible but hide irrelevant numeric column visually.
+      // (We keep it simple: the CSS already hides workshop in small screens; here we just toggle a class.)
+    }
+
+    tr.style.display = show ? '' : 'none';
+  });
+
+  // Hide section headers if no visible rows under them
+  sectionRows.forEach(sec => {
+    const cat = sec.getAttribute('data-cat');
+    const anyVisible = Array.from(rows).some(r => r.getAttribute('data-cat') === cat && r.style.display !== 'none');
+    sec.style.display = anyVisible ? '' : 'none';
+  });
+
+  // Location filter: toggle a body class for simple column show/hide
+  document.body.classList.remove('show-central-only', 'show-workshop-only');
+  if (loc === 'central') document.body.classList.add('show-central-only');
+  if (loc === 'workshop') document.body.classList.add('show-workshop-only');
+}
+
+// Location-only views (optional): hide opposite column
+(function(){
+  const style = document.createElement('style');
+  style.textContent = `
+    body.show-central-only .col-workshop { display: none; }
+    body.show-workshop-only .col-central, body.show-workshop-only .col-target, body.show-workshop-only .col-pending, body.show-workshop-only .col-actions { display: none; }
+  `;
+  document.head.appendChild(style);
+})();
+</script>
 </body>
 </html>
