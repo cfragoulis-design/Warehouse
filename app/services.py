@@ -1,246 +1,72 @@
 from __future__ import annotations
 
+from decimal import Decimal
+from uuid import uuid4
+
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func, case
+from sqlalchemy.orm import Session
 
 from .auth import require_user
-from .models import User, Product, StockMovement
 from .db import get_db
-from sqlalchemy import func
-from decimal import Decimal
+from .models import User, Product, StockMovement, Location
 
 router = APIRouter()
-templates = Jinja2Templates(directory='app/templates')
-
-
-@router.get('/', include_in_schema=False)
-def root() -> RedirectResponse:
-    return RedirectResponse(url='/dashboard', status_code=303)
-
-
-@router.get('/ui/login', response_class=HTMLResponse)
-def ui_login(request: Request):
-    err = request.query_params.get('err')
-    return templates.TemplateResponse('login.html', {'request': request, 'err': err})
-
-
-@router.get('/dashboard', response_class=HTMLResponse)
-def dashboard(request: Request, user: User = Depends(require_user)):
-    return templates.TemplateResponse('dashboard.html', {'request': request, 'user': user})
+templates = Jinja2Templates(directory="app/templates")
 
 
 # --------------------
-# PRODUCTS
+# helpers
 # --------------------
 
-def require_admin(user: User = Depends(require_user)) -> User:
-    if user.role != "admin":
-        return RedirectResponse(url="/dashboard", status_code=303)
-    return user
+def get_locations(db: Session) -> dict[str, Location]:
+    locs = db.execute(select(Location)).scalars().all()
+    return {l.code: l for l in locs}
 
 
-@router.get('/products', response_class=HTMLResponse)
-def products_list(
-    request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    products = db.execute(
-        select(Product).order_by(Product.is_active.desc(), Product.name.asc())
-    ).scalars().all()
-    return templates.TemplateResponse(
-        'products_list.html',
-        {'request': request, 'user': user, 'products': products}
-    )
-
-
-@router.get('/products/new', response_class=HTMLResponse)
-def product_new_form(
-    request: Request,
-    user: User = Depends(require_admin),
-):
-    return templates.TemplateResponse(
-        'product_form.html',
-        {
-            'request': request,
-            'user': user,
-            'product': None,
-            'action': '/products/new',
-        }
-    )
-
-
-@router.post('/products/new')
-def product_create(
-    request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-    name: str = Form(...),
-    sku: str | None = Form(None),
-    category: str | None = Form(None),
-    unit: str = Form("pcs"),
-):
-    p = Product(
-        name=name.strip(),
-        sku=sku.strip() if sku else None,
-        category=category.strip() if category else None,
-        unit=unit,
-    )
-    db.add(p)
-    db.commit()
-    return RedirectResponse(url='/products', status_code=303)
-
-
-@router.get('/products/{pid}/edit', response_class=HTMLResponse)
-def product_edit_form(
-    pid: int,
-    request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    product = db.get(Product, pid)
-    if not product:
-        return RedirectResponse(url='/products', status_code=303)
-    return templates.TemplateResponse(
-        'product_form.html',
-        {
-            'request': request,
-            'user': user,
-            'product': product,
-            'action': f'/products/{pid}/edit',
-        }
-    )
-
-
-@router.post('/products/{pid}/edit')
-def product_update(
-    pid: int,
-    request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-    name: str = Form(...),
-    sku: str | None = Form(None),
-    category: str | None = Form(None),
-    unit: str = Form("pcs"),
-):
-    product = db.get(Product, pid)
-    if not product:
-        return RedirectResponse(url='/products', status_code=303)
-
-    product.name = name.strip()
-    product.sku = sku.strip() if sku else None
-    product.category = category.strip() if category else None
-    product.unit = unit
-    db.commit()
-    return RedirectResponse(url='/products', status_code=303)
-
-
-@router.post('/products/{pid}/toggle')
-def product_toggle(
-    pid: int,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    product = db.get(Product, pid)
-    if product:
-        product.is_active = not product.is_active
-        db.commit()
-    return RedirectResponse(url='/products', status_code=303)
-
-# --------------------
-# STOCK MOVEMENTS
-# --------------------
-
-@router.get("/movements", response_class=HTMLResponse)
-def movements_list(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    # τελευταία 200 κινήσεις
-    rows = db.execute(
-        select(
-            StockMovement,
-            Product.name,
-            Product.unit,
-            Product.sku,
-            User.username,
-        )
-        .join(Product, Product.id == StockMovement.product_id)
-        .outerjoin(User, User.id == StockMovement.user_id)
-        .order_by(StockMovement.created_at.desc())
-        .limit(200)
-    ).all()
-
-    return templates.TemplateResponse(
-        "movements_list.html",
-        {"request": request, "user": user, "rows": rows},
-    )
-
-
-@router.get("/movements/new", response_class=HTMLResponse)
-def movement_new_form(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    products = db.execute(
-        select(Product).where(Product.is_active == True).order_by(Product.name.asc())
-    ).scalars().all()
-
-    return templates.TemplateResponse(
-        "movement_form.html",
-        {
-            "request": request,
-            "user": user,
-            "products": products,
-            "action": "/movements/new",
-        },
-    )
-
-
-@router.post("/movements/new")
-def movement_create(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-    product_id: int = Form(...),
-    movement_type: str = Form(...),  # IN / OUT / ADJ
-    qty: str = Form(...),            # παίρνουμε string για να κάνουμε ασφαλές parsing
-    note: str | None = Form(None),
-):
-    mt = (movement_type or "").strip().upper()
-    if mt not in {"IN", "OUT", "ADJ+", "ADJ-"}:
-        return RedirectResponse(url="/movements/new?err=type", status_code=303)
-
+def parse_qty(qty: str) -> Decimal | None:
     try:
         q = Decimal(qty.replace(",", ".").strip())
+        if q <= 0:
+            return None
+        return q
     except Exception:
-        return RedirectResponse(url="/movements/new?err=qty", status_code=303)
+        return None
 
-    if q <= 0:
-        return RedirectResponse(url="/movements/new?err=qty", status_code=303)
 
-    # επιβεβαίωση ότι το product υπάρχει και είναι active
-    p = db.get(Product, int(product_id))
-    if not p or not p.is_active:
-        return RedirectResponse(url="/movements/new?err=product", status_code=303)
-
-    m = StockMovement(
-        product_id=p.id,
-        qty=q,
-        movement_type=mt,
-        note=(note.strip() if note else None),
-        user_id=user.id,
+def get_stock_for_product(db: Session, product_id: int, location_id: int) -> Decimal:
+    signed_qty = case(
+        (StockMovement.movement_type.in_(["OUT", "ADJ-"]), -StockMovement.qty),
+        else_=StockMovement.qty,
     )
-    db.add(m)
-    db.commit()
-    return RedirectResponse(url="/movements", status_code=303)
+
+    val = db.execute(
+        select(func.coalesce(func.sum(signed_qty), 0))
+        .where(StockMovement.product_id == product_id)
+        .where(StockMovement.location_id == location_id)
+    ).scalar_one()
+
+    return Decimal(val)
+
 
 # --------------------
-# CURRENT STOCK
+# ROOT / DASHBOARD
+# --------------------
+
+@router.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/dashboard", status_code=303)
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request, user: User = Depends(require_user)):
+    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+
+
+# --------------------
+# STOCK VIEW
 # --------------------
 
 @router.get("/stock", response_class=HTMLResponse)
@@ -249,7 +75,10 @@ def stock_view(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    # OUT, ADJ- => negative. Everything else => positive.
+    locs = get_locations(db)
+    central = locs["CENTRAL"]
+    workshop = locs["WORKSHOP"]
+
     signed_qty = case(
         (StockMovement.movement_type.in_(["OUT", "ADJ-"]), -StockMovement.qty),
         else_=StockMovement.qty,
@@ -257,16 +86,205 @@ def stock_view(
 
     rows = db.execute(
         select(
-            Product,
-            func.coalesce(func.sum(signed_qty), 0).label("stock_qty"),
+            Product.id,
+            Product.name,
+            Product.sku,
+            Product.unit,
+            Product.is_active,
+            func.coalesce(
+                func.sum(
+                    case(
+                        (StockMovement.location_id == central.id, signed_qty),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("central_qty"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (StockMovement.location_id == workshop.id, signed_qty),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("workshop_qty"),
         )
         .outerjoin(StockMovement, StockMovement.product_id == Product.id)
         .group_by(Product.id)
         .order_by(Product.is_active.desc(), Product.name.asc())
     ).all()
 
+    out = []
+    for r in rows:
+        total = Decimal(r.central_qty) + Decimal(r.workshop_qty)
+        out.append(
+            {
+                "id": r.id,
+                "name": r.name,
+                "sku": r.sku,
+                "unit": r.unit,
+                "is_active": r.is_active,
+                "central_qty": r.central_qty,
+                "workshop_qty": r.workshop_qty,
+                "total_qty": total,
+            }
+        )
+
     return templates.TemplateResponse(
         "stock.html",
-        {"request": request, "user": user, "rows": rows},
+        {"request": request, "user": user, "rows": out},
     )
 
+
+# --------------------
+# ACTIONS – WORKSHOP
+# --------------------
+
+@router.post("/stock/workshop/in")
+def workshop_in(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    product_id: int = Form(...),
+    qty: str = Form(...),
+):
+    q = parse_qty(qty)
+    if not q:
+        return RedirectResponse("/stock", 303)
+
+    loc = get_locations(db)["WORKSHOP"]
+
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            qty=q,
+            movement_type="IN",
+            location_id=loc.id,
+            user_id=user.id,
+        )
+    )
+    db.commit()
+    return RedirectResponse("/stock", 303)
+
+
+@router.post("/stock/workshop/out")
+def workshop_out(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    product_id: int = Form(...),
+    qty: str = Form(...),
+):
+    q = parse_qty(qty)
+    if not q:
+        return RedirectResponse("/stock", 303)
+
+    loc = get_locations(db)["WORKSHOP"]
+    available = get_stock_for_product(db, product_id, loc.id)
+    if available < q:
+        return RedirectResponse("/stock", 303)
+
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            qty=q,
+            movement_type="OUT",
+            location_id=loc.id,
+            user_id=user.id,
+        )
+    )
+    db.commit()
+    return RedirectResponse("/stock", 303)
+
+
+# --------------------
+# TRANSFERS
+# --------------------
+
+@router.post("/stock/transfer/workshop-to-central")
+def transfer_workshop_to_central(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    product_id: int = Form(...),
+    qty: str = Form(...),
+):
+    q = parse_qty(qty)
+    if not q:
+        return RedirectResponse("/stock", 303)
+
+    locs = get_locations(db)
+    workshop = locs["WORKSHOP"]
+    central = locs["CENTRAL"]
+
+    available = get_stock_for_product(db, product_id, workshop.id)
+    if available < q:
+        return RedirectResponse("/stock", 303)
+
+    tid = str(uuid4())
+
+    db.add_all(
+        [
+            StockMovement(
+                product_id=product_id,
+                qty=q,
+                movement_type="OUT",
+                location_id=workshop.id,
+                user_id=user.id,
+                transfer_id=tid,
+            ),
+            StockMovement(
+                product_id=product_id,
+                qty=q,
+                movement_type="IN",
+                location_id=central.id,
+                user_id=user.id,
+                transfer_id=tid,
+            ),
+        ]
+    )
+    db.commit()
+    return RedirectResponse("/stock", 303)
+
+
+@router.post("/stock/transfer/central-to-workshop")
+def transfer_central_to_workshop(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    product_id: int = Form(...),
+    qty: str = Form(...),
+):
+    q = parse_qty(qty)
+    if not q:
+        return RedirectResponse("/stock", 303)
+
+    locs = get_locations(db)
+    workshop = locs["WORKSHOP"]
+    central = locs["CENTRAL"]
+
+    available = get_stock_for_product(db, product_id, central.id)
+    if available < q:
+        return RedirectResponse("/stock", 303)
+
+    tid = str(uuid4())
+
+    db.add_all(
+        [
+            StockMovement(
+                product_id=product_id,
+                qty=q,
+                movement_type="OUT",
+                location_id=central.id,
+                user_id=user.id,
+                transfer_id=tid,
+            ),
+            StockMovement(
+                product_id=product_id,
+                qty=q,
+                movement_type="IN",
+                location_id=workshop.id,
+                user_id=user.id,
+                transfer_id=tid,
+            ),
+        ]
+    )
+    db.commit()
+    return RedirectResponse("/stock", 303)
