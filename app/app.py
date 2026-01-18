@@ -19,7 +19,7 @@ app = FastAPI(lifespan=lifespan)
 # Middleware
 app.add_middleware(
     SessionMiddleware,
-    secret_key="CHANGE_ME_FROM_ENV",
+    SECRET_KEY="V#H;16=O$eT!JpKfJtP$NNxc3Wn{HsT2",
     same_site="lax",
     https_only=True,
 )
