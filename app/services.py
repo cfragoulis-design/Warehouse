@@ -287,17 +287,17 @@ def movement_create(
 from decimal import Decimal
 from sqlalchemy import select, func, case
 
-def _group_from_category(cat: str | None) -> str:
-    c = (cat or "").strip().lower()
+def _group_from_category(cat: str | None, name: str | None) -> str:
+    c = f"{(cat or '').strip()} {(name or '').strip()}".lower()
 
-    # Greek / English tolerant matching
-    if "κοτο" in c or "chick" in c or "poul" in c:
+    if "κοτό" in c or "chick" in c or "poul" in c:
         return "Κοτόπουλα"
     if "χοι" in c or "pork" in c:
         return "Χοιρινά"
     if "μοσ" in c or "beef" in c or "veal" in c:
         return "Μοσχάρι"
     return "Διάφορα"
+
 
 
 @router.get("/stock", response_class=HTMLResponse)
