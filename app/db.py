@@ -1,35 +1,49 @@
 # app/db.py
+from __future__ import annotations
+
 import os
+from contextlib import contextmanager
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+def _normalize_database_url(url: str) -> str:
+    # Railway sometimes gives postgres:// ; SQLAlchemy wants postgresql+psycopg:// (or postgresql://)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+psycopg://", 1)
+    if url.startswith("postgresql://"):
+        # still OK, but ensure psycopg driver
+        return url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return url
+
+
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set")
 
-# fix postgres:// → postgresql+psycopg://
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace(
-        "postgres://", "postgresql+psycopg://", 1
-    )
-elif DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace(
-        "postgresql://", "postgresql+psycopg://", 1
-    )
+DATABASE_URL = _normalize_database_url(DATABASE_URL)
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+)
 
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-Base = declarative_base()
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 
-def init_db():
-    from . import models  # φορτώνει τα tables
-    Base.metadata.create_all(bind=engine)
+class Base(DeclarativeBase):
+    pass
+
+
 def get_db():
-    db = SessionLocal()
+    db: Session = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def init_db():
+    # import models so metadata is populated
+    from . import models  # noqa: F401
+    Base.metadata.create_all(bind=engine)
