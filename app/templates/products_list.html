@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Products</title>
+</head>
+<body>
+  <h1>Products</h1>
+
+  <p>
+    <a href="/dashboard">← Dashboard</a> |
+    <a href="/products/new">+ New Product</a>
+  </p>
+
+  <table border="1" cellpadding="6" cellspacing="0">
+    <tr>
+      <th>Name</th>
+      <th>SKU</th>
+      <th>Category</th>
+      <th>Unit</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+    {% for p in products %}
+    <tr>
+      <td>{{ p.name }}</td>
+      <td>{{ p.sku or '' }}</td>
+      <td>{{ p.category or '' }}</td>
+      <td>{{ 'Τεμ' if p.unit == 'pcs' else 'Kg' }}</td>
+      <td>{{ 'Active' if p.is_active else 'Inactive' }}</td>
+      <td>
+        <a href="/products/{{ p.id }}/edit">Edit</a>
+        <form method="post" action="/products/{{ p.id }}/toggle" style="display:inline;">
+          <button type="submit">
+            {{ 'Deactivate' if p.is_active else 'Activate' }}
+          </button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>
