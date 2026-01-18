@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>New Stock Movement</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
+    .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#111936;border-bottom:1px solid #243055;}
+    .card{max-width:900px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
+    .muted{color:#a7b0c7}
+    label{display:block;margin:10px 0 6px}
+    input,select{width:100%;padding:10px;border-radius:10px;border:1px solid #243055;background:#0b1020;color:#e7e9ee}
+    .row{display:grid;grid-template-columns:1fr 220px;gap:14px}
+    .btn{background:#2f7cf6;color:white;border:0;border-radius:10px;padding:10px 12px;font-weight:700;cursor:pointer}
+    a{color:#8ab4ff;text-decoration:none}
+    .err{color:#ffb4b4}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div>
+      <div style="font-weight:800">EasyProInv</div>
+      <div class="muted">New stock movement</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <a href="/movements">← Movements</a>
+      <a href="/products">Products</a>
+      <a href="/dashboard">Dashboard</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Create movement</h2>
+
+    {% set err = request.query_params.get('err') %}
+    {% if err %}
+      <p class="err">
+        {% if err == 'qty' %}Invalid quantity (must be > 0).{% endif %}
+        {% if err == 'type' %}Invalid movement type.{% endif %}
+        {% if err == 'product' %}Invalid product.{% endif %}
+      </p>
+    {% endif %}
+
+    <form method="post" action="{{ action }}">
+      <label>Product</label>
+      <select name="product_id" required>
+        {% for p in products %}
+          <option value="{{ p.id }}">{{ p.name }}{% if p.sku %} ({{ p.sku }}){% endif %}</option>
+        {% endfor %}
+      </select>
+
+      <div class="row">
+        <div>
+          <label>Type</label>
+          <select name="movement_type" required>
+            <option value="IN">IN (Add stock)</option>
+            <option value="OUT">OUT (Remove stock)</option>
+            <option value="ADJ">ADJ (Adjustment)</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Qty</label>
+          <input name="qty" placeholder="e.g. 5 or 2.5" required />
+        </div>
+      </div>
+
+      <label>Note (optional)</label>
+      <input name="note" placeholder="e.g. supplier invoice, correction reason" />
+
+      <div style="margin-top:14px;display:flex;gap:10px">
+        <button class="btn" type="submit">Save</button>
+        <a href="/movements">Cancel</a>
+      </div>
+    </form>
+  </div>
+</body>
+</html>
