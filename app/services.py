@@ -62,7 +62,10 @@ def root() -> RedirectResponse:
 
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, user: User = Depends(require_user)):
-    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {"request": request, "user": user},
+    )
 
 
 # --------------------
@@ -76,11 +79,12 @@ def stock_view(
     db: Session = Depends(get_db),
 ):
     locs = get_locations(db)
-    central = locs.get("CENTRAL")
-if not central:
-    raise RuntimeError("Location CENTRAL not found – check seed")
 
-    workshop = locs["WORKSHOP"]
+    central = locs.get("CENTRAL")
+    workshop = locs.get("WORKSHOP")
+
+    if not central or not workshop:
+        raise RuntimeError("Locations CENTRAL / WORKSHOP not found – check seed")
 
     signed_qty = case(
         (StockMovement.movement_type.in_(["OUT", "ADJ-"]), -StockMovement.qty),
@@ -120,7 +124,6 @@ if not central:
 
     out = []
     for r in rows:
-        total = Decimal(r.central_qty) + Decimal(r.workshop_qty)
         out.append(
             {
                 "id": r.id,
@@ -128,9 +131,9 @@ if not central:
                 "sku": r.sku,
                 "unit": r.unit,
                 "is_active": r.is_active,
-                "central_qty": r.central_qty,
-                "workshop_qty": r.workshop_qty,
-                "total_qty": total,
+                "central_qty": Decimal(r.central_qty),
+                "workshop_qty": Decimal(r.workshop_qty),
+                "total_qty": Decimal(r.central_qty) + Decimal(r.workshop_qty),
             }
         )
 
@@ -155,14 +158,14 @@ def workshop_in(
     if not q:
         return RedirectResponse("/stock", 303)
 
-    loc = get_locations(db)["WORKSHOP"]
+    workshop = get_locations(db)["WORKSHOP"]
 
     db.add(
         StockMovement(
             product_id=product_id,
             qty=q,
             movement_type="IN",
-            location_id=loc.id,
+            location_id=workshop.id,
             user_id=user.id,
         )
     )
@@ -181,8 +184,8 @@ def workshop_out(
     if not q:
         return RedirectResponse("/stock", 303)
 
-    loc = get_locations(db)["WORKSHOP"]
-    available = get_stock_for_product(db, product_id, loc.id)
+    workshop = get_locations(db)["WORKSHOP"]
+    available = get_stock_for_product(db, product_id, workshop.id)
     if available < q:
         return RedirectResponse("/stock", 303)
 
@@ -191,7 +194,7 @@ def workshop_out(
             product_id=product_id,
             qty=q,
             movement_type="OUT",
-            location_id=loc.id,
+            location_id=workshop.id,
             user_id=user.id,
         )
     )
