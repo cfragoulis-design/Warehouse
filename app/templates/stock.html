@@ -30,6 +30,13 @@
     .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55)}
     .pill.warn{border-color:rgba(202,162,74,.75);color:#f1d694}
     .pill.danger{border-color:rgba(255,107,107,.6);color:#ffb2b2}
+    .pillBtn{
+    cursor:pointer;
+    border:1px solid rgba(36,48,85,.9);
+    background:rgba(11,16,32,.55);
+    color:var(--text);
+  }
+  .pillBtn:hover{filter:brightness(1.08)}
     .btn{border:0;border-radius:10px;padding:8px 10px;font-weight:800;cursor:pointer}
     .btnBlue{background:var(--blue);color:#fff}
     .btnGhost{background:rgba(11,16,32,.45);border:1px solid rgba(36,48,85,.9);color:var(--text)}
@@ -76,6 +83,7 @@
           <span class="pill">0 = OK</span>
           <span class="pill warn">Pending</span>
           <span class="pill danger">Low</span>
+          
         </div>
       </div>
 
@@ -119,15 +127,16 @@
               <td>
                 {% if it.pending > 0 %}
                   <form method="post" action="/stock/fulfill" class="pendingForm">
-                    <input type="hidden" name="product_id" value="{{ it.id }}" />
-                    <button class="btn btnGhost btnTiny" type="submit">
+                  <input type="hidden" name="product_id" value="{{ it.id }}" />
+                  <button class="pill warn pillBtn" type="submit">
                       +{{ it.pending|fmtqty(it.unit) }}
-                    </button>
-                  </form>
-                {% else %}
-                  <span class="pill">0</span>
-                {% endif %}
-              </td>
+                              </button>
+                    </form>
+                  {% else %}
+                    <span class="pill">0</span>
+                  {% endif %}
+                </td>
+
 
               <td>
                 <div class="actions">
