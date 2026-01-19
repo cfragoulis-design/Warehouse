@@ -23,7 +23,6 @@ def startup() -> None:
 
     db = SessionLocal()
     try:
-        # ✅ safe migration (SQLAlchemy 2.x compatible)
         db.connection().exec_driver_sql("""
             ALTER TABLE products
             ADD COLUMN IF NOT EXISTS target_central NUMERIC(12,3) DEFAULT 0
@@ -34,8 +33,6 @@ def startup() -> None:
         seed_locations()
     finally:
         db.close()
-
-
 
 
 app.add_middleware(
