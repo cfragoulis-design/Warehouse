@@ -1,192 +1,182 @@
+{#
+  Stock page template (Jinja2)
+  Expects: rows = list of items with fields:
+    category, name, unit, central_qty, workshop_qty, target_central
+#}
 <!doctype html>
 <html lang="el">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Stock</title>
+  <link rel="stylesheet" href="/static/app.css" />
   <style>
-    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b0f18;color:#e7e9ee;margin:0;}
-    .wrap{max-width:1220px;margin:0 auto;padding:22px 18px;}
-    .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
-    .brand{font-size:28px;font-weight:900;letter-spacing:0.2px;}
-    .sub{color:#a7b0c7;font-size:13px;margin-top:2px;}
-    .nav a{color:#8ab4ff;text-decoration:none;margin-left:12px;}
-    .card{background:#101622;border:1px solid #1f2a45;border-radius:18px;overflow:hidden;}
-    .toolbar{display:flex;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid #1f2a45;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0));}
-    .toolbar input,.toolbar select{background:#0b0f18;border:1px solid #1f2a45;color:#e7e9ee;border-radius:12px;padding:9px 12px;}
-    .toolbar input{width:240px;}
-    table{width:100%;border-collapse:collapse;}
-    th,td{border-bottom:1px solid #1f2a45;padding:10px 12px;text-align:left;vertical-align:middle;}
-    th{font-size:12px;color:#c9d1ea;letter-spacing:0.06em;text-transform:uppercase;}
-    tr.group td{background:rgba(255,255,255,0.02);font-weight:800;color:#e7e9ee;}
-    .muted{color:#a7b0c7;}
-    .unit{display:inline-block;min-width:42px;}
-    .pill{display:inline-block;padding:2px 8px;border:1px solid #2a3659;border-radius:999px;font-size:12px;color:#c9d1ea;}
-    .pill.low{border-color:#7a2d2d;color:#ffb4b4;background:rgba(122,45,45,0.15);}
-    .pill.pending{border-color:#7a5a12;color:#ffd889;background:rgba(122,90,18,0.14);}
-    .actions{display:flex;gap:10px;align-items:center;justify-content:flex-end;}
-    .grp{display:flex;gap:6px;align-items:center;}
-    .tag{font-size:11px;color:#a7b0c7;margin-right:4px;}
-    .btn{border:1px solid #2a3659;background:#0b0f18;color:#e7e9ee;border-radius:12px;padding:8px 10px;font-weight:800;cursor:pointer;}
-    .btn.minus{border-color:#7a2d2d;background:rgba(122,45,45,0.10);}
-    .btn.plus{border-color:#2a3659;background:rgba(255,255,255,0.02);}
-    .btn.save{border-color:#2a3659;padding:7px 10px;font-weight:800;}
-    .btn.fulfill{border-color:#7a5a12;background:rgba(122,90,18,0.14);color:#ffd889;}
-    .target-box{display:flex;gap:8px;align-items:center;justify-content:center;}
-    .target-box input{width:92px;background:#0b0f18;border:1px solid #2a3659;color:#e7e9ee;border-radius:12px;padding:8px 10px;text-align:center;}
-    .center{text-align:center;}
-    .right{text-align:right;}
+    /* Small, safe overrides */
+    .stock-nav{display:flex;gap:16px;align-items:center;justify-content:flex-end;margin-left:auto}
+    .stock-nav a{color:#8ab4ff;text-decoration:none;font-weight:600}
+    .stock-nav a:hover{text-decoration:underline}
+    .col-target input[type="number"],
+    .col-target input[type="text"]{width:64px;max-width:64px;text-align:center;padding:6px 8px;}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="top">
+  <div class="container">
+    <div class="page-title">
       <div>
-        <div class="brand">Stock</div>
-        <div class="sub">CENTRAL / WORKSHOP • Target Central • Pending</div>
+        <h1>Stock</h1>
+        <div class="subtitle">CENTRAL / WORKSHOP • Target Central • Pending</div>
       </div>
-      <div class="nav">
+      <nav class="stock-nav" aria-label="Primary">
         <a href="/dashboard">Dashboard</a>
         <a href="/products">Products</a>
         <a href="/movements">Movements</a>
+      </nav>
+    </div>
+
+    <div class="toolbar">
+      <div class="left">
+        <select class="select" id="locationFilter" onchange="applyFilters()">
+          <option value="all">Τοποθεσία: Όλες</option>
+          <option value="central">CENTRAL</option>
+          <option value="workshop">WORKSHOP</option>
+        </select>
+        <input class="input" id="searchInput" placeholder="Search προϊόντος…" oninput="applyFilters()" />
+      </div>
+      <div class="right">
+        <span class="badge badge-zero">0 = OK</span>
+        <span class="badge badge-pending">Pending</span>
+        <span class="badge badge-low">Low</span>
       </div>
     </div>
 
     <div class="card">
-      <div class="toolbar">
-        <form method="get" action="/stock" style="display:flex;gap:12px;align-items:center;width:100%">
-          <select name="group">
-            <option value="">Τοποθεσία: Όλες</option>
-            <option value="CENTRAL">Central</option>
-            <option value="WORKSHOP">Workshop</option>
-          </select>
-          <input name="q" placeholder="Search προϊόντος..." />
-        </form>
-        <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
-          <span class="pill">0 = OK</span>
-          <span class="pill pending">Pending</span>
-          <span class="pill low">Low</span>
-        </div>
-      </div>
-
-      <div style="max-height:72vh;overflow:auto">
-        <table>
-          <tr>
-            <th>Category</th>
-            <th>Product</th>
-            <th>Unit</th>
-            <th class="center">Central</th>
-            <th class="center">Workshop</th>
-            <th class="center">Target (Central)</th>
-            <th class="center">Pending</th>
-            <th class="right">Actions</th>
-          </tr>
-
-          {% set last_group = none %}
-          {% for r in rows %}
-            {% if last_group != r.category %}
-              <tr class="group">
-                <td colspan="8">{{ r.category }}</td>
-              </tr>
-              {% set last_group = r.category %}
-            {% endif %}
-
+      <div class="table-wrap">
+        <table id="stockTable">
+          <thead>
             <tr>
-              <td class="muted">{{ r.raw_category }}</td>
-              <td>
-                <div style="font-weight:900">{{ r.name }}</div>
-                {% if r.sku %}<div class="muted" style="font-size:12px">{{ r.sku }}</div>{% endif %}
-                {% if r.pending and r.pending > 0 and r.central_qty <= 0 %}
-                  <div style="margin-top:6px"><span class="pill low">Low</span></div>
-                {% endif %}
-              </td>
-              <td><span class="unit">{{ r.unit_label }}</span></td>
-              <td class="center">{{ r.central_s }}</td>
-              <td class="center">{{ r.workshop_s }}</td>
+              <th>Product</th>
+              <th class="col-unit">Unit</th>
+              <th class="col-central">Central</th>
+              <th class="col-workshop">Workshop</th>
+              <th class="col-target">Target (Central)</th>
+              <th class="col-pending">Pending</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set ns = namespace(last_cat=None) %}
+            {% for r in rows %}
+              {% set cat = r.category %}
+              {% if ns.last_cat != cat %}
+                <tr class="section-row" data-cat="{{ cat|e }}">
+                  <td colspan="7">{{ cat }}</td>
+                </tr>
+                {% set ns.last_cat = cat %}
+              {% endif %}
 
-              <td class="center">
-                {% if is_workshop %}
-                  {{ r.target_s }}
-                {% else %}
-                  <div class="target-box">
-                    <form method="post" action="/stock/target" style="display:flex;gap:8px;align-items:center;margin:0">
-                      <input type="hidden" name="product_id" value="{{ r.id }}" />
-                      <input name="target" value="{{ r.target_s }}" inputmode="decimal" />
-                      <button class="btn save" type="submit">Save</button>
+              {% set central = (r.central_qty or 0) %}
+              {% set workshop = (r.workshop_qty or 0) %}
+              {% set target = (r.target_central or 0) %}
+              {% set pending = (target - central) if (target - central) > 0 else 0 %}
+
+              {# Display formatting: boxes/pcs as integers; kg keeps up to 2 decimals #}
+              {% if r.unit in ['pcs','box'] %}
+                {% set central_disp = central|int %}
+                {% set workshop_disp = workshop|int %}
+                {% set target_disp = target|int %}
+                {% set pending_disp = pending|int %}
+              {% else %}
+                {% set central_disp = '%.2f'|format(central|float) %}
+                {% set workshop_disp = '%.2f'|format(workshop|float) %}
+                {% set target_disp = '%.2f'|format(target|float) %}
+                {% set pending_disp = '%.2f'|format(pending|float) %}
+              {% endif %}
+              {% set low = (target > 0) and (central < target) %}
+
+              <tr class="data-row" data-name="{{ r.name|lower|e }}" data-cat="{{ cat|e }}">
+                <td>
+                  <div class="product-name">{{ r.name }}</div>
+                  {% if low %}
+                    <div style="margin-top:8px;"><span class="badge badge-low">Low</span></div>
+                  {% endif %}
+                </td>
+                <td class="col-unit">{{ r.unit }}</td>
+                <td class="col-central" data-central="{{ central }}">{{ central_disp }}</td>
+                <td class="col-workshop" data-workshop="{{ workshop }}">{{ workshop_disp }}</td>
+                <td class="col-target" data-target="{{ target }}">{{ target_disp }}</td>
+                <td class="col-pending">
+                  {% if pending > 0 %}
+                    <span class="badge badge-pending">+{{ pending_disp }} {{ r.unit }}</span>
+                  {% else %}
+                    <span class="badge badge-zero">0</span>
+                  {% endif %}
+                </td>
+                <td class="col-actions">
+                  <div class="actions">
+                    <form method="post" action="/stock/adjust" style="display:inline;">
+                      <input type="hidden" name="product" value="{{ r.name|e }}" />
+                      <input type="hidden" name="location" value="CENTRAL" />
+                      <input type="hidden" name="delta" value="-1" />
+                      <button class="btn btn-sm btn-danger" type="submit" aria-label="-1">−</button>
+                    </form>
+                    <form method="post" action="/stock/adjust" style="display:inline;">
+                      <input type="hidden" name="product" value="{{ r.name|e }}" />
+                      <input type="hidden" name="location" value="CENTRAL" />
+                      <input type="hidden" name="delta" value="1" />
+                      <button class="btn btn-sm" type="submit" aria-label="+1">+</button>
                     </form>
                   </div>
-                {% endif %}
-              </td>
-
-              <td class="center">
-                {% if r.pending and r.pending > 0 %}
-                  <form method="post" action="/stock/fulfill" style="margin:0">
-                    <input type="hidden" name="product_id" value="{{ r.id }}" />
-                    <button class="btn fulfill" type="submit">+{{ r.pending_s }} {{ r.unit_label }}</button>
-                  </form>
-                {% else %}
-                  <span class="pill">0</span>
-                {% endif %}
-              </td>
-
-              <td class="right">
-                <div class="actions">
-                  {% if is_workshop %}
-                    <div class="grp">
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="WORKSHOP" />
-                        <input type="hidden" name="delta" value="-1" />
-                        <button class="btn minus" type="submit">−</button>
-                      </form>
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="WORKSHOP" />
-                        <input type="hidden" name="delta" value="1" />
-                        <button class="btn plus" type="submit">+</button>
-                      </form>
-                    </div>
-                  {% else %}
-                    <div class="grp">
-                      <span class="tag">C</span>
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="CENTRAL" />
-                        <input type="hidden" name="delta" value="-1" />
-                        <button class="btn minus" type="submit">−</button>
-                      </form>
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="CENTRAL" />
-                        <input type="hidden" name="delta" value="1" />
-                        <button class="btn plus" type="submit">+</button>
-                      </form>
-                    </div>
-
-                    <div class="grp">
-                      <span class="tag">W</span>
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="WORKSHOP" />
-                        <input type="hidden" name="delta" value="-1" />
-                        <button class="btn minus" type="submit">−</button>
-                      </form>
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="WORKSHOP" />
-                        <input type="hidden" name="delta" value="1" />
-                        <button class="btn plus" type="submit">+</button>
-                      </form>
-                    </div>
-                  {% endif %}
-                </div>
-              </td>
-            </tr>
-          {% endfor %}
-
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
         </table>
       </div>
     </div>
   </div>
+
+<script>
+function applyFilters() {
+  const q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+  const loc = document.getElementById('locationFilter').value;
+  const rows = document.querySelectorAll('#stockTable tbody tr.data-row');
+  const sectionRows = document.querySelectorAll('#stockTable tbody tr.section-row');
+
+  // Show/hide data rows
+  rows.forEach(tr => {
+    const name = tr.getAttribute('data-name') || '';
+    let show = !q || name.includes(q);
+
+    if (show && loc !== 'all') {
+      // If filtering by location, keep row visible but hide irrelevant numeric column visually.
+      // (We keep it simple: the CSS already hides workshop in small screens; here we just toggle a class.)
+    }
+
+    tr.style.display = show ? '' : 'none';
+  });
+
+  // Hide section headers if no visible rows under them
+  sectionRows.forEach(sec => {
+    const cat = sec.getAttribute('data-cat');
+    const anyVisible = Array.from(rows).some(r => r.getAttribute('data-cat') === cat && r.style.display !== 'none');
+    sec.style.display = anyVisible ? '' : 'none';
+  });
+
+  // Location filter: toggle a body class for simple column show/hide
+  document.body.classList.remove('show-central-only', 'show-workshop-only');
+  if (loc === 'central') document.body.classList.add('show-central-only');
+  if (loc === 'workshop') document.body.classList.add('show-workshop-only');
+}
+
+// Location-only views (optional): hide opposite column
+(function(){
+  const style = document.createElement('style');
+  style.textContent = `
+    body.show-central-only .col-workshop { display: none; }
+    body.show-workshop-only .col-central, body.show-workshop-only .col-target, body.show-workshop-only .col-pending, body.show-workshop-only .col-actions { display: none; }
+  `;
+  document.head.appendChild(style);
+})();
+</script>
 </body>
 </html>
