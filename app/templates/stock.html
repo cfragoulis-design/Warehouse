@@ -97,38 +97,40 @@
           {% for it in items %}
             <tr>
               <td>
-                <div class="prod">{{ it.name }}</div>
-                <div class="sku">{{ it.sku or '' }}</div>
-              </td>
-              <td class="muted">{{ it.unit_label }}</td>
-              <td>{{ it.central_qty|fmtqty(it.unit) }}</td>
-              <td>{{ it.workshop_qty|fmtqty(it.unit) }}</td>
+  <div class="actions">
 
-              <td>
-                {% if can_edit_target %}
-                  <form method="post" action="/stock/target" class="targetBox">
-                    <input type="hidden" name="product_id" value="{{ it.id }}" />
-                    <input class="targetInput" name="target" value="{{ it.target_central|fmtqty(it.unit) }}" inputmode="decimal" />
-                    <button class="btn btnGhost btnTiny" type="submit">Save</button>
-                  </form>
-                {% else %}
-                  <span class="muted">{{ it.target_central|fmtqty(it.unit) }}</span>
-                {% endif %}
-              </td>
+    {% if can_adjust_central %}
+      <span class="tag">C</span>
+      <form method="post" action="/stock/adjust" class="pm">
+        <input type="hidden" name="product_id" value="{{ it.id }}">
+        <input type="hidden" name="location" value="central">
+        <button class="btnTiny minus" name="qty" value="-1" type="submit">−</button>
+        <button class="btnTiny plus" name="qty" value="1" type="submit">+</button>
+      </form>
+    {% endif %}
 
-              <td>
-                {% if it.pending > 0 %}
-                  <form method="post" action="/stock/fulfill" class="pendingForm">
-                    <input type="hidden" name="product_id" value="{{ it.id }}" />
-                    <button class="btn btnGhost btnTiny" type="submit">
-                      +{{ it.pending|fmtqty(it.unit) }}
-                    </button>
-                  </form>
-                {% else %}
-                  <span class="pill">0</span>
-                {% endif %}
-              </td>
+    {% if can_adjust_workshop %}
+      <span class="tag">W</span>
+      <form method="post" action="/stock/adjust" class="pm">
+        <input type="hidden" name="product_id" value="{{ it.id }}">
+        <input type="hidden" name="location" value="workshop">
+        <button class="btnTiny minus" name="qty" value="-1" type="submit">−</button>
+        <button class="btnTiny plus" name="qty" value="1" type="submit">+</button>
+      </form>
+    {% endif %}
 
+    {% if can_transfer_wc and it.workshop_qty > 0 %}
+      <form method="post" action="/stock/transfer_wc" class="pm">
+        <input type="hidden" name="product_id" value="{{ it.id }}">
+        <input type="hidden" name="qty" value="1">
+        <button class="btnTiny btnWarning" type="submit" title="Μεταφορά 1 από Workshop → Central">
+          W→C
+        </button>
+      </form>
+    {% endif %}
+
+  </div>
+</td>
               <td>
                 <div class="actions">
                   {% if can_adjust_central %}
