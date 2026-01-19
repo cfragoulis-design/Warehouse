@@ -162,13 +162,13 @@
                     </form>
                   {% endif %}
 
-                  {% if can_transfer_wc %}
-                    <form method="post" action="/stock/transfer_wc" style="margin-left:6px">
+                    <form method="post" action="/stock/transfer_wc">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input type="hidden" name="qty" value="1" />
-                      <button class="btn btnBlue btnTiny" type="submit">W→C</button>
-                    </form>
-                  {% endif %}
+                      <button class="transferBtn" title="Μεταφορά 1 από Workshop σε Central">
+                          →
+                    </button>
+                  </form>
 
                   {% if can_transfer_wc %}
                     <form method="post" action="/stock/transfer_wc">
