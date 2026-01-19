@@ -151,6 +151,27 @@
                     </form>
                   {% endif %}
 
+                  {% if can_adjust_workshop %}
+  <span class="tag">W</span>
+  <form method="post" action="/stock/adjust" class="pm">
+    <input type="hidden" name="product_id" value="{{ it.id }}">
+    <input type="hidden" name="location" value="workshop">
+    <button class="btnTiny minus" name="qty" value="-1" type="submit">−</button>
+    <button class="btnTiny plus" name="qty" value="1" type="submit">+</button>
+  </form>
+{% endif %}
+
+{% if can_transfer_wc %}
+  <form method="post" action="/stock/transfer_wc" class="pm">
+    <input type="hidden" name="product_id" value="{{ it.id }}">
+    <input type="hidden" name="qty" value="1">
+    <button class="btnTiny btnWarning" type="submit" title="Μεταφορά 1 από Workshop → Central">
+      W→C
+    </button>
+  </form>
+{% endif %}
+
+
                   {% if can_transfer_wc %}
                     <form method="post" action="/stock/transfer_wc" style="margin-left:6px">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
