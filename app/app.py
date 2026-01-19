@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from __future__ import annotations
 
 import os
@@ -22,17 +23,18 @@ def startup() -> None:
 
     db = SessionLocal()
     try:
-        # ensure target_central column exists (safe migration)
-        db.execute("""
+        # ✅ safe migration: ensure products.target_central exists
+        db.execute(text("""
             ALTER TABLE products
             ADD COLUMN IF NOT EXISTS target_central NUMERIC(12,3) DEFAULT 0
-        """)
+        """))
         db.commit()
 
         seed_admins(db)
         seed_locations()
     finally:
         db.close()
+
 
 
 app.add_middleware(
