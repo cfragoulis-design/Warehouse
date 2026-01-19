@@ -1,7 +1,7 @@
 {#
   Stock page template (Jinja2)
-  Expects: rows = list of items with fields:
-    category, name, unit, central_qty, workshop_qty, target_central
+  Expects: rows = list of dicts with fields:
+    id, category (grouped), name, unit, central_qty, workshop_qty, target_central
 #}
 <!doctype html>
 <html lang="el">
@@ -66,6 +66,12 @@
               {% set pending = (target - central) if (target - central) > 0 else 0 %}
               {% set low = (target > 0) and (central < target) %}
 
+              {# format numbers: drop trailing zeros (e.g. 2.000 -> 2, 3.500 -> 3.5) #}
+              {% set central_s = ('%.3f' % central).rstrip('0').rstrip('.') %}
+              {% set workshop_s = ('%.3f' % workshop).rstrip('0').rstrip('.') %}
+              {% set target_s = ('%.3f' % target).rstrip('0').rstrip('.') %}
+              {% set pending_s = ('%.3f' % pending).rstrip('0').rstrip('.') %}
+
               <tr class="data-row" data-name="{{ r.name|lower|e }}" data-cat="{{ cat|e }}">
                 <td class="muted">{{ cat }}</td>
                 <td>
@@ -75,37 +81,62 @@
                   {% endif %}
                 </td>
                 <td class="col-unit">{{ r.unit }}</td>
-                {# format numbers: drop trailing zeros (e.g. 2.000 -> 2, 3.500 -> 3.5) #}
-                {# Jinja in this project doesn't provide an rstrip filter; use Python string methods #}
-                {% set central_s = ('%.3f' % central).rstrip('0').rstrip('.') %}
-                {% set workshop_s = ('%.3f' % workshop).rstrip('0').rstrip('.') %}
-                {% set target_s = ('%.3f' % target).rstrip('0').rstrip('.') %}
-                {% set pending_s = ('%.3f' % pending).rstrip('0').rstrip('.') %}
 
-                <td class="col-central" data-central="{{ central_s }}">{{ central_s }}</td>
-                <td class="col-workshop" data-workshop="{{ workshop_s }}">{{ workshop_s }}</td>
-                <td class="col-target" data-target="{{ target_s }}">{{ target_s }}</td>
+                <td class="col-central">{{ central_s }}</td>
+                <td class="col-workshop">{{ workshop_s }}</td>
+
+                <td class="col-target">
+                  <form method="post" action="/stock/target" class="target-form">
+                    <input type="hidden" name="product_id" value="{{ r.id }}" />
+                    <input class="input input-sm target-input" name="target" value="{{ target_s }}" inputmode="decimal" />
+                    <button class="btn btn-sm" type="submit">Save</button>
+                  </form>
+                </td>
+
                 <td class="col-pending">
                   {% if pending > 0 %}
-                    <span class="badge badge-pending">+{{ pending_s }} {{ r.unit }}</span>
+                    <form method="post" action="/stock/fulfill" style="display:inline;">
+                      <input type="hidden" name="product_id" value="{{ r.id }}" />
+                      <button class="badge badge-pending" type="submit" title="Fulfill pending (WORKSHOP→CENTRAL)">+{{ pending_s }} {{ r.unit }}</button>
+                    </form>
                   {% else %}
                     <span class="badge badge-zero">0</span>
                   {% endif %}
                 </td>
+
                 <td class="col-actions">
-                  <div class="actions">
-                    <form method="post" action="/stock/adjust" style="display:inline;">
-                      <input type="hidden" name="product" value="{{ r.name|e }}" />
-                      <input type="hidden" name="location" value="CENTRAL" class="loc-input" />
-                      <input type="hidden" name="delta" value="-1" />
-                      <button class="btn btn-sm btn-danger" type="submit" aria-label="-1">−</button>
-                    </form>
-                    <form method="post" action="/stock/adjust" style="display:inline;">
-                      <input type="hidden" name="product" value="{{ r.name|e }}" />
-                      <input type="hidden" name="location" value="CENTRAL" class="loc-input" />
-                      <input type="hidden" name="delta" value="1" />
-                      <button class="btn btn-sm" type="submit" aria-label="+1">+</button>
-                    </form>
+                  <div class="actions" style="gap:10px;">
+                    <div class="actions-group">
+                      <div class="actions-label">C</div>
+                      <form method="post" action="/stock/adjust" style="display:inline;">
+                        <input type="hidden" name="product_id" value="{{ r.id }}" />
+                        <input type="hidden" name="location" value="CENTRAL" />
+                        <input type="hidden" name="delta" value="-1" />
+                        <button class="btn btn-sm btn-danger" type="submit" aria-label="CENTRAL -1">−</button>
+                      </form>
+                      <form method="post" action="/stock/adjust" style="display:inline;">
+                        <input type="hidden" name="product_id" value="{{ r.id }}" />
+                        <input type="hidden" name="location" value="CENTRAL" />
+                        <input type="hidden" name="delta" value="1" />
+                        <button class="btn btn-sm" type="submit" aria-label="CENTRAL +1">+</button>
+                      </form>
+                    </div>
+
+                    <div class="actions-group">
+                      <div class="actions-label">W</div>
+                      <form method="post" action="/stock/adjust" style="display:inline;">
+                        <input type="hidden" name="product_id" value="{{ r.id }}" />
+                        <input type="hidden" name="location" value="WORKSHOP" />
+                        <input type="hidden" name="delta" value="-1" />
+                        <button class="btn btn-sm btn-danger" type="submit" aria-label="WORKSHOP -1">−</button>
+                      </form>
+                      <form method="post" action="/stock/adjust" style="display:inline;">
+                        <input type="hidden" name="product_id" value="{{ r.id }}" />
+                        <input type="hidden" name="location" value="WORKSHOP" />
+                        <input type="hidden" name="delta" value="1" />
+                        <button class="btn btn-sm" type="submit" aria-label="WORKSHOP +1">+</button>
+                      </form>
+                    </div>
                   </div>
                 </td>
               </tr>
@@ -117,68 +148,48 @@
   </div>
 
 <script>
-function getSelectedLocationCode() {
-  const sel = document.getElementById('locationFilter');
-  const v = (sel && sel.value) ? sel.value : 'all';
-  if (v === 'workshop') return 'WORKSHOP';
-  if (v === 'central') return 'CENTRAL';
-  return 'CENTRAL'; // "all" -> default CENTRAL
-}
-
-function syncAdjustLocations() {
-  const code = getSelectedLocationCode();
-  document.querySelectorAll('input.loc-input').forEach(el => {
-    el.value = code;
-  });
-}
-
 function applyFilters() {
   const q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
   const loc = document.getElementById('locationFilter').value;
   const rows = document.querySelectorAll('#stockTable tbody tr.data-row');
   const sectionRows = document.querySelectorAll('#stockTable tbody tr.section-row');
 
-  // Show/hide data rows
   rows.forEach(tr => {
     const name = tr.getAttribute('data-name') || '';
-    let show = !q || name.includes(q);
-
-    if (show && loc !== 'all') {
-      // If filtering by location, keep row visible but hide irrelevant numeric column visually.
-      // (We keep it simple: the CSS already hides workshop in small screens; here we just toggle a class.)
-    }
-
+    const show = (!q || name.includes(q));
     tr.style.display = show ? '' : 'none';
   });
 
-  // Hide section headers if no visible rows under them
   sectionRows.forEach(sec => {
     const cat = sec.getAttribute('data-cat');
     const anyVisible = Array.from(rows).some(r => r.getAttribute('data-cat') === cat && r.style.display !== 'none');
     sec.style.display = anyVisible ? '' : 'none';
   });
 
-  // Location filter: toggle a body class for simple column show/hide
   document.body.classList.remove('show-central-only', 'show-workshop-only');
   if (loc === 'central') document.body.classList.add('show-central-only');
   if (loc === 'workshop') document.body.classList.add('show-workshop-only');
-
-  // Keep +/- buttons working for the selected location
-  syncAdjustLocations();
 }
 
-// Location-only views (optional): hide opposite column
 (function(){
   const style = document.createElement('style');
   style.textContent = `
     body.show-central-only .col-workshop { display: none; }
     body.show-workshop-only .col-central, body.show-workshop-only .col-target, body.show-workshop-only .col-pending { display: none; }
+
+    /* tiny layout helpers without touching app.css */
+    .target-form{ display:flex; gap:8px; align-items:center; justify-content:center; }
+    .input-sm{ height:34px; padding:0 10px; font-size:14px; }
+    .target-input{ width:180px; max-width:240px; }
+    .actions-group{ display:flex; align-items:center; gap:8px; }
+    .actions-label{ width:22px; text-align:center; font-weight:700; opacity:.75; }
+    button.badge{ border:none; cursor:pointer; }
   `;
   document.head.appendChild(style);
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
-  syncAdjustLocations();
+  applyFilters();
 });
 </script>
 </body>
