@@ -16,7 +16,6 @@ from .models import User, Product, StockMovement, Location
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
-
 # --------------------
 # helpers
 # --------------------
@@ -58,6 +57,18 @@ def get_stock_for_product(db: Session, product_id: int, location_id: int) -> Dec
         .where(StockMovement.location_id == location_id)
     ).scalar_one()
     return Decimal(val)
+
+
+def _group_from_category(cat: str | None, name: str | None) -> str:
+    c = f"{(cat or '').strip()} {(name or '').strip()}".lower()
+
+    if "κοτό" in c or "chick" in c or "poul" in c:
+        return "Κοτόπουλα"
+    if "χοι" in c or "pork" in c:
+        return "Χοιρινά"
+    if "μοσ" in c or "beef" in c or "veal" in c:
+        return "Μοσχάρι"
+    return "Διάφορα"
 
 
 # --------------------
@@ -274,31 +285,8 @@ def movement_create(
 
 
 # --------------------
-# STOCK VIEW (Central / Workshop / Total)
+# STOCK VIEW (Central / Workshop)
 # --------------------
-
-# --- PATCH: Stock categories grouping (Κοτόπουλα/Χοιρινά/Μοσχάρι/Διάφορα) ---
-# Replace your existing /stock route with the function below.
-# Also: make sure Product.category is present in the model/table (you already have it).
-#
-# Template change required:
-#   templates/stock.html must use 'grouped' instead of 'rows' (provided as stock_grouped.html).
-
-from decimal import Decimal
-from sqlalchemy import select, func, case
-
-def _group_from_category(cat: str | None, name: str | None) -> str:
-    c = f"{(cat or '').strip()} {(name or '').strip()}".lower()
-
-    if "κοτό" in c or "chick" in c or "poul" in c:
-        return "Κοτόπουλα"
-    if "χοι" in c or "pork" in c:
-        return "Χοιρινά"
-    if "μοσ" in c or "beef" in c or "veal" in c:
-        return "Μοσχάρι"
-    return "Διάφορα"
-
-
 
 @router.get("/stock", response_class=HTMLResponse)
 def stock_view(
@@ -315,14 +303,15 @@ def stock_view(
 
     signed_qty = signed_qty_expr()
 
-    rows = db.execute(
+    # NOTE: requires Product.target_central column (see migration file)
+    rows_raw = db.execute(
         select(
             Product.id,
             Product.name,
-            Product.sku,
             Product.unit,
             Product.category,
             Product.is_active,
+            Product.target_central,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -333,122 +322,188 @@ def stock_view(
             ).label("workshop_qty"),
         )
         .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .group_by(Product.id, Product.name, Product.sku, Product.unit, Product.category, Product.is_active)
+        .group_by(Product.id, Product.name, Product.unit, Product.category, Product.is_active, Product.target_central)
         .order_by(Product.is_active.desc(), Product.name.asc())
     ).all()
 
-    grouped = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
-
-    for r in rows:
+    rows: list[dict] = []
+    for r in rows_raw:
         c = Decimal(r.central_qty)
         w = Decimal(r.workshop_qty)
-        item = {
-            "id": r.id,
-            "name": r.name,
-            "sku": r.sku,
-            "unit": r.unit,
-            "category": r.category,
-            "is_active": r.is_active,
-            "central_qty": c,
-            "workshop_qty": w,
-            "total_qty": c + w,
-        }
-        grouped[_group_from_category(r.category, r.name)].append(item)
+        t = Decimal(r.target_central or 0)
+        cat = _group_from_category(r.category, r.name)
+        rows.append(
+            {
+                "id": r.id,
+                "category": cat,
+                "name": r.name,
+                "unit": r.unit,
+                "central_qty": c,
+                "workshop_qty": w,
+                "target_central": t,
+            }
+        )
+
+    # sort by category group, then product name
+    order = {"Κοτόπουλα": 1, "Χοιρινά": 2, "Μοσχάρι": 3, "Διάφορα": 4}
+    rows.sort(key=lambda x: (order.get(x["category"], 99), (x["name"] or "")))
 
     return templates.TemplateResponse(
         "stock.html",
-        {"request": request, "user": user, "grouped": grouped},
+        {"request": request, "user": user, "rows": rows},
     )
-# --- END PATCH ---
 
 
 # --------------------
-# QUICK ACTIONS (optional helpers for buttons on stock screen)
+# STOCK: set target central
 # --------------------
 
-@router.post("/stock/workshop/in")
-def workshop_in(
+@router.post("/stock/target")
+def set_target_central(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
     product_id: int = Form(...),
-    qty: str = Form(...),
+    target: str = Form(...),
 ):
-    q = parse_qty(qty)
-    if not q:
+    try:
+        t = Decimal((target or "0").replace(",", ".").strip() or "0")
+    except Exception:
+        t = Decimal(0)
+
+    if t < 0:
+        t = Decimal(0)
+
+    p = db.get(Product, product_id)
+    if not p:
         return RedirectResponse("/stock", 303)
 
-    workshop = get_locations(db)["WORKSHOP"]
-
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=workshop.id,
-            qty=q,
-            movement_type="IN",
-            user_id=user.id,
-        )
-    )
+    p.target_central = t
     db.commit()
     return RedirectResponse("/stock", 303)
 
 
-@router.post("/stock/workshop/out")
-def workshop_out(
+# --------------------
+# STOCK: fulfill pending (WORKSHOP -> CENTRAL)
+# --------------------
+
+@router.post("/stock/fulfill")
+def fulfill_pending(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
     product_id: int = Form(...),
-    qty: str = Form(...),
 ):
-    q = parse_qty(qty)
-    if not q:
+    locs = get_locations(db)
+    workshop = locs.get("WORKSHOP")
+    central = locs.get("CENTRAL")
+
+    if not workshop or not central:
         return RedirectResponse("/stock", 303)
 
-    workshop = get_locations(db)["WORKSHOP"]
-    available = get_stock_for_product(db, product_id, workshop.id)
-    if available < q:
+    p = db.get(Product, product_id)
+    if not p:
         return RedirectResponse("/stock", 303)
+
+    target = Decimal(p.target_central or 0)
+    if target <= 0:
+        return RedirectResponse("/stock", 303)
+
+    central_qty = get_stock_for_product(db, product_id, central.id)
+    workshop_qty = get_stock_for_product(db, product_id, workshop.id)
+
+    pending = target - central_qty
+    if pending <= 0:
+        return RedirectResponse("/stock", 303)
+
+    if workshop_qty < pending:
+        # not enough stock in workshop
+        return RedirectResponse("/stock?err=workshop_stock", 303)
+
+    tid = str(uuid4())
+
+    db.add_all(
+        [
+            StockMovement(
+                product_id=product_id,
+                location_id=workshop.id,
+                qty=pending,
+                movement_type="OUT",
+                user_id=user.id,
+                transfer_id=tid,
+                note="AUTO FULFILL PENDING",
+            ),
+            StockMovement(
+                product_id=product_id,
+                location_id=central.id,
+                qty=pending,
+                movement_type="IN",
+                user_id=user.id,
+                transfer_id=tid,
+                note="AUTO FULFILL PENDING",
+            ),
+        ]
+    )
+    db.commit()
+
+    return RedirectResponse("/stock", 303)
+
+
+# --------------------
+# STOCK: quick +/- adjust (Central / Workshop)
+# --------------------
+
+@router.post("/stock/adjust")
+def stock_adjust(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    product_id: int = Form(...),
+    location: str = Form(...),  # CENTRAL / WORKSHOP
+    delta: int = Form(...),
+):
+    loc = (location or "").strip().upper()
+    if loc not in {"CENTRAL", "WORKSHOP"}:
+        return RedirectResponse("/stock", 303)
+
+    locs = get_locations(db)
+    l = locs.get(loc)
+    if not l:
+        return RedirectResponse("/stock", 303)
+
+    # delta: +1 => IN, -1 => OUT
+    if delta not in (-1, 1):
+        return RedirectResponse("/stock", 303)
+
+    p = db.get(Product, product_id)
+    if not p:
+        return RedirectResponse("/stock", 303)
+
+    qty = Decimal(1)
+
+    if delta < 0:
+        available = get_stock_for_product(db, product_id, l.id)
+        if available < qty:
+            return RedirectResponse("/stock?err=stock", 303)
+        mt = "OUT"
+    else:
+        mt = "IN"
 
     db.add(
         StockMovement(
             product_id=product_id,
-            location_id=workshop.id,
-            qty=q,
-            movement_type="OUT",
+            location_id=l.id,
+            qty=qty,
+            movement_type=mt,
             user_id=user.id,
+            note="UI ADJUST",
         )
     )
     db.commit()
+
     return RedirectResponse("/stock", 303)
 
 
-@router.post("/stock/central/out")
-def central_out(
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-    product_id: int = Form(...),
-    qty: str = Form(...),
-):
-    q = parse_qty(qty)
-    if not q:
-        return RedirectResponse("/stock", 303)
-
-    central = get_locations(db)["CENTRAL"]
-    available = get_stock_for_product(db, product_id, central.id)
-    if available < q:
-        return RedirectResponse("/stock", 303)
-
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=central.id,
-            qty=q,
-            movement_type="OUT",
-            user_id=user.id,
-        )
-    )
-    db.commit()
-    return RedirectResponse("/stock", 303)
-
+# --------------------
+# QUICK ACTIONS (existing helpers)
+# --------------------
 
 @router.post("/stock/transfer/workshop-to-central")
 def transfer_workshop_to_central(
@@ -467,7 +522,7 @@ def transfer_workshop_to_central(
 
     available = get_stock_for_product(db, product_id, workshop.id)
     if available < q:
-        return RedirectResponse("/stock", 303)
+        return RedirectResponse("/stock?err=workshop_stock", 303)
 
     tid = str(uuid4())
 
@@ -512,7 +567,7 @@ def transfer_central_to_workshop(
 
     available = get_stock_for_product(db, product_id, central.id)
     if available < q:
-        return RedirectResponse("/stock", 303)
+        return RedirectResponse("/stock?err=stock", 303)
 
     tid = str(uuid4())
 
