@@ -1,12 +1,7 @@
 {#
   Stock page template (Jinja2)
   Expects: rows = list of items with fields:
-    id, category, name, unit, central_qty, workshop_qty, target_central
-
-  Routes used:
-    POST /stock/adjust   (product_id, location=CENTRAL|WORKSHOP, delta=1|-1)
-    POST /stock/target   (product_id, target)
-    POST /stock/fulfill  (product_id)
+    category, name, unit, central_qty, workshop_qty, target_central
 #}
 <!doctype html>
 <html lang="el">
@@ -16,16 +11,11 @@
   <title>Stock</title>
   <link rel="stylesheet" href="/static/app.css" />
 </head>
-<body class="page">
+<body>
   <div class="container">
     <div class="page-title">
       <h1>Stock</h1>
       <div class="subtitle">CENTRAL / WORKSHOP • Target Central • Pending</div>
-      {% if request.query_params.get('err') == 'workshop_stock' %}
-        <div class="alert alert-danger">Δεν υπάρχει αρκετό stock στο WORKSHOP για να καλυφθεί το Pending.</div>
-      {% elif request.query_params.get('err') == 'stock' %}
-        <div class="alert alert-danger">Δεν υπάρχει αρκετό stock για OUT.</div>
-      {% endif %}
     </div>
 
     <div class="toolbar">
@@ -46,7 +36,7 @@
 
     <div class="card">
       <div class="table-wrap">
-        <table id="stockTable" class="table stock-table">
+        <table id="stockTable">
           <thead>
             <tr>
               <th>Category</th>
@@ -79,47 +69,39 @@
               <tr class="data-row" data-name="{{ r.name|lower|e }}" data-cat="{{ cat|e }}">
                 <td class="muted">{{ cat }}</td>
                 <td>
-                  <div class="product-line">
-                    <span class="product-name">{{ r.name }}</span>
-                    {% if low %}<span class="badge badge-low">Low</span>{% endif %}
-                  </div>
+                  <div class="product-name">{{ r.name }}</div>
+                  {% if low %}
+                    <div style="margin-top:8px;"><span class="badge badge-low">Low</span></div>
+                  {% endif %}
                 </td>
                 <td class="col-unit">{{ r.unit }}</td>
-                <td class="col-central" data-central="{{ central }}">{{ central }}</td>
-                <td class="col-workshop" data-workshop="{{ workshop }}">{{ workshop }}</td>
+                {# format numbers: drop trailing zeros (e.g. 2.000 -> 2, 3.500 -> 3.5) #}
+                {% set central_s = ('%f' % central)|rstrip('0')|rstrip('.') %}
+                {% set workshop_s = ('%f' % workshop)|rstrip('0')|rstrip('.') %}
+                {% set target_s = ('%f' % target)|rstrip('0')|rstrip('.') %}
+                {% set pending_s = ('%f' % pending)|rstrip('0')|rstrip('.') %}
 
-                <td class="col-target" data-target="{{ target }}">
-                  <form method="post" action="/stock/target" class="inline target-form">
-                    <input type="hidden" name="product_id" value="{{ r.id }}" />
-                    <input class="input input-xs target-input" name="target" value="{{ target }}" inputmode="decimal" />
-                    <button class="btn btn-xs" type="submit">Save</button>
-                  </form>
-                </td>
-
+                <td class="col-central" data-central="{{ central_s }}">{{ central_s }}</td>
+                <td class="col-workshop" data-workshop="{{ workshop_s }}">{{ workshop_s }}</td>
+                <td class="col-target" data-target="{{ target_s }}">{{ target_s }}</td>
                 <td class="col-pending">
                   {% if pending > 0 %}
-                    <form method="post" action="/stock/fulfill" class="inline">
-                      <input type="hidden" name="product_id" value="{{ r.id }}" />
-                      <button class="badge badge-pending badge-click" type="submit" title="Μεταφορά από WORKSHOP → CENTRAL">
-                        +{{ pending }} {{ r.unit }}
-                      </button>
-                    </form>
+                    <span class="badge badge-pending">+{{ pending_s }} {{ r.unit }}</span>
                   {% else %}
                     <span class="badge badge-zero">0</span>
                   {% endif %}
                 </td>
-
                 <td class="col-actions">
                   <div class="actions">
                     <form method="post" action="/stock/adjust" style="display:inline;">
-                      <input type="hidden" name="product_id" value="{{ r.id }}" />
-                      <input type="hidden" name="location" value="CENTRAL" />
+                      <input type="hidden" name="product" value="{{ r.name|e }}" />
+                      <input type="hidden" name="location" value="CENTRAL" class="loc-input" />
                       <input type="hidden" name="delta" value="-1" />
                       <button class="btn btn-sm btn-danger" type="submit" aria-label="-1">−</button>
                     </form>
                     <form method="post" action="/stock/adjust" style="display:inline;">
-                      <input type="hidden" name="product_id" value="{{ r.id }}" />
-                      <input type="hidden" name="location" value="CENTRAL" />
+                      <input type="hidden" name="product" value="{{ r.name|e }}" />
+                      <input type="hidden" name="location" value="CENTRAL" class="loc-input" />
                       <input type="hidden" name="delta" value="1" />
                       <button class="btn btn-sm" type="submit" aria-label="+1">+</button>
                     </form>
@@ -134,40 +116,69 @@
   </div>
 
 <script>
+function getSelectedLocationCode() {
+  const sel = document.getElementById('locationFilter');
+  const v = (sel && sel.value) ? sel.value : 'all';
+  if (v === 'workshop') return 'WORKSHOP';
+  if (v === 'central') return 'CENTRAL';
+  return 'CENTRAL'; // "all" -> default CENTRAL
+}
+
+function syncAdjustLocations() {
+  const code = getSelectedLocationCode();
+  document.querySelectorAll('input.loc-input').forEach(el => {
+    el.value = code;
+  });
+}
+
 function applyFilters() {
   const q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
   const loc = document.getElementById('locationFilter').value;
   const rows = document.querySelectorAll('#stockTable tbody tr.data-row');
   const sectionRows = document.querySelectorAll('#stockTable tbody tr.section-row');
 
+  // Show/hide data rows
   rows.forEach(tr => {
     const name = tr.getAttribute('data-name') || '';
     let show = !q || name.includes(q);
+
+    if (show && loc !== 'all') {
+      // If filtering by location, keep row visible but hide irrelevant numeric column visually.
+      // (We keep it simple: the CSS already hides workshop in small screens; here we just toggle a class.)
+    }
+
     tr.style.display = show ? '' : 'none';
   });
 
+  // Hide section headers if no visible rows under them
   sectionRows.forEach(sec => {
     const cat = sec.getAttribute('data-cat');
     const anyVisible = Array.from(rows).some(r => r.getAttribute('data-cat') === cat && r.style.display !== 'none');
     sec.style.display = anyVisible ? '' : 'none';
   });
 
+  // Location filter: toggle a body class for simple column show/hide
   document.body.classList.remove('show-central-only', 'show-workshop-only');
   if (loc === 'central') document.body.classList.add('show-central-only');
   if (loc === 'workshop') document.body.classList.add('show-workshop-only');
+
+  // Keep +/- buttons working for the selected location
+  syncAdjustLocations();
 }
 
+// Location-only views (optional): hide opposite column
 (function(){
   const style = document.createElement('style');
   style.textContent = `
     body.show-central-only .col-workshop { display: none; }
-    body.show-workshop-only .col-central,
-    body.show-workshop-only .col-target,
-    body.show-workshop-only .col-pending,
-    body.show-workshop-only .col-actions { display: none; }
+    body.show-workshop-only .col-central, body.show-workshop-only .col-target, body.show-workshop-only .col-pending { display: none; }
   `;
   document.head.appendChild(style);
 })();
+
+document.addEventListener('DOMContentLoaded', () => {
+  syncAdjustLocations();
+});
 </script>
 </body>
 </html>
