@@ -45,6 +45,20 @@
     .pm button{width:34px;height:34px;border-radius:10px;font-weight:900}
     .pm .minus{background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2}
     .pm .plus{background:rgba(255,255,255,.04);border:1px solid rgba(36,48,85,.9);color:#dfe6ff}
+    .transferBtn{
+  width:34px;
+  height:34px;
+  border-radius:10px;
+  font-weight:900;
+  background:rgba(47,124,246,.15);
+  border:1px solid rgba(47,124,246,.45);
+  color:#8ab4ff;
+  cursor:pointer;
+}
+.transferBtn:hover{
+  filter:brightness(1.1);
+}
+
     .actions{display:flex;gap:10px;align-items:center}
     .tag{color:var(--muted);font-size:12px;min-width:14px;text-align:center}
     .targetBox{display:flex;gap:8px;align-items:center}
@@ -167,6 +181,17 @@
                       <button class="btn btnBlue btnTiny" type="submit">W→C</button>
                     </form>
                   {% endif %}
+
+                  {% if can_transfer_wc %}
+                    <form method="post" action="/stock/transfer_wc">
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <input type="hidden" name="qty" value="1" />
+                      <button class="transferBtn" title="Μεταφορά 1 από Workshop σε Central">
+                          →
+                     </button>
+                  </form>
+{% endif %}
+
                 </div>
               </td>
             </tr>
