@@ -76,10 +76,11 @@
                 </td>
                 <td class="col-unit">{{ r.unit }}</td>
                 {# format numbers: drop trailing zeros (e.g. 2.000 -> 2, 3.500 -> 3.5) #}
-                {% set central_s = ('%f' % central)|rstrip('0')|rstrip('.') %}
-                {% set workshop_s = ('%f' % workshop)|rstrip('0')|rstrip('.') %}
-                {% set target_s = ('%f' % target)|rstrip('0')|rstrip('.') %}
-                {% set pending_s = ('%f' % pending)|rstrip('0')|rstrip('.') %}
+                {# Jinja in this project doesn't provide an rstrip filter; use Python string methods #}
+                {% set central_s = ('%.3f' % central).rstrip('0').rstrip('.') %}
+                {% set workshop_s = ('%.3f' % workshop).rstrip('0').rstrip('.') %}
+                {% set target_s = ('%.3f' % target).rstrip('0').rstrip('.') %}
+                {% set pending_s = ('%.3f' % pending).rstrip('0').rstrip('.') %}
 
                 <td class="col-central" data-central="{{ central_s }}">{{ central_s }}</td>
                 <td class="col-workshop" data-workshop="{{ workshop_s }}">{{ workshop_s }}</td>
