@@ -9,14 +9,28 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session
 
-from .auth import require_user
-from .db import get_db
-from .models import User, Product, StockMovement, Location
+# Robust imports: work both as package (app.*) and flat modules
+try:
+    from app.auth import require_user
+    from app.db import get_db
+    from app.models import User, Product, StockMovement, Location
+except Exception:
+    from auth import require_user
+    from db import get_db
+    from models import User, Product, StockMovement, Location
 
 router = APIRouter()
+
+
+# --------------------
+# templates + filters
+# --------------------
+# Keep your existing folder layout:
+# - if services.py in app/: templates in app/templates
+# - if services.py in root: templates in app/templates
 templates = Jinja2Templates(directory="app/templates")
 
-# Quantity formatting for templates (remove trailing .0000 etc.)
+
 def fmtqty(val, unit: str | None = None) -> str:
     if val is None:
         return "0"
@@ -26,27 +40,32 @@ def fmtqty(val, unit: str | None = None) -> str:
     except Exception:
         return str(val)
 
-    # For discrete units show integers
     if u in {"pcs", "box", "piece", "pieces"}:
         return str(int(round(v)))
 
-    # Otherwise show up to 3 decimals, trim zeros
     s = f"{v:.3f}".rstrip("0").rstrip(".")
     return s if s else "0"
+
 
 templates.env.filters["fmtqty"] = fmtqty
 
 
 # --------------------
-# helpers
+# auth helpers
 # --------------------
-
 def require_admin(user: User = Depends(require_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     return user
 
 
+# compatibility alias (you used require_login later)
+require_login = require_user
+
+
+# --------------------
+# data helpers
+# --------------------
 def get_locations(db: Session) -> dict[str, Location]:
     locs = db.execute(select(Location)).scalars().all()
     return {l.code: l for l in locs}
@@ -80,10 +99,14 @@ def get_stock_for_product(db: Session, product_id: int, location_id: int) -> Dec
     return Decimal(val)
 
 
+# compatibility alias (you used get_stock_qty later)
+def get_stock_qty(db: Session, product_id: int, location_id: int) -> Decimal:
+    return get_stock_for_product(db, product_id, location_id)
+
+
 # --------------------
 # ROOT / DASHBOARD
 # --------------------
-
 @router.get("/", include_in_schema=False)
 def root() -> RedirectResponse:
     return RedirectResponse(url="/dashboard", status_code=303)
@@ -97,7 +120,6 @@ def dashboard(request: Request, user: User = Depends(require_user)):
 # --------------------
 # PRODUCTS (admin)
 # --------------------
-
 @router.get("/products", response_class=HTMLResponse)
 def products_list(
     request: Request,
@@ -200,7 +222,6 @@ def product_toggle(
 # --------------------
 # MOVEMENTS (all users)
 # --------------------
-
 @router.get("/movements", response_class=HTMLResponse)
 def movements_list(
     request: Request,
@@ -273,7 +294,6 @@ def movement_create(
     if not loc:
         return RedirectResponse(url="/movements/new?err=location", status_code=303)
 
-    # if OUT / ADJ- check availability
     if mt in {"OUT", "ADJ-"}:
         available = get_stock_for_product(db, p.id, loc.id)
         if available < q:
@@ -294,22 +314,10 @@ def movement_create(
 
 
 # --------------------
-# STOCK VIEW (Central / Workshop / Total)
+# STOCK VIEW
 # --------------------
-
-# --- PATCH: Stock categories grouping (Κοτόπουλα/Χοιρινά/Μοσχάρι/Διάφορα) ---
-# Replace your existing /stock route with the function below.
-# Also: make sure Product.category is present in the model/table (you already have it).
-#
-# Template change required:
-#   templates/stock.html must use 'grouped' instead of 'rows' (provided as stock_grouped.html).
-
-from decimal import Decimal
-from sqlalchemy import select, func, case
-
 def _group_from_category(cat: str | None, name: str | None) -> str:
     c = f"{(cat or '').strip()} {(name or '').strip()}".lower()
-
     if "κοτό" in c or "chick" in c or "poul" in c:
         return "Κοτόπουλα"
     if "χοι" in c or "pork" in c:
@@ -317,7 +325,6 @@ def _group_from_category(cat: str | None, name: str | None) -> str:
     if "μοσ" in c or "beef" in c or "veal" in c:
         return "Μοσχάρι"
     return "Διάφορα"
-
 
 
 @router.get("/stock", response_class=HTMLResponse)
@@ -329,9 +336,8 @@ def stock_view(
     locs = get_locations(db)
     central = locs.get("CENTRAL")
     workshop = locs.get("WORKSHOP")
-
     if not central or not workshop:
-        raise RuntimeError("Locations CENTRAL/WORKSHOP not found – run seed.py and ensure tables exist")
+        raise RuntimeError("Locations CENTRAL/WORKSHOP not found – run seed and ensure tables exist")
 
     signed_qty = signed_qty_expr()
 
@@ -354,11 +360,19 @@ def stock_view(
             ).label("workshop_qty"),
         )
         .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .group_by(Product.id, Product.name, Product.sku, Product.unit, Product.category, Product.is_active, Product.target_central)
+        .group_by(
+            Product.id,
+            Product.name,
+            Product.sku,
+            Product.unit,
+            Product.category,
+            Product.is_active,
+            Product.target_central,
+        )
         .order_by(Product.is_active.desc(), Product.name.asc())
     ).all()
 
-    grouped = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
+    grouped: dict[str, list[dict]] = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
 
     for r in rows:
         c = Decimal(r.central_qty)
@@ -367,12 +381,16 @@ def stock_view(
         pending = t - c
         if pending < 0:
             pending = Decimal(0)
+
+        unit = (r.unit or "").lower()
+        unit_label = "Τεμ" if unit == "pcs" else ("Κιβ" if unit == "box" else ("Kg" if unit == "kg" else r.unit))
+
         item = {
             "id": r.id,
             "name": r.name,
             "sku": r.sku,
             "unit": r.unit,
-            "unit_label": ("Τεμ" if r.unit == "pcs" else ("Κιβ" if r.unit == "box" else ("Kg" if r.unit == "kg" else r.unit))),
+            "unit_label": unit_label,
             "category": r.category,
             "is_active": r.is_active,
             "central_qty": c,
@@ -383,28 +401,22 @@ def stock_view(
         }
         grouped[_group_from_category(r.category, r.name)].append(item)
 
-    can_edit_target = (user.role == "admin")
-    can_adjust_central = (user.role == "admin")
-    can_adjust_workshop = (user.role in ("admin", "workshop"))
-
     return templates.TemplateResponse(
         "stock.html",
         {
             "request": request,
             "user": user,
             "grouped": grouped,
-            "can_edit_target": can_edit_target,
-            "can_adjust_central": can_adjust_central,
-            "can_adjust_workshop": can_adjust_workshop,
+            "can_edit_target": (user.role == "admin"),
+            "can_adjust_central": (user.role == "admin"),
+            "can_adjust_workshop": (user.role in ("admin", "workshop")),
         },
     )
-# --- END PATCH ---
 
 
 # --------------------
-# QUICK ACTIONS (optional helpers for buttons on stock screen)
+# QUICK ACTIONS
 # --------------------
-
 @router.post("/stock/workshop/in")
 def workshop_in(
     user: User = Depends(require_user),
@@ -416,7 +428,10 @@ def workshop_in(
     if not q:
         return RedirectResponse("/stock", 303)
 
-    workshop = get_locations(db)["WORKSHOP"]
+    locs = get_locations(db)
+    workshop = locs.get("WORKSHOP")
+    if not workshop:
+        raise HTTPException(500, "WORKSHOP missing")
 
     db.add(
         StockMovement(
@@ -442,7 +457,11 @@ def workshop_out(
     if not q:
         return RedirectResponse("/stock", 303)
 
-    workshop = get_locations(db)["WORKSHOP"]
+    locs = get_locations(db)
+    workshop = locs.get("WORKSHOP")
+    if not workshop:
+        raise HTTPException(500, "WORKSHOP missing")
+
     available = get_stock_for_product(db, product_id, workshop.id)
     if available < q:
         return RedirectResponse("/stock", 303)
@@ -471,7 +490,11 @@ def central_out(
     if not q:
         return RedirectResponse("/stock", 303)
 
-    central = get_locations(db)["CENTRAL"]
+    locs = get_locations(db)
+    central = locs.get("CENTRAL")
+    if not central:
+        raise HTTPException(500, "CENTRAL missing")
+
     available = get_stock_for_product(db, product_id, central.id)
     if available < q:
         return RedirectResponse("/stock", 303)
@@ -501,15 +524,16 @@ def transfer_workshop_to_central(
         return RedirectResponse("/stock", 303)
 
     locs = get_locations(db)
-    workshop = locs["WORKSHOP"]
-    central = locs["CENTRAL"]
+    workshop = locs.get("WORKSHOP")
+    central = locs.get("CENTRAL")
+    if not workshop or not central:
+        raise HTTPException(500, "Locations missing")
 
     available = get_stock_for_product(db, product_id, workshop.id)
     if available < q:
         return RedirectResponse("/stock", 303)
 
     tid = str(uuid4())
-
     db.add_all(
         [
             StockMovement(
@@ -546,15 +570,16 @@ def transfer_central_to_workshop(
         return RedirectResponse("/stock", 303)
 
     locs = get_locations(db)
-    workshop = locs["WORKSHOP"]
-    central = locs["CENTRAL"]
+    workshop = locs.get("WORKSHOP")
+    central = locs.get("CENTRAL")
+    if not workshop or not central:
+        raise HTTPException(500, "Locations missing")
 
     available = get_stock_for_product(db, product_id, central.id)
     if available < q:
         return RedirectResponse("/stock", 303)
 
     tid = str(uuid4())
-
     db.add_all(
         [
             StockMovement(
@@ -580,12 +605,10 @@ def transfer_central_to_workshop(
 
 
 # ------------------------
-# Stock UI helper endpoints (used by the new stock.html UI)
+# Stock UI helper endpoints
 # ------------------------
-
 @router.post("/stock/target")
 async def stock_set_target(
-    request: Request,
     product_id: int = Form(...),
     target: str = Form(...),
     db: Session = Depends(get_db),
@@ -599,9 +622,11 @@ async def stock_set_target(
         raise HTTPException(status_code=422, detail="Invalid target")
     if target_dec < 0:
         raise HTTPException(status_code=422, detail="Invalid target")
+
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
+
     p.target_central = target_dec
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
@@ -609,17 +634,12 @@ async def stock_set_target(
 
 @router.post("/stock/adjust")
 async def stock_adjust(
-    request: Request,
     product_id: int = Form(...),
     location: str = Form(...),
     qty: str = Form(...),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
-    """Signed qty adjust for CENTRAL/WORKSHOP (used by +/- buttons).
-
-    qty can be: "1", "-1", "2.5" etc.
-    """
     loc = (location or "").strip().upper()
     if loc in ("CENTRAL", "C", "CENTR", "CENT"):
         loc = "CENTRAL"
@@ -629,7 +649,6 @@ async def stock_adjust(
     if loc not in ("CENTRAL", "WORKSHOP"):
         raise HTTPException(status_code=422, detail="Invalid location")
 
-    # permissions
     if loc == "CENTRAL" and user.role != "admin":
         raise HTTPException(status_code=403, detail="Forbidden")
     if loc == "WORKSHOP" and user.role not in ("admin", "workshop"):
@@ -659,22 +678,16 @@ async def stock_adjust(
     )
     db.add(mv)
     db.commit()
-
     return RedirectResponse(url="/stock", status_code=303)
 
 
 @router.post("/stock/transfer_wc")
 async def stock_transfer_workshop_to_central_ui(
-    request: Request,
     product_id: int = Form(...),
     qty: str = Form("1"),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
-    """Transfer from WORKSHOP -> CENTRAL (used by the ↦C button).
-
-    Allowed for admin and workshop users.
-    """
     if user.role not in ("admin", "workshop"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -690,48 +703,44 @@ async def stock_transfer_workshop_to_central_ui(
     if not central or not workshop:
         raise HTTPException(status_code=500, detail="Locations missing")
 
-    # Ensure workshop has enough
     ws_qty = get_stock_qty(db, product_id, workshop.id)
     if ws_qty < q:
         raise HTTPException(status_code=422, detail="Not enough workshop stock")
 
-    import uuid
-    tid = str(uuid.uuid4())
+    tid = str(uuid4())
 
-    db.add(StockMovement(
-        product_id=product_id,
-        location_id=workshop.id,
-        movement_type="OUT",
-        qty=q,
-        user_id=user.id,
-        note="Transfer to central",
-        transfer_id=tid,
-    ))
-    db.add(StockMovement(
-        product_id=product_id,
-        location_id=central.id,
-        movement_type="IN",
-        qty=q,
-        user_id=user.id,
-        note="Transfer from workshop",
-        transfer_id=tid,
-    ))
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=workshop.id,
+            movement_type="OUT",
+            qty=q,
+            user_id=user.id,
+            note="Transfer to central",
+            transfer_id=tid,
+        )
+    )
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=central.id,
+            movement_type="IN",
+            qty=q,
+            user_id=user.id,
+            note="Transfer from workshop",
+            transfer_id=tid,
+        )
+    )
     db.commit()
-
     return RedirectResponse(url="/stock", status_code=303)
 
 
 @router.post("/stock/fulfill")
 async def stock_fulfill_pending(
-    request: Request,
     product_id: int = Form(...),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
-    """If pending > 0, move pending qty from WORKSHOP -> CENTRAL.
-
-    After successful fulfill, target_central is reset to 0.
-    """
     if user.role not in ("admin", "workshop"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -755,31 +764,32 @@ async def stock_fulfill_pending(
     if ws_qty < pending:
         raise HTTPException(status_code=422, detail="Not enough workshop stock to fulfill")
 
-    import uuid
-    tid = str(uuid.uuid4())
+    tid = str(uuid4())
 
-    db.add(StockMovement(
-        product_id=product_id,
-        location_id=workshop.id,
-        movement_type="OUT",
-        qty=pending,
-        user_id=user.id,
-        note="Fulfill pending to central",
-        transfer_id=tid,
-    ))
-    db.add(StockMovement(
-        product_id=product_id,
-        location_id=central.id,
-        movement_type="IN",
-        qty=pending,
-        user_id=user.id,
-        note="Fulfill from workshop",
-        transfer_id=tid,
-    ))
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=workshop.id,
+            movement_type="OUT",
+            qty=pending,
+            user_id=user.id,
+            note="Fulfill pending to central",
+            transfer_id=tid,
+        )
+    )
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=central.id,
+            movement_type="IN",
+            qty=pending,
+            user_id=user.id,
+            note="Fulfill from workshop",
+            transfer_id=tid,
+        )
+    )
 
     # reset target after fulfillment (per your rule)
     p.target_central = Decimal("0")
-
     db.commit()
-
     return RedirectResponse(url="/stock", status_code=303)
