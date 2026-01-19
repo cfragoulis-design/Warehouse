@@ -22,9 +22,36 @@ templates = Jinja2Templates(directory="app/templates")
 # --------------------
 
 def require_admin(user: User = Depends(require_user)) -> User:
-    if getattr(user, "role", "user") != "admin":
+    role = (getattr(user, "role", "") or "").lower()
+    if role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     return user
+
+
+def is_workshop_user(user: User) -> bool:
+    return (getattr(user, "role", "") or "").lower() == "workshop"
+
+
+def fmt_qty(v) -> str:
+    """Format numeric quantities without trailing .000."""
+    if v is None:
+        return "0"
+    # Works for Decimal, int, float
+    try:
+        from decimal import Decimal
+
+        if isinstance(v, Decimal):
+            v = v.normalize()
+            # avoid scientific notation
+            s = format(v, "f")
+        else:
+            s = str(v)
+    except Exception:
+        s = str(v)
+
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s or "0"
 
 
 def parse_decimal(val: str) -> Decimal | None:
@@ -322,6 +349,9 @@ def stock_view(
         c = Decimal(r.central_qty)
         w = Decimal(r.workshop_qty)
         tgt = Decimal(getattr(r, "target_central", 0) or 0)
+        pending = tgt - c
+        if pending < 0:
+            pending = Decimal(0)
 
         out.append(
             {
@@ -336,6 +366,11 @@ def stock_view(
                 "central_qty": c,
                 "workshop_qty": w,
                 "target_central": tgt,
+                "pending": pending,
+                "central_s": fmt_qty(c),
+                "workshop_s": fmt_qty(w),
+                "target_s": fmt_qty(tgt),
+                "pending_s": fmt_qty(pending),
             }
         )
 
@@ -344,7 +379,12 @@ def stock_view(
 
     return templates.TemplateResponse(
         "stock.html",
-        {"request": request, "user": user, "rows": out},
+        {
+            "request": request,
+            "user": user,
+            "rows": out,
+            "is_workshop": is_workshop_user(user),
+        },
     )
 
 
@@ -358,6 +398,10 @@ def stock_adjust(
 ):
     loc_code = (location or "").strip().upper()
     if loc_code not in {"CENTRAL", "WORKSHOP"}:
+        return RedirectResponse("/stock", 303)
+
+    # WORKSHOP user is only allowed to adjust WORKSHOP quantities.
+    if is_workshop_user(user) and loc_code != "WORKSHOP":
         return RedirectResponse("/stock", 303)
 
     d = parse_decimal(delta)
@@ -401,6 +445,10 @@ def stock_set_target(
     product_id: int = Form(...),
     target: str = Form(...),
 ):
+    # WORKSHOP user cannot change Central targets.
+    if is_workshop_user(user):
+        return RedirectResponse("/stock", 303)
+
     if not hasattr(Product, "target_central"):
         return RedirectResponse("/stock", 303)
 
