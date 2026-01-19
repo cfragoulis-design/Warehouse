@@ -1,191 +1,170 @@
 <!doctype html>
-<html lang="el">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stock</title>
   <style>
-    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b0f18;color:#e7e9ee;margin:0;}
-    .wrap{max-width:1220px;margin:0 auto;padding:22px 18px;}
-    .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
-    .brand{font-size:28px;font-weight:900;letter-spacing:0.2px;}
-    .sub{color:#a7b0c7;font-size:13px;margin-top:2px;}
-    .nav a{color:#8ab4ff;text-decoration:none;margin-left:12px;}
-    .card{background:#101622;border:1px solid #1f2a45;border-radius:18px;overflow:hidden;}
-    .toolbar{display:flex;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid #1f2a45;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0));}
-    .toolbar input,.toolbar select{background:#0b0f18;border:1px solid #1f2a45;color:#e7e9ee;border-radius:12px;padding:9px 12px;}
-    .toolbar input{width:240px;}
-    table{width:100%;border-collapse:collapse;}
-    th,td{border-bottom:1px solid #1f2a45;padding:10px 12px;text-align:left;vertical-align:middle;}
-    th{font-size:12px;color:#c9d1ea;letter-spacing:0.06em;text-transform:uppercase;}
-    tr.group td{background:rgba(255,255,255,0.02);font-weight:800;color:#e7e9ee;}
-    .muted{color:#a7b0c7;}
-    .unit{display:inline-block;min-width:42px;}
-    .pill{display:inline-block;padding:2px 8px;border:1px solid #2a3659;border-radius:999px;font-size:12px;color:#c9d1ea;}
-    .pill.low{border-color:#7a2d2d;color:#ffb4b4;background:rgba(122,45,45,0.15);}
-    .pill.pending{border-color:#7a5a12;color:#ffd889;background:rgba(122,90,18,0.14);}
-    .actions{display:flex;gap:10px;align-items:center;justify-content:flex-end;}
-    .grp{display:flex;gap:6px;align-items:center;}
-    .tag{font-size:11px;color:#a7b0c7;margin-right:4px;}
-    .btn{border:1px solid #2a3659;background:#0b0f18;color:#e7e9ee;border-radius:12px;padding:8px 10px;font-weight:800;cursor:pointer;}
-    .btn.minus{border-color:#7a2d2d;background:rgba(122,45,45,0.10);}
-    .btn.plus{border-color:#2a3659;background:rgba(255,255,255,0.02);}
-    .btn.save{border-color:#2a3659;padding:7px 10px;font-weight:800;}
-    .btn.fulfill{border-color:#7a5a12;background:rgba(122,90,18,0.14);color:#ffd889;}
-    .target-box{display:flex;gap:8px;align-items:center;justify-content:center;}
-    .target-box input{width:92px;background:#0b0f18;border:1px solid #2a3659;color:#e7e9ee;border-radius:12px;padding:8px 10px;text-align:center;}
-    .center{text-align:center;}
-    .right{text-align:right;}
+    :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--warn:#caa24a;--danger:#ff6b6b;}
+    *{box-sizing:border-box}
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;}
+    a{color:#8ab4ff;text-decoration:none}
+    .top{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;background:linear-gradient(180deg,#0b1020 0%, #0b1020 20%, rgba(11,16,32,0) 100%);} 
+    .brand{font-weight:900;font-size:26px;letter-spacing:.2px}
+    .sub{color:var(--muted);font-size:12px;margin-top:2px}
+    .nav{display:flex;gap:16px;align-items:center}
+    .wrap{max-width:1080px;margin:0 auto;padding:0 16px 24px}
+    .card{background:rgba(17,25,54,.75);border:1px solid rgba(36,48,85,.75);border-radius:16px;box-shadow:0 12px 45px rgba(0,0,0,.35);overflow:hidden}
+    .cardHead{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:14px 14px;border-bottom:1px solid rgba(36,48,85,.75);background:rgba(15,22,45,.55)}
+    .filters{display:flex;gap:10px;align-items:center}
+    select,input{background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:10px 12px;border-radius:12px;outline:none}
+    select{min-width:160px}
+    input[type=text]{min-width:260px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px 10px;border-bottom:1px solid rgba(36,48,85,.65);text-align:left;vertical-align:middle}
+    th{font-size:12px;color:#c9d1ea;letter-spacing:.6px;text-transform:uppercase}
+    .catrow td{padding:12px 10px;font-weight:900;color:#dfe6ff;background:rgba(15,22,45,.45)}
+    .prod{font-weight:800}
+    .sku{color:var(--muted);font-size:12px;margin-top:2px}
+    .muted{color:var(--muted)}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55)}
+    .pill.warn{border-color:rgba(202,162,74,.75);color:#f1d694}
+    .pill.danger{border-color:rgba(255,107,107,.6);color:#ffb2b2}
+    .btn{border:0;border-radius:10px;padding:8px 10px;font-weight:800;cursor:pointer}
+    .btnBlue{background:var(--blue);color:#fff}
+    .btnGhost{background:rgba(11,16,32,.45);border:1px solid rgba(36,48,85,.9);color:var(--text)}
+    .btnTiny{padding:6px 8px;border-radius:10px;font-size:12px}
+    .pm{display:inline-flex;gap:6px;align-items:center}
+    .pm button{width:34px;height:34px;border-radius:10px;font-weight:900}
+    .pm .minus{background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2}
+    .pm .plus{background:rgba(255,255,255,.04);border:1px solid rgba(36,48,85,.9);color:#dfe6ff}
+    .actions{display:flex;gap:10px;align-items:center}
+    .tag{color:var(--muted);font-size:12px;min-width:14px;text-align:center}
+    .targetBox{display:flex;gap:8px;align-items:center}
+    .targetInput{width:72px;min-width:72px;text-align:center;padding:8px 10px;border-radius:12px}
+    .pendingForm{display:inline}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="top">
-      <div>
-        <div class="brand">Stock</div>
-        <div class="sub">CENTRAL / WORKSHOP • Target Central • Pending</div>
-      </div>
-      <div class="nav">
-        <a href="/dashboard">Dashboard</a>
-        <a href="/products">Products</a>
-        <a href="/movements">Movements</a>
-      </div>
+  <div class="top wrap" style="padding-bottom:10px">
+    <div>
+      <div class="brand">Stock</div>
+      <div class="sub">CENTRAL / WORKSHOP • Target Central • Pending</div>
     </div>
+    <div class="nav">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/products">Products</a>
+      <a href="/movements">Movements</a>
+    </div>
+  </div>
 
+  <div class="wrap">
     <div class="card">
-      <div class="toolbar">
-        <form method="get" action="/stock" style="display:flex;gap:12px;align-items:center;width:100%">
-          <select name="group">
-            <option value="">Τοποθεσία: Όλες</option>
-            <option value="CENTRAL">Central</option>
-            <option value="WORKSHOP">Workshop</option>
-          </select>
-          <input name="q" placeholder="Search προϊόντος..." />
-        </form>
-        <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
+      <div class="cardHead">
+        <div class="filters">
+          <form method="get" action="/stock" style="display:flex;gap:10px;align-items:center">
+            <select name="loc" onchange="this.form.submit()">
+              <option value="all" {% if loc=='all' %}selected{% endif %}>Τοποθεσία: Όλες</option>
+              <option value="central" {% if loc=='central' %}selected{% endif %}>Central</option>
+              <option value="workshop" {% if loc=='workshop' %}selected{% endif %}>Workshop</option>
+            </select>
+            <input type="text" name="q" placeholder="Search προϊόντος..." value="{{ q or '' }}" />
+            <button class="btn btnGhost btnTiny" type="submit">Search</button>
+          </form>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
           <span class="pill">0 = OK</span>
-          <span class="pill pending">Pending</span>
-          <span class="pill low">Low</span>
+          <span class="pill warn">Pending</span>
+          <span class="pill danger">Low</span>
         </div>
       </div>
 
-      <div style="max-height:72vh;overflow:auto">
-        <table>
+      <table>
+        <thead>
           <tr>
-            <th>Category</th>
-            <th>Product</th>
-            <th>Unit</th>
-            <th class="center">Central</th>
-            <th class="center">Workshop</th>
-            <th class="center">Target (Central)</th>
-            <th class="center">Pending</th>
-            <th class="right">Actions</th>
+            <th style="width:34%">Product</th>
+            <th style="width:10%">Unit</th>
+            <th style="width:10%">Central</th>
+            <th style="width:10%">Workshop</th>
+            <th style="width:16%">Target (Central)</th>
+            <th style="width:10%">Pending</th>
+            <th style="width:20%">Actions</th>
           </tr>
-
-          {% set last_group = none %}
-          {% for r in rows %}
-            {% if last_group != r.category %}
-              <tr class="group">
-                <td colspan="8">{{ r.category }}</td>
-              </tr>
-              {% set last_group = r.category %}
-            {% endif %}
-
+        </thead>
+        <tbody>
+        {% for cat, items in grouped.items() %}
+          <tr class="catrow"><td colspan="7">{{ cat }}</td></tr>
+          {% for it in items %}
             <tr>
-              <td class="muted">{{ r.raw_category }}</td>
               <td>
-                <div style="font-weight:900">{{ r.name }}</div>
-                {% if r.sku %}<div class="muted" style="font-size:12px">{{ r.sku }}</div>{% endif %}
-                {% if r.pending and r.pending > 0 and r.central_qty <= 0 %}
-                  <div style="margin-top:6px"><span class="pill low">Low</span></div>
-                {% endif %}
+                <div class="prod">{{ it.name }}</div>
+                <div class="sku">{{ it.sku or '' }}</div>
               </td>
-              <td><span class="unit">{{ r.unit_label }}</span></td>
-              <td class="center">{{ r.central_s }}</td>
-              <td class="center">{{ r.workshop_s }}</td>
+              <td class="muted">{{ it.unit_label }}</td>
+              <td>{{ it.central_qty|fmtqty(it.unit) }}</td>
+              <td>{{ it.workshop_qty|fmtqty(it.unit) }}</td>
 
-              <td class="center">
-                {% if is_workshop %}
-                  {{ r.target_s }}
+              <td>
+                {% if can_edit_target %}
+                  <form method="post" action="/stock/target" class="targetBox">
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
+                    <input class="targetInput" name="target" value="{{ it.target_central|fmtqty(it.unit) }}" inputmode="decimal" />
+                    <button class="btn btnGhost btnTiny" type="submit">Save</button>
+                  </form>
                 {% else %}
-                  <div class="target-box">
-                    <form method="post" action="/stock/target" style="display:flex;gap:8px;align-items:center;margin:0">
-                      <input type="hidden" name="product_id" value="{{ r.id }}" />
-                      <input name="target" value="{{ r.target_s }}" inputmode="decimal" />
-                      <button class="btn save" type="submit">Save</button>
-                    </form>
-                  </div>
+                  <span class="muted">{{ it.target_central|fmtqty(it.unit) }}</span>
                 {% endif %}
               </td>
 
-              <td class="center">
-                {% if r.pending and r.pending > 0 %}
-                  <form method="post" action="/stock/fulfill" style="margin:0">
-                    <input type="hidden" name="product_id" value="{{ r.id }}" />
-                    <button class="btn fulfill" type="submit">+{{ r.pending_s }} {{ r.unit_label }}</button>
+              <td>
+                {% if it.pending > 0 %}
+                  <form method="post" action="/stock/fulfill" class="pendingForm">
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
+                    <button class="btn btnGhost btnTiny" type="submit">
+                      +{{ it.pending|fmtqty(it.unit) }}
+                    </button>
                   </form>
                 {% else %}
                   <span class="pill">0</span>
                 {% endif %}
               </td>
 
-              <td class="right">
+              <td>
                 <div class="actions">
-                  {% if is_workshop %}
-                    <div class="grp">
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="WORKSHOP" />
-                        <input type="hidden" name="delta" value="-1" />
-                        <button class="btn minus" type="submit">−</button>
-                      </form>
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="WORKSHOP" />
-                        <input type="hidden" name="delta" value="1" />
-                        <button class="btn plus" type="submit">+</button>
-                      </form>
-                    </div>
-                  {% else %}
-                    <div class="grp">
-                      <span class="tag">C</span>
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="CENTRAL" />
-                        <input type="hidden" name="delta" value="-1" />
-                        <button class="btn minus" type="submit">−</button>
-                      </form>
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="CENTRAL" />
-                        <input type="hidden" name="delta" value="1" />
-                        <button class="btn plus" type="submit">+</button>
-                      </form>
-                    </div>
+                  {% if can_adjust_central %}
+                    <span class="tag">C</span>
+                    <form method="post" action="/stock/adjust" class="pm">
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <input type="hidden" name="location" value="central" />
+                      <button class="btnTiny minus" name="qty" value="-1" type="submit">−</button>
+                      <button class="btnTiny plus" name="qty" value="1" type="submit">+</button>
+                    </form>
+                  {% endif %}
 
-                    <div class="grp">
-                      <span class="tag">W</span>
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="WORKSHOP" />
-                        <input type="hidden" name="delta" value="-1" />
-                        <button class="btn minus" type="submit">−</button>
-                      </form>
-                      <form method="post" action="/stock/adjust" style="margin:0">
-                        <input type="hidden" name="product_id" value="{{ r.id }}" />
-                        <input type="hidden" name="location" value="WORKSHOP" />
-                        <input type="hidden" name="delta" value="1" />
-                        <button class="btn plus" type="submit">+</button>
-                      </form>
-                    </div>
+                  {% if can_adjust_workshop %}
+                    <span class="tag">W</span>
+                    <form method="post" action="/stock/adjust" class="pm">
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <input type="hidden" name="location" value="workshop" />
+                      <button class="btnTiny minus" name="qty" value="-1" type="submit">−</button>
+                      <button class="btnTiny plus" name="qty" value="1" type="submit">+</button>
+                    </form>
+                  {% endif %}
+
+                  {% if can_transfer_wc %}
+                    <form method="post" action="/stock/transfer_wc" style="margin-left:6px">
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <input type="hidden" name="qty" value="1" />
+                      <button class="btn btnBlue btnTiny" type="submit">W→C</button>
+                    </form>
                   {% endif %}
                 </div>
               </td>
             </tr>
           {% endfor %}
-
-        </table>
-      </div>
+        {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 </body>
