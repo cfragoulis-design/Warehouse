@@ -114,7 +114,19 @@ def root() -> RedirectResponse:
 
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, user: User = Depends(require_user)):
-    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+    return templates.TemplateResponse(
+    "stock.html",
+    {
+        "request": request,
+        "user": user,
+        "grouped": grouped,
+        "can_edit_target": (user.role == "admin"),
+        "can_adjust_central": (user.role == "admin"),
+        "can_adjust_workshop": (user.role in ("admin", "workshop")),
+        "can_transfer_wc": (user.role in ("admin", "workshop")),  # ✅ ΑΥΤΟ ΕΛΕΙΠΕ
+    },
+)
+
 
 
 # --------------------
