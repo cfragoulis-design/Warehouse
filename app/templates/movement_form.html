@@ -12,6 +12,7 @@
     label{display:block;margin:10px 0 6px}
     input,select{width:100%;padding:10px;border-radius:10px;border:1px solid #243055;background:#0b1020;color:#e7e9ee}
     .row{display:grid;grid-template-columns:1fr 220px;gap:14px}
+    .row3{display:grid;grid-template-columns:1fr 220px 220px;gap:14px}
     .btn{background:#2f7cf6;color:white;border:0;border-radius:10px;padding:10px 12px;font-weight:700;cursor:pointer}
     a{color:#8ab4ff;text-decoration:none}
     .err{color:#ffb4b4}
@@ -39,6 +40,8 @@
         {% if err == 'qty' %}Invalid quantity (must be > 0).{% endif %}
         {% if err == 'type' %}Invalid movement type.{% endif %}
         {% if err == 'product' %}Invalid product.{% endif %}
+        {% if err == 'location' %}Invalid location.{% endif %}
+        {% if err == 'stock' %}Not enough stock for OUT / ADJ-.{% endif %}
       </p>
     {% endif %}
 
@@ -50,7 +53,7 @@
         {% endfor %}
       </select>
 
-      <div class="row">
+      <div class="row3">
         <div>
           <label>Type</label>
           <select name="movement_type" required>
@@ -58,6 +61,15 @@
             <option value="OUT">OUT (Remove stock)</option>
             <option value="ADJ+">ADJ+ (Add correction)</option>
             <option value="ADJ-">ADJ- (Remove correction)</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Loc</label>
+          <select name="location" required>
+            {% for l in locs %}
+              <option value="{{ l.code }}">{{ l.code }} - {{ l.name }}</option>
+            {% endfor %}
           </select>
         </div>
 
