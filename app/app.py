@@ -23,17 +23,18 @@ def startup() -> None:
 
     db = SessionLocal()
     try:
-        # ✅ safe migration: ensure products.target_central exists
-        db.execute(text("""
+        # ✅ safe migration (SQLAlchemy 2.x compatible)
+        db.connection().exec_driver_sql("""
             ALTER TABLE products
             ADD COLUMN IF NOT EXISTS target_central NUMERIC(12,3) DEFAULT 0
-        """))
+        """)
         db.commit()
 
         seed_admins(db)
         seed_locations()
     finally:
         db.close()
+
 
 
 
