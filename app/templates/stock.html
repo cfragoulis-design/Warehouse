@@ -41,11 +41,11 @@
     .rightHead{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
 
     table{width:100%;border-collapse:collapse}
-    th,td{padding:10px 10px;border-bottom:1px solid rgba(36,48,85,.65);text-align:left;vertical-align:middle}
+    th,tdth,td{ padding:6px 8px;  line-height:1.25;}border-bottom:1px solid rgba(36,48,85,.65);text-align:left;vertical-align:middle}
     th{font-size:12px;color:#c9d1ea;letter-spacing:.6px;text-transform:uppercase}
-    .catrow td{padding:12px 10px;font-weight:900;color:#dfe6ff;background:rgba(15,22,45,.45)}
+    .catrow td{padding:6px 8px;font-size:13px;font-weight:900;color:#dfe6ff;background:rgba(15,22,45,.45)}
     .prod{font-weight:800}
-    .sku{color:var(--muted);font-size:12px;margin-top:2px}
+    .sku{color:var(--muted);font-size:11px;margin-top:0;pxline-height:1.1;}
     .muted{color:var(--muted)}
 
     .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55);white-space:nowrap}
@@ -57,10 +57,10 @@
 
     .btn{border:0;border-radius:10px;padding:8px 10px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
     .btnGhost{background:rgba(11,16,32,.45);border:1px solid rgba(36,48,85,.9);color:var(--text)}
-    .btnTiny{padding:6px 10px;border-radius:10px;font-size:12px}
+    .btnTiny{padding:4px 8px;border-radius:10px;font-size:12px}
 
     .pm{display:inline-flex;gap:6px;align-items:center}
-    .pm button{width:34px;height:34px;border-radius:10px;font-weight:900}
+    .pm button{width:28px;height:28px;border-radius:10px;font-weight:900}
     .pm .minus{background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2}
     .pm .plus{background:rgba(255,255,255,.04);border:1px solid rgba(36,48,85,.9);color:#dfe6ff}
 
@@ -70,7 +70,7 @@
     .tag{color:var(--muted);font-size:12px;min-width:14px;text-align:center}
 
     .targetBox{display:flex;gap:8px;align-items:center}
-    .targetInput{width:72px;min-width:72px;text-align:center;padding:8px 10px;border-radius:12px}
+    .targetInput{width:56px;min-width:56px;text-align:center;padding:6px 6px;border-radius:12px}
 
     .pendingForm{display:inline}
   </style>
@@ -183,13 +183,14 @@
                     </form>
                   {% endif %}
 
-                  {% if can_transfer_wc %}
+                  {% if can_adjust_workshop %}
                     <form method="post" action="/stock/transfer_wc">
-                      <input type="hidden" name="product_id" value="{{ it.id }}" />
-                      <input type="hidden" name="qty" value="1" />
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
+                     <input type="hidden" name="qty" value="1" />
                       <button class="transferBtn" title="Μεταφορά 1 από Workshop σε Central">→</button>
-                    </form>
+                  </form>
                   {% endif %}
+
                 </div>
               </td>
             </tr>
