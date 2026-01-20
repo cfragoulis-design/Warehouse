@@ -1,149 +1,65 @@
-<!doctype html>
+  <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>EasyProInv - Dashboard</title>
   <style>
-    :root {
-      --bg-body: #0b1020;
-      --bg-card: #111936;
-      --bg-card-hover: #1a2340;
-      --border-color: #243055;
-      --text-main: #e7e9ee;
-      --text-muted: #a7b0c7;
-      --accent-color: #2f7cf6;
-      --accent-hover: #4b8df7;
-    }
-    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg-body); color: var(--text-main); margin: 0; display: flex; flex-direction: column; min-height: 100vh; }
-    
-    /* Navbar */
-    .top { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
-    .brand { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.5px; }
-    .user-info { font-size: 0.9rem; color: var(--text-muted); }
-    .btn { background: var(--accent-color); color: white; border: 0; border-radius: 8px; padding: 8px 16px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
-    .btn:hover { background: var(--accent-hover); }
-
-    /* Main Container */
-    .container { max-width: 1000px; margin: 32px auto; padding: 0 20px; flex: 1; }
-
-    /* Stats Grid */
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
-    .stat-card { background: var(--bg-card); border: 1px solid var(--border-color); padding: 20px; border-radius: 12px; display: flex; flex-direction: column; }
-    .stat-value { font-size: 1.8rem; font-weight: 700; margin-bottom: 4px; }
-    .stat-label { color: var(--text-muted); font-size: 0.9rem; }
-
-    /* Action Cards Grid */
-    .section-title { margin-bottom: 16px; font-size: 1.1rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
-    .actions-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 40px; }
-    
-    .action-card { 
-      background: var(--bg-card); 
-      border: 1px solid var(--border-color); 
-      border-radius: 16px; 
-      padding: 24px; 
-      text-decoration: none; 
-      color: inherit; 
-      transition: all 0.2s ease;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      height: 100%;
-    }
-    .action-card:hover { transform: translateY(-4px); border-color: var(--accent-color); background: var(--bg-card-hover); box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5); }
-    
-    .icon-box { background: rgba(47, 124, 246, 0.1); color: var(--accent-color); padding: 12px; border-radius: 12px; margin-bottom: 16px; }
-    .card-title { font-size: 1.2rem; font-weight: 700; margin: 0 0 8px 0; }
-    .card-desc { color: var(--text-muted); font-size: 0.9rem; margin: 0; line-height: 1.4; }
-
-    /* Dev/Status Section */
-    .dev-section { border-top: 1px solid var(--border-color); padding-top: 20px; margin-top: auto; padding-bottom: 40px; opacity: 0.8; }
-    .dev-section h2 { font-size: 1rem; color: var(--text-muted); margin-bottom: 10px; }
-    .dev-section ul { padding-left: 20px; color: var(--text-muted); font-size: 0.9rem; }
-    .dev-section li { margin-bottom: 6px; }
-    .badge-ok { background: rgba(46, 204, 113, 0.2); color: #2ecc71; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
+    .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#111936;border-bottom:1px solid #243055;}
+    .card{max-width:900px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
+    .muted{color:#a7b0c7}
+    .btn{background:#2f7cf6;color:white;border:0;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
+    form{margin:0}
   </style>
 </head>
 <body>
-  
   <div class="top">
     <div>
-      <div class="brand">EasyProInv</div>
-      <div class="user-info">Logged in as <strong>{{ user.username }}</strong> ({{ user.role }})</div>
+      <div style="font-weight:800">EasyProInv</div>
+      <div class="muted">Logged in as <strong>{{ user.username }}</strong> ({{ user.role }})</div>
     </div>
-    <form method="post" action="/logout" style="margin:0">
+    <form method="post" action="/logout">
       <button class="btn" type="submit">Logout</button>
     </form>
   </div>
 
-  <div class="container">
-    
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-value">124</div> <div class="stat-label">Total Products</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value" style="color: #e74c3c;">5</div>
-        <div class="stat-label">Low Stock Items</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">€ 12.4k</div>
-        <div class="stat-label">Total Value</div>
-      </div>
-    </div>
+  <div class="card">
+    <h2 style="margin-top:0">Management</h2>
+    <ul>
+      <li>
+        <a href="/products" style="color:#8ab4ff;font-weight:600">
+          Products
+        </a>
+        <span class="muted">– Add / edit inventory items</span>
+      </li>
+      <li>
+      <a href="/stock" style="color:#8ab4ff;font-weight:600">Current Stock</a>
+      <span class="muted">– live totals (includes zeros)</span>
+      </li>
 
-    <div class="section-title">Management Console</div>
-    <div class="actions-grid">
-      
-      <a href="/products" class="action-card">
-        <div class="icon-box">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-        </div>
-        <h3 class="card-title">Products</h3>
-        <p class="card-desc">Add, edit, or remove inventory items and manage details.</p>
-      </a>
+    </ul>
 
-      <a href="/stock" class="action-card">
-        <div class="icon-box">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-        </div>
-        <h3 class="card-title">Current Stock</h3>
-        <p class="card-desc">View live totals including zero-stock items.</p>
-      </a>
+    <li>
+  <a href="/movements" style="color:#8ab4ff;font-weight:600">Stock Movements</a>
+  <span class="muted">– IN/OUT/ADJ movements</span>
+</li>
 
-      <a href="/movements" class="action-card">
-        <div class="icon-box">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-        </div>
-        <h3 class="card-title">Stock Movements</h3>
-        <p class="card-desc">Track IN / OUT / ADJUST movements and history.</p>
-      </a>
 
-    </div>
+    <hr style="border:0;border-top:1px solid #243055;margin:16px 0">
 
-    <div class="dev-section">
-      <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-        <h2 style="margin:0">System Status</h2>
-        <span class="badge-ok">Operational</span>
-      </div>
-      <p class="muted" style="margin-top:0">App running • Session middleware active • Postgres connected</p>
-      
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top:20px;">
-        <div>
-          <h2>Next Steps</h2>
-          <ul>
-            <li>Create inventory tables (products, stock movements)</li>
-            <li>Add basic CRUD screens</li>
-            <li>Add exports (Excel/PDF)</li>
-          </ul>
-        </div>
-        <div>
-          <h2>Health Check</h2>
-          <a href="/health" style="color:#8ab4ff; text-decoration:none;">Check /health endpoint →</a>
-        </div>
-      </div>
-    </div>
+    <h2>Status</h2>
+    <p class="muted">App is running, session middleware works, Postgres connection works, and admin seeding works.</p>
 
+    <h3>Next steps</h3>
+    <ul>
+      <li>Create inventory tables (products, stock movements).</li>
+      <li>Add basic CRUD screens.</li>
+      <li>Add exports (Excel/PDF) once core flows are stable.</li>
+    </ul>
+
+    <h3>Health</h3>
+    <p><a href="/health" style="color:#8ab4ff">/health</a></p>
   </div>
 
 </body>
