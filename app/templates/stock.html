@@ -66,6 +66,33 @@
 
     .pill{padding:2px 8px;font-size:11px;border-radius:999px}
     .pill.warn{border:1px solid rgba(202,162,74,.75);color:#f1d694}
+    /* === FORCE FULL BACKGROUND FIX === */
+html, body{
+  min-height:100%;
+  background: var(--bg) !important;
+}
+
+/* center content visually */
+body{
+  display:flex;
+  justify-content:center;
+}
+
+/* keep wrap centered */
+.wrap{
+  width:100%;
+  max-width:1080px;
+}
+
+/* remove any accidental white canvas */
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  background:var(--bg);
+  z-index:-1;
+}
+
   </style>
 </head>
 <body
