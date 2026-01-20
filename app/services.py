@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -333,6 +334,83 @@ def _group_from_category(cat: str | None, name: str | None) -> str:
     if "μοσ" in c or "beef" in c or "veal" in c:
         return "Μοσχάρι"
     return "Διάφορα"
+
+def build_stock_grouped(db: Session):
+    locs = get_locations(db)
+    central = locs.get("CENTRAL")
+    workshop = locs.get("WORKSHOP")
+    if not central or not workshop:
+        raise RuntimeError("Locations CENTRAL/WORKSHOP not found")
+
+    signed_qty = signed_qty_expr()
+
+    rows = db.execute(
+        select(
+            Product.id,
+            Product.name,
+            Product.sku,
+            Product.unit,
+            Product.category,
+            Product.is_active,
+            Product.target_central,
+            func.coalesce(
+                func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
+                0,
+            ).label("central_qty"),
+            func.coalesce(
+                func.sum(case((StockMovement.location_id == workshop.id, signed_qty), else_=0)),
+                0,
+            ).label("workshop_qty"),
+        )
+        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
+        .group_by(
+            Product.id,
+            Product.name,
+            Product.sku,
+            Product.unit,
+            Product.category,
+            Product.is_active,
+            Product.target_central,
+        )
+        .order_by(Product.is_active.desc(), Product.name.asc())
+    ).all()
+
+    grouped: dict[str, list[dict]] = {
+        "Κοτόπουλα": [],
+        "Χοιρινά": [],
+        "Μοσχάρι": [],
+        "Διάφορα": [],
+    }
+
+    for r in rows:
+        c = Decimal(r.central_qty)
+        w = Decimal(r.workshop_qty)
+        t = Decimal(r.target_central or 0)
+        pending = max(Decimal("0"), t - c)
+
+        unit = (r.unit or "").lower()
+        unit_label = (
+            "Τεμ" if unit == "pcs"
+            else "Κιβ" if unit == "box"
+            else "Kg" if unit == "kg"
+            else r.unit
+        )
+
+        item = {
+            "id": r.id,
+            "name": r.name,
+            "sku": r.sku,
+            "unit": r.unit,
+            "unit_label": unit_label,
+            "central_qty": c,
+            "workshop_qty": w,
+            "target_central": t,
+            "pending": pending,
+        }
+
+        grouped[_group_from_category(r.category, r.name)].append(item)
+
+    return grouped
 
 
 @router.get("/stock", response_class=HTMLResponse)
