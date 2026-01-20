@@ -9,7 +9,7 @@
     *{box-sizing:border-box}
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;}
     a{color:#8ab4ff;text-decoration:none}
-    .top{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;background:linear-gradient(180deg,#0b1020 0%, #0b1020 20%, rgba(11,16,32,0) 100%);} 
+    .top{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;background:linear-gradient(180deg,#0b1020 0%, #0b1020 20%, rgba(11,16,32,0) 100%);}
     .brand{font-weight:900;font-size:26px;letter-spacing:.2px}
     .sub{color:var(--muted);font-size:12px;margin-top:2px}
     .nav{display:flex;gap:16px;align-items:center}
@@ -31,13 +31,13 @@
     .pill.warn{border-color:rgba(202,162,74,.75);color:#f1d694}
     .pill.danger{border-color:rgba(255,107,107,.6);color:#ffb2b2}
     .pillBtn{
-    cursor:pointer;
-    border:3px solid rgba(36,48,85,.9);
-    background:rgba(11,16,32,.55);
-    color:var(--text);
-  }
-  .pillBtn:hover{filter:brightness(1.08)}
-    .btn{border:0;border-radius:10px;padding:8px 10px;font-weight:800;cursor:pointer}
+      cursor:pointer;
+      border:3px solid rgba(36,48,85,.9);
+      background:rgba(11,16,32,.55);
+      color:var(--text);
+    }
+    .pillBtn:hover{filter:brightness(1.08)}
+    .btn{border:0;border-radius:10px;padding:8px 10px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
     .btnBlue{background:var(--blue);color:#fff}
     .btnGhost{background:rgba(11,16,32,.45);border:1px solid rgba(36,48,85,.9);color:var(--text)}
     .btnTiny{padding:6px 8px;border-radius:10px;font-size:12px}
@@ -45,13 +45,14 @@
     .pm button{width:34px;height:34px;border-radius:10px;font-weight:900}
     .pm .minus{background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2}
     .pm .plus{background:rgba(255,255,255,.04);border:1px solid rgba(36,48,85,.9);color:#dfe6ff}
-    .transferBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(47,124,246,.15); border:1px solid rgba(47,124,246,.45);color:#8ab4ff;cursor:pointer;}.transferBtn:hover{
-      filter:brightness(1.1);}
-    .actions{display:flex;gap:10px;align-items:center}
+    .transferBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(47,124,246,.15); border:1px solid rgba(47,124,246,.45);color:#8ab4ff;cursor:pointer;}
+    .transferBtn:hover{filter:brightness(1.1);}
+    .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .tag{color:var(--muted);font-size:12px;min-width:14px;text-align:center}
     .targetBox{display:flex;gap:8px;align-items:center}
     .targetInput{width:72px;min-width:72px;text-align:center;padding:8px 10px;border-radius:12px}
     .pendingForm{display:inline}
+    .printBtns{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   </style>
 </head>
 <body>
@@ -81,11 +82,16 @@
             <button class="btn btnGhost btnTiny" type="submit">Search</button>
           </form>
         </div>
-        <div style="display:flex;gap:10px;align-items:center">
+
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div class="printBtns">
+            <a class="btn btnGhost btnTiny" href="/stock/print?scope=pending" target="_blank" title="A4 • Μόνο Pending">🖨️ Εκτύπωση (Εργαστήριο)</a>
+            <a class="btn btnGhost btnTiny" href="/stock/print?scope=all" target="_blank" title="A4 • Όλο το stock">🖨️ Εκτύπωση (Όλα)</a>
+          </div>
+
           <span class="pill">0 = OK</span>
           <span class="pill warn">Pending</span>
           <span class="pill danger">Low</span>
-          
         </div>
       </div>
 
@@ -129,16 +135,15 @@
               <td>
                 {% if it.pending > 0 %}
                   <form method="post" action="/stock/fulfill" class="pendingForm">
-                  <input type="hidden" name="product_id" value="{{ it.id }}" />
-                  <button class="pill warn pillBtn" type="submit">
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
+                    <button class="pill warn pillBtn" type="submit">
                       +{{ it.pending|fmtqty(it.unit) }}
-                              </button>
-                    </form>
-                  {% else %}
-                    <span class="pill">0</span>
-                  {% endif %}
-                </td>
-
+                    </button>
+                  </form>
+                {% else %}
+                  <span class="pill">0</span>
+                {% endif %}
+              </td>
 
               <td>
                 <div class="actions">
@@ -162,24 +167,13 @@
                     </form>
                   {% endif %}
 
-                    <form method="post" action="/stock/transfer_wc">
-                      <input type="hidden" name="product_id" value="{{ it.id }}" />
-                      <input type="hidden" name="qty" value="1" />
-                      <button class="transferBtn" title="Μεταφορά 1 από Workshop σε Central">
-                          →
-                    </button>
-                  </form>
-
                   {% if can_transfer_wc %}
                     <form method="post" action="/stock/transfer_wc">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input type="hidden" name="qty" value="1" />
-                      <button class="transferBtn" title="Μεταφορά 1 από Workshop σε Central">
-                          →
-                     </button>
-                  </form>
-{% endif %}
-
+                      <button class="transferBtn" title="Μεταφορά 1 από Workshop σε Central">→</button>
+                    </form>
+                  {% endif %}
                 </div>
               </td>
             </tr>
