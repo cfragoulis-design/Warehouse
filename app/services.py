@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from uuid import uuid4
+from datetime import datetime
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -324,6 +325,100 @@ def movement_create(
 # --------------------
 # STOCK VIEW
 # --------------------
+def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str, list[dict]]:
+    """Builds the same grouped stock structure used by stock.html and stock_print_a4.html.
+
+    loc: all | central | workshop  (basic filtering)
+    q: search term applied to Product.name and Product.sku
+    """
+    locs = get_locations(db)
+    central = locs.get("CENTRAL")
+    workshop = locs.get("WORKSHOP")
+    if not central or not workshop:
+        raise RuntimeError("Locations CENTRAL/WORKSHOP not found – run seed and ensure tables exist")
+
+    signed_qty = signed_qty_expr()
+
+    stmt = (
+        select(
+            Product.id,
+            Product.name,
+            Product.sku,
+            Product.unit,
+            Product.category,
+            Product.is_active,
+            Product.target_central,
+            func.coalesce(
+                func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
+                0,
+            ).label("central_qty"),
+            func.coalesce(
+                func.sum(case((StockMovement.location_id == workshop.id, signed_qty), else_=0)),
+                0,
+            ).label("workshop_qty"),
+        )
+        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
+        .group_by(
+            Product.id,
+            Product.name,
+            Product.sku,
+            Product.unit,
+            Product.category,
+            Product.is_active,
+            Product.target_central,
+        )
+        .order_by(Product.is_active.desc(), Product.name.asc())
+    )
+
+    qq = (q or "").strip()
+    if qq:
+        like = f"%{qq}%"
+        stmt = stmt.where((Product.name.ilike(like)) | (Product.sku.ilike(like)))
+
+    rows = db.execute(stmt).all()
+
+    grouped: dict[str, list[dict]] = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
+
+    loc_norm = (loc or "all").strip().lower()
+
+    for r in rows:
+        c = Decimal(r.central_qty)
+        w = Decimal(r.workshop_qty)
+        t = Decimal(r.target_central or 0)
+        pending = t - c
+        if pending < 0:
+            pending = Decimal(0)
+
+        # basic location filter
+        if loc_norm == "central":
+            if c == 0 and pending == 0 and t == 0:
+                continue
+        elif loc_norm == "workshop":
+            if w == 0:
+                continue
+
+        unit = (r.unit or "").lower()
+        unit_label = "Τεμ" if unit == "pcs" else ("Κιβ" if unit == "box" else ("Kg" if unit == "kg" else r.unit))
+
+        item = {
+            "id": r.id,
+            "name": r.name,
+            "sku": r.sku,
+            "unit": r.unit,
+            "unit_label": unit_label,
+            "category": r.category,
+            "is_active": r.is_active,
+            "central_qty": c,
+            "workshop_qty": w,
+            "target_central": t,
+            "pending": pending,
+            "total_qty": c + w,
+        }
+        grouped[_group_from_category(r.category, r.name)].append(item)
+
+    return grouped
+
+
 def _group_from_category(cat: str | None, name: str | None) -> str:
     c = f"{(cat or '').strip()} {(name or '').strip()}".lower()
     if "κοτό" in c or "chick" in c or "poul" in c:
@@ -421,6 +516,38 @@ def stock_view(
         },
     )
 
+
+@router.get("/stock/print", response_class=HTMLResponse)
+def stock_print_a4(
+    request: Request,
+    scope: str = "pending",
+    loc: str = "all",
+    q: str = "",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    grouped = build_stock_grouped(db, loc=loc, q=q)
+
+    if scope == "pending":
+        grouped2: dict[str, list[dict]] = {}
+        for cat, items in grouped.items():
+            filtered = [it for it in items if (it.get("pending") or 0) > 0]
+            if filtered:
+                grouped2[cat] = filtered
+        grouped = grouped2
+
+    return templates.TemplateResponse(
+        "stock_print_a4.html",
+        {
+            "request": request,
+            "grouped": grouped,
+            "printed_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "scope": scope,
+            "user": user,
+            "loc": loc,
+            "q": q,
+        },
+    )
 
 # --------------------
 # QUICK ACTIONS
