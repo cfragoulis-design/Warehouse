@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Λίστα Εργαστηρίου (A4)</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;margin:18mm;color:#111;}
+    .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+    .btn{display:inline-block;padding:8px 12px;border:1px solid #bbb;border-radius:10px;text-decoration:none;color:#111}
+    .btn:hover{background:#f5f5f5}
+    h1{font-size:18px;margin:0 0 6px 0}
+    .meta{font-size:12px;color:#333;margin-bottom:12px}
+    h2{font-size:14px;margin:16px 0 8px 0;padding-top:10px;border-top:2px solid #000}
+    table{width:100%;border-collapse:collapse}
+    th,td{border:1px solid #000;padding:7px 8px;font-size:12px;vertical-align:middle}
+    th{background:#eee;text-align:left}
+    .num{text-align:right;font-variant-numeric:tabular-nums}
+    .pending{font-weight:900;font-size:13px}
+    .check{width:28px;text-align:center}
+    .note{height:20px}
+    .small{font-size:11px;color:#222}
+
+    @media print{
+      body{margin:10mm;}
+      .toolbar{display:none !important;}
+      th{background:#eee !important; -webkit-print-color-adjust:exact; print-color-adjust:exact;}
+      tr{break-inside:avoid;}
+      h2{break-inside:avoid;}
+    }
+  </style>
+</head>
+<body>
+
+  <div class="toolbar">
+    <a class="btn" href="#" onclick="window.print();return false;">Εκτύπωση</a>
+    <a class="btn" href="#" onclick="window.close();return false;">Κλείσιμο</a>
+  </div>
+
+  <h1>Λίστα Εργαστηρίου (A4)</h1>
+  <div class="meta">
+    Εκτυπώθηκε: <b>{{ printed_at }}</b>
+    • Προβολή: <b>{{ "Μόνο Pending" if scope=="pending" else "Όλα" }}</b>
+    {% if user and user.get("role") %} • Ρόλος: <b>{{ user.get("role") }}</b>{% endif %}
+  </div>
+
+  <div class="small">
+    Pending = Target - Central. Στόχος: να ξέρει ο εργαζόμενος τι ζητάς και τι υπάρχει (Central/Workshop).
+  </div>
+
+  {% for cat, items in grouped.items() %}
+    <h2>{{ cat }}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Προϊόν</th>
+          <th style="width:70px;">Μον.</th>
+          <th style="width:90px;">Pending</th>
+          <th style="width:90px;">Central</th>
+          <th style="width:90px;">Workshop</th>
+          <th style="width:80px;">Target</th>
+          <th class="check">✓</th>
+          <th style="width:180px;">Σχόλιο</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+          <tr>
+            <td><b>{{ it.name }}</b>{% if it.sku %}<div class="small">{{ it.sku }}</div>{% endif %}</td>
+            <td>{{ it.unit_label }}</td>
+            <td class="num pending">{{ it.pending|fmtqty(it.unit) }}</td>
+            <td class="num">{{ it.central_qty|fmtqty(it.unit) }}</td>
+            <td class="num">{{ it.workshop_qty|fmtqty(it.unit) }}</td>
+            <td class="num">{{ it.target_central|fmtqty(it.unit) }}</td>
+            <td class="check">☐</td>
+            <td class="note"></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+
+  <div style="margin-top:14px;font-size:12px;">
+    Υπογραφή: ____________________  Ώρα: ________
+  </div>
+
+</body>
+</html>
