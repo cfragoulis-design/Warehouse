@@ -5,100 +5,92 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stock</title>
   <style>
-       /* ===== Compact + Clean Stock UI (CSS ONLY) ===== */
+       /* ===== FIX WHITE BACKGROUND + COMPACT CLEAN ===== */
 
-/* tighter table rows */
-th, td{
-  padding:6px 8px !important;
-  line-height:1.25;
+/* force dark theme back */
+html, body{
+  background: var(--bg) !important;
+  color: var(--text) !important;
 }
 
-/* category rows less tall */
+/* card + table background */
+.card{
+  background: rgba(17,25,54,.75) !important;
+}
+
+table{
+  background: transparent !important;
+}
+
+/* table rows */
+tbody tr{
+  background: transparent !important;
+}
+
+/* table cells */
+th, td{
+  background: transparent !important;
+  padding:6px 8px !important;
+  line-height:1.25;
+  color: var(--text) !important;
+}
+
+/* category rows */
 .catrow td{
+  background: rgba(120,125,135,.35) !important;
+  color: #fff !important;
   padding:7px 8px !important;
   font-size:13px;
 }
 
-/* product name / sku spacing */
+/* headers */
+th{
+  color:#c9d1ea !important;
+}
+
+/* product + sku */
 .prod{font-weight:800}
 .sku{
   font-size:11px !important;
   margin-top:0 !important;
   line-height:1.1;
-  opacity:.85;
+  color: var(--muted) !important;
 }
 
-/* keep header area neat */
-.cardHead{
-  padding:12px 12px !important;
-  gap:10px !important;
-}
-.filters form{gap:8px !important}
-.rightHead{gap:8px !important}
-
-/* inputs/buttons slightly smaller */
-select, input{
-  padding:8px 10px !important;
-  border-radius:12px;
-}
-.btnTiny{
-  padding:4px 8px !important;
-  font-size:11px !important;
-}
-.targetInput{
-  width:56px !important;
-  min-width:56px !important;
-  padding:6px 6px !important;
-}
-
-/* pills a bit tighter */
-.pill{
-  padding:2px 9px !important;
-  font-size:11px !important;
-}
-.pillBtn{border-width:2px !important}
-
-/* ACTIONS: make them align (C row, W row, then transfer) */
+/* ACTIONS column tidy */
 .actions{
   display:grid !important;
   grid-template-columns: 14px auto;
   row-gap:6px;
   column-gap:8px;
   align-items:center;
-  flex-wrap:unset !important; /* prevent messy wrapping */
 }
 
-/* C/W labels align nicely */
-.tag{
-  font-size:11px !important;
-  opacity:.9;
-}
-
-/* +/- buttons smaller */
-.pm{gap:6px !important}
-.pm button{
-  width:28px !important;
-  height:28px !important;
-  border-radius:9px !important;
-  font-size:14px;
-  line-height:1;
-}
-
-/* Transfer button: own line, aligned right */
-.actions form[action="/stock/transfer_wc"]{
-  grid-column: 1 / -1;
-  justify-self:end;
-}
+/* buttons sizing */
+.pm button,
 .transferBtn{
   width:28px !important;
   height:28px !important;
   border-radius:9px !important;
 }
 
-/* reduce whitespace between rows visually */
-tbody tr td{
-  border-bottom-color: rgba(36,48,85,.55) !important;
+/* keep transfer on its own line */
+.actions form[action="/stock/transfer_wc"]{
+  grid-column:1 / -1;
+  justify-self:end;
 }
+
+/* pills */
+.pill{
+  padding:2px 9px !important;
+  font-size:11px !important;
+}
+
+/* prevent print styles leaking into screen */
+@media screen{
+  body{background:var(--bg) !important;}
+}
+
 
       </table>
     </div>
