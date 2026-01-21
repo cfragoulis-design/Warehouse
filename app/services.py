@@ -90,63 +90,6 @@ def signed_qty_expr():
     )
 
 
-
-
-
-# --------------------
-# DASHBOARD STATS
-# --------------------
-from datetime import date
-
-def get_dashboard_stats(db: Session) -> dict:
-    # CENTRAL location
-    central = db.execute(
-        select(Location).where(Location.code == "CENTRAL")
-    ).scalar_one()
-
-    signed_qty = signed_qty_expr()
-
-    # 1) products count
-    products_count = db.execute(
-        select(func.count(Product.id))
-    ).scalar_one()
-
-    # central stock per product (CENTRAL only)
-    central_stock = (
-        select(
-            Product.id.label("pid"),
-            func.coalesce(
-                func.sum(
-                    case((StockMovement.location_id == central.id, signed_qty), else_=0)
-                ),
-                0,
-            ).label("central_qty"),
-        )
-        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .group_by(Product.id)
-        .subquery()
-    )
-
-    # 2) low stock count (target_central > central_qty)
-    low_stock_count = db.execute(
-        select(func.count())
-        .select_from(Product)
-        .join(central_stock, central_stock.c.pid == Product.id)
-        .where(Product.target_central > central_stock.c.central_qty)
-    ).scalar_one()
-
-    # 3) movements today
-    movements_today = db.execute(
-        select(func.count(StockMovement.id))
-        .where(func.date(StockMovement.created_at) == date.today())
-    ).scalar_one()
-
-    return {
-        "products_count": int(products_count or 0),
-        "low_stock_count": int(low_stock_count or 0),
-        "movements_today": int(movements_today or 0),
-    }
-
 def get_stock_for_product(db: Session, product_id: int, location_id: int) -> Decimal:
     signed_qty = signed_qty_expr()
     val = db.execute(
@@ -171,16 +114,17 @@ def root() -> RedirectResponse:
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
-def dashboard(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    stats = get_dashboard_stats(db)
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {"request": request, "user": user, "stats": stats},
-    )
+def dashboard(request: Request, user: User = Depends(require_user)):
+    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+    return templates.TemplateResponse("stock.html",{"request": request,
+        "user": user,
+        "grouped": grouped,
+        "can_edit_target": (user.role == "admin"),
+        "can_adjust_central": (user.role == "admin"),
+        "can_adjust_workshop": (user.role in ("admin", "workshop")),
+        "can_transfer_wc": (user.role in ("admin", "workshop")),  # ✅ ΑΥΤΟ ΕΛΕΙΠΕ
+    },
+)
 
 # --------------------
 # PRODUCTS (admin)
@@ -201,14 +145,35 @@ def products_list(
     )
 
 
+
+def get_category_options(db: Session) -> list[str]:
+    # Dynamic categories from DB (non-null, distinct). Keeps UI options in sync with saved data.
+    cats = db.execute(
+        select(Product.category)
+        .where(Product.category.isnot(None))
+        .distinct()
+        .order_by(Product.category.asc())
+    ).scalars().all()
+    # Normalize / keep non-empty strings only
+    out: list[str] = []
+    for c in cats:
+        if not c:
+            continue
+        c2 = str(c).strip()
+        if c2 and c2 not in out:
+            out.append(c2)
+    return out
+
 @router.get("/products/new", response_class=HTMLResponse)
 def product_new_form(
     request: Request,
     user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
 ):
+    categories = get_category_options(db)
     return templates.TemplateResponse(
         "product_form.html",
-        {"request": request, "user": user, "product": None, "action": "/products/new"},
+        {"request": request, "user": user, "product": None, "action": "/products/new", "categories": categories},
     )
 
 
@@ -243,9 +208,11 @@ def product_edit_form(
     if not product:
         return RedirectResponse(url="/products", status_code=303)
 
+    categories = get_category_options(db)
+
     return templates.TemplateResponse(
         "product_form.html",
-        {"request": request, "user": user, "product": product, "action": f"/products/{pid}/edit"},
+        {"request": request, "user": user, "product": product, "action": f"/products/{pid}/edit", "categories": categories},
     )
 
 
