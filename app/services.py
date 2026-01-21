@@ -1,9 +1,8 @@
 from __future__ import annotations
-
 from decimal import Decimal
 from uuid import uuid4
 from datetime import datetime
-
+from datetime import date
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -71,6 +70,48 @@ def get_locations(db: Session) -> dict[str, Location]:
     locs = db.execute(select(Location)).scalars().all()
     return {l.code: l for l in locs}
 
+def get_dashboard_stats(db: Session) -> dict:
+    locs = get_locations(db)
+    central = locs.get("CENTRAL")
+    if not central:
+        raise RuntimeError("CENTRAL location missing")
+
+    # 1) products_count
+    products_count = db.execute(select(func.count(Product.id))).scalar_one()
+
+    # 2) low_stock_count (Target Central > Central stock)
+    signed_qty = signed_qty_expr()
+
+    low_stock_count = db.execute(
+        select(func.count())
+        .select_from(Product)
+        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
+        .group_by(Product.id, Product.target_central)
+        .having(
+            func.coalesce(Product.target_central, 0)
+            > func.coalesce(
+                func.sum(
+                    case(
+                        (StockMovement.location_id == central.id, signed_qty),
+                        else_=0,
+                    )
+                ),
+                0,
+            )
+        )
+    ).scalar_one()
+
+    # 3) movements_today (created_at today)
+    movements_today = db.execute(
+        select(func.count(StockMovement.id))
+        .where(func.date(StockMovement.created_at) == date.today())
+    ).scalar_one()
+
+    return {
+        "products_count": int(products_count or 0),
+        "low_stock_count": int(low_stock_count or 0),
+        "movements_today": int(movements_today or 0),
+    }
 
 def parse_qty(qty: str) -> Decimal | None:
     try:
@@ -114,9 +155,15 @@ def root() -> RedirectResponse:
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request, user: User = Depends(require_user)):
-    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
-    return templates.TemplateResponse("stock.html",{"request": request,
+def dashboard(
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    stats = get_dashboard_stats(db)
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {"request": request, "user": user, "stats": stats},
         "user": user,
         "grouped": grouped,
         "can_edit_target": (user.role == "admin"),
