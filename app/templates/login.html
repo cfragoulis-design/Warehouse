@@ -3,11 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sklavounos Warehouse - Login  </title>
+  <title>Sklavounos Stock</title>
   <style>
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
     .wrap{max-width:420px;margin:8vh auto;padding:24px;background:#111936;border:1px solid #243055;border-radius:12px;}
-    h1{margin:0 0 14px;font-size:20px;}
+    .logo{display:flex;justify-content:center;margin-bottom:16px;}
+    .logo img{width:170px;}
+    h1{margin:0 0 14px;font-size:20px;text-align:center;}
     label{display:block;margin-top:12px;font-size:13px;color:#b7c0d9}
     input{width:100%;padding:10px 12px;margin-top:6px;border-radius:10px;border:1px solid #2b3a67;background:#0e1530;color:#e7e9ee;}
     button{margin-top:16px;width:100%;padding:10px 12px;border-radius:10px;border:0;background:#4b7bec;color:white;font-weight:600;cursor:pointer;}
@@ -18,7 +20,13 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Sklavounos Warehouse - Login </h1>
+
+    <div class="logo">
+      <img src="/static/logo-full.png" alt="Sklavounos">
+    </div>
+
+    <h1>Login</h1>
+
     {% if err %}
       <div class="err">Wrong username or PIN.</div>
     {% endif %}
