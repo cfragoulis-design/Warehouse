@@ -90,63 +90,6 @@ def signed_qty_expr():
     )
 
 
-
-
-
-# --------------------
-# DASHBOARD STATS
-# --------------------
-from datetime import date
-
-def get_dashboard_stats(db: Session) -> dict:
-    # CENTRAL location
-    central = db.execute(
-        select(Location).where(Location.code == "CENTRAL")
-    ).scalar_one()
-
-    signed_qty = signed_qty_expr()
-
-    # 1) products count
-    products_count = db.execute(
-        select(func.count(Product.id))
-    ).scalar_one()
-
-    # central stock per product (CENTRAL only)
-    central_stock = (
-        select(
-            Product.id.label("pid"),
-            func.coalesce(
-                func.sum(
-                    case((StockMovement.location_id == central.id, signed_qty), else_=0)
-                ),
-                0,
-            ).label("central_qty"),
-        )
-        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .group_by(Product.id)
-        .subquery()
-    )
-
-    # 2) low stock count (target_central > central_qty)
-    low_stock_count = db.execute(
-        select(func.count())
-        .select_from(Product)
-        .join(central_stock, central_stock.c.pid == Product.id)
-        .where(Product.target_central > central_stock.c.central_qty)
-    ).scalar_one()
-
-    # 3) movements today
-    movements_today = db.execute(
-        select(func.count(StockMovement.id))
-        .where(func.date(StockMovement.created_at) == date.today())
-    ).scalar_one()
-
-    return {
-        "products_count": int(products_count or 0),
-        "low_stock_count": int(low_stock_count or 0),
-        "movements_today": int(movements_today or 0),
-    }
-
 def get_stock_for_product(db: Session, product_id: int, location_id: int) -> Decimal:
     signed_qty = signed_qty_expr()
     val = db.execute(
@@ -171,16 +114,17 @@ def root() -> RedirectResponse:
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
-def dashboard(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    stats = get_dashboard_stats(db)
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {"request": request, "user": user, "stats": stats},
-    )
+def dashboard(request: Request, user: User = Depends(require_user)):
+    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+    return templates.TemplateResponse("stock.html",{"request": request,
+        "user": user,
+        "grouped": grouped,
+        "can_edit_target": (user.role == "admin"),
+        "can_adjust_central": (user.role == "admin"),
+        "can_adjust_workshop": (user.role in ("admin", "workshop")),
+        "can_transfer_wc": (user.role in ("admin", "workshop")),  # ✅ ΑΥΤΟ ΕΛΕΙΠΕ
+    },
+)
 
 # --------------------
 # PRODUCTS (admin)
@@ -470,18 +414,21 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "pending": pending,
             "total_qty": c + w,
         }
-        grouped[_group_from_category(r.category, r.name)].append(item)
+        grouped.setdefault(_group_from_category(r.category, r.name), []).append(item)
 
     return grouped
 
 
 def _group_from_category(cat: str | None, name: str | None) -> str:
-    # Prefer explicit Product.category. Fallback to "Διάφορα" if missing.
-    if cat is not None:
-        c = str(cat).strip()
-        if c:
-            return c
+    c = f"{(cat or '').strip()} {(name or '').strip()}".lower()
+    if "κοτό" in c or "chick" in c or "poul" in c:
+        return "Κοτόπουλα"
+    if "χοι" in c or "pork" in c:
+        return "Χοιρινά"
+    if "μοσ" in c or "beef" in c or "veal" in c:
+        return "Μοσχάρι"
     return "Διάφορα"
+
 
 @router.get("/stock", response_class=HTMLResponse)
 def stock_view(
@@ -555,7 +502,7 @@ def stock_view(
             "pending": pending,
             "total_qty": c + w,
         }
-        grouped[_group_from_category(r.category, r.name)].append(item)
+        grouped.setdefault(_group_from_category(r.category, r.name), []).append(item)
 
     return templates.TemplateResponse(
         "stock.html",
