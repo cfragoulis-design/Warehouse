@@ -3,48 +3,62 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sklavounos Stock - Login</title>
+  <title>Sklavounos Stock</title>
   <style>
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
-    .wrap{max-width:420px;margin:8vh auto;padding:24px;background:#111936;border:1px solid #243055;border-radius:12px;}
-    .logo{display:flex;justify-content:center;margin-bottom:16px;}
-    .logo img{width:170px;}
-    h1{margin:0 0 14px;font-size:20px;text-align:center;}
-    label{display:block;margin-top:12px;font-size:13px;color:#b7c0d9}
-    input{width:100%;padding:10px 12px;margin-top:6px;border-radius:10px;border:1px solid #2b3a67;background:#0e1530;color:#e7e9ee;}
-    button{margin-top:16px;width:100%;padding:10px 12px;border-radius:10px;border:0;background:#4b7bec;color:white;font-weight:600;cursor:pointer;}
-    .err{margin-top:12px;padding:10px;border-radius:10px;background:#2a1420;border:1px solid #6a2840;color:#ffb3c1;font-size:13px;}
-    .hint{margin-top:12px;color:#9aa5c5;font-size:12px;line-height:1.4}
-    code{background:#0e1530;padding:2px 6px;border-radius:6px;border:1px solid #2b3a67}
+    .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#111936;border-bottom:1px solid #243055;}
+    .brand{display:flex;align-items:center;gap:10px;}
+    .brand img{height:32px;}
+    .brand-title{font-weight:800;letter-spacing:0.4px;}
+    .card{max-width:900px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
+    .muted{color:#a7b0c7}
+    .btn{background:#2f7cf6;color:white;border:0;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
+    form{margin:0}
   </style>
 </head>
 <body>
-  <div class="wrap">
 
-    <div class="logo">
-      <img src="/static/logo-full.png" alt="Sklavounos">
+  <div class="top">
+    <div class="brand">
+      <img src="/static/logo-icon.png" alt="Sklavounos">
+      <div>
+        <div class="brand-title">Sklavounos Stock</div>
+        <div class="muted">
+          Logged in as <strong>{{ user.username }}</strong> ({{ user.role }})
+        </div>
+      </div>
     </div>
 
-    <h1>Login</h1>
-
-    {% if err %}
-      <div class="err">Wrong username or PIN.</div>
-    {% endif %}
-
-    <form method="post" action="/login">
-      <label>Username</label>
-      <input name="username" autocomplete="username" required />
-
-      <label>PIN</label>
-      <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required />
-
-      <button type="submit">Sign in</button>
+    <form method="post" action="/logout">
+      <button class="btn" type="submit">Logout</button>
     </form>
-
-    <div class="hint">
-      Initial admins are seeded if the users table is empty using env vars:
-      <br><code>INITIAL_ADMIN_PIN</code> and <code>INITIAL_ADMIN2_PIN</code>.
-    </div>
   </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Management</h2>
+    <ul>
+      <li>
+        <a href="/products" style="color:#8ab4ff;font-weight:600">Products</a>
+        <span class="muted">– Add / edit inventory items</span>
+      </li>
+      <li>
+        <a href="/stock" style="color:#8ab4ff;font-weight:600">Current Stock</a>
+        <span class="muted">– live totals (includes zeros)</span>
+      </li>
+      <li>
+        <a href="/movements" style="color:#8ab4ff;font-weight:600">Stock Movements</a>
+        <span class="muted">– IN / OUT / ADJ movements</span>
+      </li>
+    </ul>
+
+    <hr style="border:0;border-top:1px solid #243055;margin:16px 0">
+
+    <h2>Status</h2>
+    <p class="muted">App is running, session middleware works, Postgres connection works, and admin seeding works.</p>
+
+    <h3>Health</h3>
+    <p><a href="/health" style="color:#8ab4ff">/health</a></p>
+  </div>
+
 </body>
 </html>
