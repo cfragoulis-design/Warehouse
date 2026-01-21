@@ -5,20 +5,67 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Λίστα Εργαστηρίου (A4)</title>
   <style>
-    body{font-family:Arial,system-ui;margin:18mm;color:#000}
-    h1{font-size:18px;margin:0 0 6px 0}
-    .meta{font-size:12px;margin:0 0 12px 0}
-    h2{font-size:14px;margin:16px 0 8px 0;border-top:2px solid #000;padding-top:6px}
-    table{width:100%;border-collapse:collapse}
-    th,td{border:1px solid #000;padding:6px;font-size:12px;vertical-align:middle}
-    th{background:#eee;text-align:left}
-    .num{text-align:right;font-variant-numeric:tabular-nums}
-    .pending{font-weight:900;font-size:13px}
-    .check{text-align:center;width:28px}
-    .note{height:22px}
-    small{color:#333}
-    @media print{.noprint{display:none}}
-  </style>
+/* ===== PRINT OPTIMIZATION (A4 PORTRAIT) ===== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  body {
+    font-size: 11px;
+  }
+
+  table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+  }
+
+  th, td {
+    padding: 4px 6px;
+    vertical-align: middle;
+  }
+
+  /* ΣΤΗΛΕΣ */
+  th.col-product, td.col-product {
+    width: auto;
+    word-wrap: break-word;
+  }
+
+  th.col-unit, td.col-unit {
+    width: 38px;
+    text-align: center;
+  }
+
+  th.col-num, td.col-num {
+    width: 42px;
+    text-align: center;
+  }
+
+  th.col-check, td.col-check {
+    width: 24px;
+    text-align: center;
+  }
+
+  th.col-notes, td.col-notes {
+    width: 60px;
+  }
+
+  /* ΚΕΦΑΛΙΔΑ ΚΑΤΗΓΟΡΙΑΣ */
+  .cat-title {
+    font-weight: bold;
+    padding: 6px 0;
+    font-size: 12px;
+  }
+
+  /* ΑΦΑΙΡΕΣΗ ΠΕΡΙΤΤΩΝ */
+  .no-print {
+    display: none !important;
+  }
+}
+</style>
+
 </head>
 <body>
 
