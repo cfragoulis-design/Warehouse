@@ -51,6 +51,37 @@ def fmtqty(val, unit: str | None = None) -> str:
 
 templates.env.filters["fmtqty"] = fmtqty
 
+# --------------------
+# category ordering (Stock UI)
+# --------------------
+CATEGORY_ORDER = [
+    "Κοτόπουλα",
+    "Χοιρινά",
+    "Μοσχάρι",
+    "Πρόβειο",
+    "Αλλαντικά",
+    "Premium",
+    "Διάφορα",
+]
+
+def _norm_cat(s: str) -> str:
+    s2 = (s or "").strip().lower()
+    # greek tonos removal
+    s2 = (s2.replace("ά","α").replace("έ","ε").replace("ή","η")
+              .replace("ί","ι").replace("ό","ο").replace("ύ","υ").replace("ώ","ω"))
+    # unify common singular/plural endings (…ο / …α)
+    if s2.endswith(("ο","α")) and len(s2) > 1:
+        s2 = s2[:-1]
+    return s2
+
+_ORDER_INDEX = {_norm_cat(name): i for i, name in enumerate(CATEGORY_ORDER)}
+
+def _sort_grouped(grouped: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    return dict(sorted(
+        grouped.items(),
+        key=lambda kv: (_ORDER_INDEX.get(_norm_cat(kv[0]), 10_000), _norm_cat(kv[0]))
+    ))
+
 
 # --------------------
 # auth helpers
@@ -382,32 +413,6 @@ def movement_create(
 # --------------------
 # STOCK VIEW
 # --------------------
-
-# ---- Stock category ordering (manual) ----
-CATEGORY_ORDER = [
-    "Κοτόπουλο",
-    "Χοιρινό",
-    "Μοσχάρι",
-    "Πρόβειο",
-    "Αλλαντικα",
-    "Premium",
-    "Διάφορα",
-]
-
-
-def sort_grouped_categories(grouped: dict[str, list[dict]] | defaultdict) -> dict[str, list[dict]]:
-    """Sort grouped stock by a manual category order; unknown categories go after, alphabetically."""
-    order_index = {name: i for i, name in enumerate(CATEGORY_ORDER)}
-    return dict(
-        sorted(
-            grouped.items(),
-            key=lambda kv: (
-                order_index.get(kv[0], 10_000),
-                (kv[0] or "").lower(),
-            ),
-        )
-    )
-
 def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str, list[dict]]:
     """Builds the same grouped stock structure used by stock.html and stock_print_a4.html.
 
@@ -460,7 +465,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     rows = db.execute(stmt).all()
 
-    grouped = defaultdict(list)
+    grouped: dict[str, list[dict]] = defaultdict(list)
 
     loc_norm = (loc or "all").strip().lower()
 
@@ -497,12 +502,11 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "pending": pending,
             "total_qty": c + w,
         }
-        cat = (r.category or "").strip()
-        if not cat:
-            cat = "Διάφορα"
+        cat = (r.category or "").strip() or "Διάφορα"
         grouped[cat].append(item)
 
-    return sort_grouped_categories(grouped)
+    grouped = _sort_grouped(dict(grouped))
+    return grouped
 
 
 def _group_from_category(cat: str | None, name: str | None) -> str:
@@ -561,7 +565,7 @@ def stock_view(
         .order_by(Product.is_active.desc(), Product.name.asc())
     ).all()
 
-    grouped = defaultdict(list)
+    grouped: dict[str, list[dict]] = defaultdict(list)
 
     for r in rows:
         c = Decimal(r.central_qty)
@@ -588,12 +592,10 @@ def stock_view(
             "pending": pending,
             "total_qty": c + w,
         }
-        cat = (r.category or "").strip()
-        if not cat:
-            cat = "Διάφορα"
+        cat = (r.category or "").strip() or "Διάφορα"
         grouped[cat].append(item)
 
-    grouped = sort_grouped_categories(grouped)
+    grouped = _sort_grouped(dict(grouped))
 
     return templates.TemplateResponse(
         "stock.html",
