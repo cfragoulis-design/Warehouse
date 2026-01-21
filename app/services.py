@@ -476,15 +476,12 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
 
 def _group_from_category(cat: str | None, name: str | None) -> str:
-    c = f"{(cat or '').strip()} {(name or '').strip()}".lower()
-    if "κοτό" in c or "chick" in c or "poul" in c:
-        return "Κοτόπουλα"
-    if "χοι" in c or "pork" in c:
-        return "Χοιρινά"
-    if "μοσ" in c or "beef" in c or "veal" in c:
-        return "Μοσχάρι"
+    # Prefer explicit Product.category. Fallback to "Διάφορα" if missing.
+    if cat is not None:
+        c = str(cat).strip()
+        if c:
+            return c
     return "Διάφορα"
-
 
 @router.get("/stock", response_class=HTMLResponse)
 def stock_view(
