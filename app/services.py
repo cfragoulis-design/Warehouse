@@ -589,6 +589,8 @@ def stock_view(
 
     grouped = dict(grouped)
 
+    @router.get("/stock", response_class=HTMLResponse)
+
     return templates.TemplateResponse(
         "stock.html",
         {
