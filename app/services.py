@@ -475,7 +475,8 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
         if not cat:
             cat = "Διάφορα"
         grouped[cat].append(item)
-            # ---- ΧΕΙΡΟΚΙΝΗΤΗ ΣΕΙΡΑ ΚΑΤΗΓΟΡΙΩΝ ----
+
+      # ---- ΧΕΙΡΟΚΙΝΗΤΗ ΣΕΙΡΑ ΚΑΤΗΓΟΡΙΩΝ ----
                 CATEGORY_ORDER = [
                 "Κοτόπουλο",
                 "Χοιρινό",
@@ -496,6 +497,7 @@ grouped = dict(sorted(
     )
 ))
 
+          
     return dict(grouped)
 
 
@@ -590,6 +592,28 @@ def stock_view(
     grouped = dict(grouped)
 
     @router.get("/stock", response_class=HTMLResponse)
+
+    # ---- ΧΕΙΡΟΚΙΝΗΤΗ ΣΕΙΡΑ ΚΑΤΗΓΟΡΙΩΝ ----
+CATEGORY_ORDER = [
+    "Κοτόπουλο",
+    "Χοιρινό",
+    "Μοσχάρι",
+    "Πρόβειο",
+    "Αλλαντικα",
+    "Premium",
+    "Διάφορα",
+]
+
+order_index = {name: i for i, name in enumerate(CATEGORY_ORDER)}
+
+grouped = dict(sorted(
+    grouped.items(),
+    key=lambda kv: (
+        order_index.get(kv[0], 10_000),
+        kv[0].lower()
+    )
+))
+
 
     return templates.TemplateResponse(
         "stock.html",
