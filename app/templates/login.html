@@ -4,43 +4,114 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sklavounos Stock</title>
-  <style>
-    body{
-  font-family:system-ui,Segoe UI,Arial,sans-serif;
-  margin:0;
-  color:#e7e9ee;
-  background: radial-gradient(circle at top, #0e1430 0%, #05070f 70%);
-  min-height:100vh;
-}
+<style>
+  :root{
+    --bg1:#0e1430;
+    --bg2:#05070f;
+    --panel1:#070b16;
+    --panel2:#060914;
+    --line:rgba(255,255,255,0.08);
+    --text:#e7e9ee;
+    --muted:#b7c0d9;
+    --input:#0e1530;
+    --inputLine:#2b3a67;
+    --btn:#4b7bec;
+  }
 
+  *{box-sizing:border-box}
 
-    ..wrap{
-  max-width:420px;
-  margin:7vh auto;
-  padding:26px;
-  background: linear-gradient(180deg, #070b16 0%, #060914 100%);
-  border:1px solid rgba(255,255,255,0.08);
-  border-radius:16px;
-  box-shadow: 0 18px 45px rgba(0,0,0,0.55);
-}
+  body{
+    font-family:system-ui,Segoe UI,Arial,sans-serif;
+    margin:0;
+    color:var(--text);
+    background: radial-gradient(circle at top, var(--bg1) 0%, var(--bg2) 70%);
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+  }
 
+  .wrap{
+    width:100%;
+    max-width:420px;
+    padding:26px;
+    background: linear-gradient(180deg, var(--panel1) 0%, var(--panel2) 100%);
+    border:1px solid var(--line);
+    border-radius:16px;
+    box-shadow: 0 18px 45px rgba(0,0,0,0.55);
+  }
 
-    .logo{display:flex;justify-content:center;margin-bottom:16px;}
-    .logo img{width:170px;}
-    h1{
-  margin:0 0 14px;
-  font-size:20px;
-  text-align:center;
-  color:#e7e9ee;
-}
+  .logo{display:flex;justify-content:center;margin-bottom:14px;}
+  .logo img{width:160px;max-width:100%;height:auto;}
 
-    label{display:block;margin-top:12px;font-size:13px;color:#b7c0d9}
-    input{width:100%;padding:10px 12px;margin-top:6px;border-radius:10px;border:1px solid #2b3a67;background:#0e1530;color:#e7e9ee;}
-    button{margin-top:16px;width:100%;padding:10px 12px;border-radius:10px;border:0;background:#4b7bec;color:white;font-weight:600;cursor:pointer;}
-    .err{margin-top:12px;padding:10px;border-radius:10px;background:#2a1420;border:1px solid #6a2840;color:#ffb3c1;font-size:13px;}
-    .hint{margin-top:12px;color:#9aa5c5;font-size:12px;line-height:1.4}
-    code{background:#0e1530;padding:2px 6px;border-radius:6px;border:1px solid #2b3a67}
-  </style>
+  h1{
+    margin:0 0 14px;
+    font-size:20px;
+    text-align:center;
+    color:var(--text);
+  }
+
+  label{
+    display:block;
+    margin-top:12px;
+    font-size:13px;
+    color:var(--muted);
+  }
+
+  input{
+    width:100%;
+    padding:10px 12px;
+    margin-top:6px;
+    border-radius:10px;
+    border:1px solid var(--inputLine);
+    background:var(--input);
+    color:var(--text);
+    outline:none;
+  }
+
+  input:focus{
+    border-color:rgba(75,123,236,0.75);
+    box-shadow:0 0 0 3px rgba(75,123,236,0.15);
+  }
+
+  button{
+    margin-top:16px;
+    width:100%;
+    padding:10px 12px;
+    border-radius:10px;
+    border:0;
+    background:var(--btn);
+    color:white;
+    font-weight:600;
+    cursor:pointer;
+  }
+
+  .err{
+    margin-top:12px;
+    padding:10px;
+    border-radius:10px;
+    background:#2a1420;
+    border:1px solid #6a2840;
+    color:#ffb3c1;
+    font-size:13px;
+  }
+
+  .hint{
+    margin-top:12px;
+    color:#9aa5c5;
+    font-size:12px;
+    line-height:1.4;
+  }
+
+  code{
+    background:var(--input);
+    padding:2px 6px;
+    border-radius:6px;
+    border:1px solid var(--inputLine);
+  }
+</style>
+
 </head>
 <body>
   <div class="wrap">
