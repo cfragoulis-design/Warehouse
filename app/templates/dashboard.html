@@ -3,215 +3,47 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sklavounos Warehouse - Dashboard / Created by CF</title>
+  <title>Sklavounos Stock - Login</title>
   <style>
-    :root{
-      --bg:#0b1020;
-      --panel:#111936;
-      --panel2:#0f162d;
-      --line:#243055;
-      --text:#e7e9ee;
-      --muted:#a7b0c7;
-      --blue:#2f7cf6;
-      --warn:#caa24a;
-      --danger:#ff6b6b;
-    }
-    *{box-sizing:border-box}
-    html,body{min-height:100%}
-    body{
-      font-family:system-ui,Segoe UI,Arial,sans-serif;
-      background:
-        radial-gradient(circle at 50% 0%, rgba(47,124,246,.10), rgba(11,16,32,1) 58%),
-        var(--bg);
-      color:var(--text);
-      margin:0;
-    }
-    a{color:#8ab4ff;text-decoration:none}
-    a:hover{filter:brightness(1.08)}
-    .wrap{max-width:1080px;margin:0 auto;padding:0 16px 24px}
-
-    .top{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:14px;
-      padding:18px 22px;
-      background:linear-gradient(180deg,#0b1020 0%, #0b1020 20%, rgba(11,16,32,0) 100%);
-    }
-    .brand{font-weight:900;font-size:24px;letter-spacing:.2px}
-    .sub{color:var(--muted);font-size:12px;margin-top:2px}
-    .userpill{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:6px 10px;border-radius:999px;
-      border:1px solid rgba(36,48,85,.9);
-      background:rgba(11,16,32,.45);
-      color:var(--muted);
-      font-size:12px;
-      white-space:nowrap;
-    }
-    .userpill strong{color:var(--text);font-weight:800}
-
-    .btn{
-      border:0;border-radius:10px;
-      padding:9px 12px;
-      font-weight:800;
-      cursor:pointer;
-      display:inline-flex;align-items:center;gap:8px;
-    }
-    .btnBlue{background:var(--blue);color:#fff}
-    .btnGhost{background:rgba(11,16,32,.45);border:1px solid rgba(36,48,85,.9);color:var(--text)}
-
-    .card{
-      background:rgba(17,25,54,.78);
-      border:1px solid rgba(36,48,85,.75);
-      border-radius:16px;
-      box-shadow:0 12px 45px rgba(0,0,0,.35);
-      overflow:hidden;
-      margin:18px auto 0;
-      max-width:920px;
-    }
-    .cardHead{
-      display:flex;justify-content:space-between;align-items:center;gap:12px;
-      padding:14px 14px;
-      border-bottom:1px solid rgba(36,48,85,.75);
-      background:rgba(15,22,45,.60);
-    }
-    .cardBody{padding:14px 14px}
-    h2{margin:0;font-size:18px;letter-spacing:.2px}
-    h3{margin:18px 0 10px 0;font-size:14px;color:#c9d1ea;letter-spacing:.4px;text-transform:uppercase}
-    p{margin:10px 0;color:var(--muted)}
-    hr{border:0;border-top:1px solid rgba(36,48,85,.55);margin:16px 0}
-
-    .grid{
-      display:grid;
-      grid-template-columns: 1.1fr .9fr;
-      gap:12px;
-    }
-    @media (max-width: 860px){
-      .grid{grid-template-columns:1fr}
-    }
-
-    .panel{
-      background:rgba(15,22,45,.40);
-      border:1px solid rgba(36,48,85,.55);
-      border-radius:14px;
-      padding:12px 12px;
-    }
-    .panelTitle{
-      display:flex;align-items:center;justify-content:space-between;gap:10px;
-      margin-bottom:8px;
-    }
-    .hint{color:var(--muted);font-size:12px}
-
-    .list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
-    .item{
-      display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
-      padding:10px 10px;
-      border:1px solid rgba(36,48,85,.45);
-      background:rgba(11,16,32,.35);
-      border-radius:12px;
-    }
-    .itemLeft{display:flex;flex-direction:column;gap:2px}
-    .itemTitle{font-weight:900}
-    .itemDesc{color:var(--muted);font-size:12px;line-height:1.25}
-    .tag{
-      display:inline-flex;align-items:center;justify-content:center;
-      padding:4px 10px;border-radius:999px;
-      border:1px solid rgba(36,48,85,.9);
-      background:rgba(11,16,32,.55);
-      color:var(--muted);
-      font-size:12px;
-      white-space:nowrap;
-    }
-    .tag.good{border-color:rgba(47,124,246,.45);color:#bcd3ff}
-    .tag.note{border-color:rgba(202,162,74,.55);color:#f1d694}
-
-    .smallLinks{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
+    .wrap{max-width:420px;margin:8vh auto;padding:24px;background:#111936;border:1px solid #243055;border-radius:12px;}
+    .logo{display:flex;justify-content:center;margin-bottom:16px;}
+    .logo img{width:170px;}
+    h1{margin:0 0 14px;font-size:20px;text-align:center;}
+    label{display:block;margin-top:12px;font-size:13px;color:#b7c0d9}
+    input{width:100%;padding:10px 12px;margin-top:6px;border-radius:10px;border:1px solid #2b3a67;background:#0e1530;color:#e7e9ee;}
+    button{margin-top:16px;width:100%;padding:10px 12px;border-radius:10px;border:0;background:#4b7bec;color:white;font-weight:600;cursor:pointer;}
+    .err{margin-top:12px;padding:10px;border-radius:10px;background:#2a1420;border:1px solid #6a2840;color:#ffb3c1;font-size:13px;}
+    .hint{margin-top:12px;color:#9aa5c5;font-size:12px;line-height:1.4}
+    code{background:#0e1530;padding:2px 6px;border-radius:6px;border:1px solid #2b3a67}
   </style>
 </head>
 <body>
-  <div class="top wrap" style="padding-bottom:10px">
-    <div>
-      <div class="brand">Sklavounos Warehouse</div>
-      <div class="sub">Dashboard</div>
-    </div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-      <span class="userpill">Logged in as <strong>{{ user.username }}</strong> ({{ user.role }})</span>
-      <form method="post" action="/logout" style="margin:0">
-        <button class="btn btnBlue" type="submit">Logout</button>
-      </form>
-    </div>
-  </div>
-
   <div class="wrap">
-    <div class="card">
-      <div class="cardHead">
-        <h2>Management</h2>
-        <span class="tag good">Quick Links</span>
-      </div>
 
-      <div class="cardBody">
-        <div class="grid">
-          <div class="panel">
-            <div class="panelTitle">
-              <div style="font-weight:900">Core</div>
-              <span class="hint">Daily actions</span>
-            </div>
+    <div class="logo">
+      <img src="/static/logo-full.png" alt="Sklavounos">
+    </div>
 
-            <ul class="list">
-              <li class="item">
-                <div class="itemLeft">
-                  <a class="itemTitle" href="/products">Products</a>
-                  <div class="itemDesc">Add / edit inventory items</div>
-                </div>
-                <span class="tag">CRUD</span>
-              </li>
+    <h1>Login</h1>
 
-              <li class="item">
-                <div class="itemLeft">
-                  <a class="itemTitle" href="/stock">Current Stock</a>
-                  <div class="itemDesc">Live totals (includes zeros)</div>
-                </div>
-                <span class="tag">CENTRAL / WORKSHOP</span>
-              </li>
+    {% if err %}
+      <div class="err">Wrong username or PIN.</div>
+    {% endif %}
 
-              <li class="item">
-                <div class="itemLeft">
-                  <a class="itemTitle" href="/movements">Stock Movements</a>
-                  <div class="itemDesc">IN / OUT / ADJ movements</div>
-                </div>
-                <span class="tag">Audit</span>
-              </li>
-            </ul>
-          </div>
+    <form method="post" action="/login">
+      <label>Username</label>
+      <input name="username" autocomplete="username" required />
 
-          <div class="panel">
-            <div class="panelTitle">
-              <div style="font-weight:900">Status</div>
-              <span class="tag good">OK</span>
-            </div>
+      <label>PIN</label>
+      <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required />
 
-            <p>App is running, session middleware works, Postgres connection works, and admin seeding works.</p>
+      <button type="submit">Sign in</button>
+    </form>
 
-            <h3 style="margin-top:14px">Health</h3>
-            <div class="smallLinks">
-              <a class="btn btnGhost" href="/health">/health</a>
-            </div>
-
-            <hr>
-
-            <div class="panelTitle" style="margin-top:6px">
-              <div style="font-weight:900">Next steps</div>
-              <span class="tag note">Planned</span>
-            </div>
-            <ul style="margin:8px 0 0 18px;color:var(--muted)">
-              <li>Create inventory tables (products, stock movements).</li>
-              <li>Add basic CRUD screens.</li>
-              <li>Add exports (Excel/PDF) once core flows are stable.</li>
-            </ul>
-          </div>
-        </div>
-      </div>
+    <div class="hint">
+      Initial admins are seeded if the users table is empty using env vars:
+      <br><code>INITIAL_ADMIN_PIN</code> and <code>INITIAL_ADMIN2_PIN</code>.
     </div>
   </div>
 </body>
