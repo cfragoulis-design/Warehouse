@@ -52,8 +52,7 @@
 
       {# ---- Category: dropdown + optional custom ---- #}
       {% set cat = (product.category if product else '') %}
-      {# If backend provides categories, use them. Otherwise fall back to a small preset. #}
-      {% set preset = (categories if categories is defined and categories else ['Κοτόπουλα','Χοιρινά','Μοσχάρι','Διάφορα']) %}
+      {% set preset = ['Κοτόπουλα','Χοιρινά','Μοσχάρι','Διάφορα'] %}
       {% set is_custom = (cat and (cat not in preset)) %}
 
       <label>Κατηγορία</label>
@@ -64,14 +63,11 @@
         {% endfor %}
         <option value="__custom__" {% if is_custom %}selected{% endif %}>Άλλο…</option>
       </select>
-      <div class="muted">
-        Οι επιλογές γεμίζουν αυτόματα από τις κατηγορίες που έχουν ήδη αποθηκευτεί.
-        Για νέα κατηγορία (π.χ. Premium) διάλεξε “Άλλο…” και γράψ’ την — μετά θα εμφανίζεται μόνιμα στη λίστα.
-      </div>
+      <div class="muted">Χρησιμοποιείται για αυτόματη ομαδοποίηση στο Stock.</div>
 
       <div id="custom_wrap" class="{% if not is_custom %}hide{% endif %}">
         <label style="margin-top:10px">Custom κατηγορία</label>
-        <input id="custom_input" placeholder="π.χ. Premium" value="{% if is_custom %}{{ cat }}{% endif %}">
+        <input id="custom_input" placeholder="π.χ. Αλλαντικά" value="{% if is_custom %}{{ cat }}{% endif %}">
       </div>
 
       {# What backend reads #}
