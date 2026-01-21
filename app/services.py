@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import uuid4
 from datetime import datetime
+from collections import defaultdict
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -433,7 +434,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     rows = db.execute(stmt).all()
 
-    grouped: dict[str, list[dict]] = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
+    grouped = defaultdict(list)
 
     loc_norm = (loc or "all").strip().lower()
 
@@ -470,9 +471,12 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "pending": pending,
             "total_qty": c + w,
         }
-        grouped[_group_from_category(r.category, r.name)].append(item)
+        cat = (r.category or "").strip()
+        if not cat:
+            cat = "Διάφορα"
+        grouped[cat].append(item)
 
-    return grouped
+    return dict(grouped)
 
 
 def _group_from_category(cat: str | None, name: str | None) -> str:
@@ -531,7 +535,7 @@ def stock_view(
         .order_by(Product.is_active.desc(), Product.name.asc())
     ).all()
 
-    grouped: dict[str, list[dict]] = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
+    grouped = defaultdict(list)
 
     for r in rows:
         c = Decimal(r.central_qty)
@@ -558,7 +562,12 @@ def stock_view(
             "pending": pending,
             "total_qty": c + w,
         }
-        grouped[_group_from_category(r.category, r.name)].append(item)
+        cat = (r.category or "").strip()
+        if not cat:
+            cat = "Διάφορα"
+        grouped[cat].append(item)
+
+    grouped = dict(grouped)
 
     return templates.TemplateResponse(
         "stock.html",
