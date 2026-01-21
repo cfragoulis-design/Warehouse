@@ -475,6 +475,26 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
         if not cat:
             cat = "Διάφορα"
         grouped[cat].append(item)
+            # ---- ΧΕΙΡΟΚΙΝΗΤΗ ΣΕΙΡΑ ΚΑΤΗΓΟΡΙΩΝ ----
+                CATEGORY_ORDER = [
+                "Κοτόπουλο",
+                "Χοιρινό",
+                "Μοσχάρι",
+                "Πρόβειο",
+                "Αλλαντικα",
+                "Premium",
+                "Διάφορα",
+                        ]
+
+order_index = {name: i for i, name in enumerate(CATEGORY_ORDER)}
+
+grouped = dict(sorted(
+    grouped.items(),
+    key=lambda kv: (
+        order_index.get(kv[0], 10_000),  # ό,τι δεν είναι στη λίστα → κάτω
+        kv[0].lower()
+    )
+))
 
     return dict(grouped)
 
