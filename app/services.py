@@ -89,6 +89,10 @@ def signed_qty_expr():
         else_=StockMovement.qty,
     )
 
+
+
+
+
 # --------------------
 # DASHBOARD STATS
 # --------------------
@@ -107,7 +111,7 @@ def get_dashboard_stats(db: Session) -> dict:
         select(func.count(Product.id))
     ).scalar_one()
 
-    # central stock per product
+    # central stock per product (CENTRAL only)
     central_stock = (
         select(
             Product.id.label("pid"),
@@ -143,8 +147,6 @@ def get_dashboard_stats(db: Session) -> dict:
         "movements_today": int(movements_today or 0),
     }
 
-
-
 def get_stock_for_product(db: Session, product_id: int, location_id: int) -> Decimal:
     signed_qty = signed_qty_expr()
     val = db.execute(
@@ -169,17 +171,16 @@ def root() -> RedirectResponse:
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request, user: User = Depends(require_user)):
-    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
-    return templates.TemplateResponse("stock.html",{"request": request,
-        "user": user,
-        "grouped": grouped,
-        "can_edit_target": (user.role == "admin"),
-        "can_adjust_central": (user.role == "admin"),
-        "can_adjust_workshop": (user.role in ("admin", "workshop")),
-        "can_transfer_wc": (user.role in ("admin", "workshop")),  # ✅ ΑΥΤΟ ΕΛΕΙΠΕ
-    },
-)
+def dashboard(
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    stats = get_dashboard_stats(db)
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {"request": request, "user": user, "stats": stats},
+    )
 
 # --------------------
 # PRODUCTS (admin)
