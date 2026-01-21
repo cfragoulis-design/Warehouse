@@ -46,13 +46,14 @@
           <select name="unit">
             <option value="box" {% if product and product.unit=='box' %}selected{% endif %}>Κιβώτια</option>
             <option value="pcs" {% if product and product.unit=='pcs' %}selected{% endif %}>Τεμάχια</option>
+            <option value="pcs" {% if product and product.unit=='pcs' %}selected{% endif %}>Δίσκος</option>
           </select>
         </div>
       </div>
 
       {# ---- Category: dropdown + optional custom ---- #}
       {% set cat = (product.category if product else '') %}
-      {% set preset = ['Κοτόπουλα','Χοιρινά','Μοσχάρι','Διάφορα'] %}
+      {% set preset = ['Κοτόπουλα','Χοιρινά','Μοσχάρι','Πρόβειο','Premium','Αλλαντικά','Διάφορα'] %}
       {% set is_custom = (cat and (cat not in preset)) %}
 
       <label>Κατηγορία</label>
