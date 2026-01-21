@@ -5,15 +5,100 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sklavounos Stock</title>
   <style>
-    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
-    .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#111936;border-bottom:1px solid #243055;}
+    :root{
+      --bg:#0b1020;
+      --panel:#111936;
+      --panel2:#0e1530;
+      --line:#243055;
+      --text:#e7e9ee;
+      --muted:#a7b0c7;
+      --blue:#2f7cf6;
+      --blue2:#4b7bec;
+    }
+
+    *{box-sizing:border-box}
+
+    body{
+      font-family:system-ui,Segoe UI,Arial,sans-serif;
+      background:var(--bg);
+      color:var(--text);
+      margin:0;
+      min-height:100vh;
+    }
+
+    a{color:#8ab4ff;text-decoration:none}
+    a:hover{text-decoration:underline}
+
+    .top{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      padding:16px 20px;
+      background:linear-gradient(180deg,var(--panel) 0%, var(--bg) 100%);
+      border-bottom:1px solid var(--line);
+    }
+
     .brand{display:flex;align-items:center;gap:10px;}
     .brand img{height:32px;}
     .brand-title{font-weight:800;letter-spacing:0.4px;}
-    .card{max-width:900px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
-    .muted{color:#a7b0c7}
-    .btn{background:#2f7cf6;color:white;border:0;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
+    .muted{color:var(--muted)}
+
+    .btn{
+      background:var(--blue);
+      color:white;
+      border:0;
+      border-radius:10px;
+      padding:10px 12px;
+      font-weight:600;
+      cursor:pointer
+    }
+    .btn:hover{background:var(--blue2)}
     form{margin:0}
+
+    .card{
+      max-width:980px;
+      margin:24px auto;
+      padding:20px;
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:14px;
+    }
+
+    h2{margin:0 0 12px}
+    .section{margin-top:18px}
+
+    /* Action cards */
+    .actions{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+      gap:14px;
+      margin-top:10px;
+    }
+    .action{
+      display:block;
+      padding:14px;
+      border-radius:12px;
+      background:var(--panel2);
+      border:1px solid var(--line);
+      color:var(--text);
+      text-decoration:none;
+    }
+    .action strong{display:block;margin-bottom:4px;}
+    .action span{color:var(--muted);font-size:13px;line-height:1.35;}
+    .action:hover{border-color:rgba(75,123,236,0.75); text-decoration:none;}
+
+    .status{
+      font-size:13px;
+      color:var(--muted);
+      opacity:0.9;
+      line-height:1.5;
+    }
+
+    .hr{
+      border:0;
+      border-top:1px solid var(--line);
+      margin:18px 0;
+    }
   </style>
 </head>
 <body>
@@ -35,29 +120,36 @@
   </div>
 
   <div class="card">
-    <h2 style="margin-top:0">Management</h2>
-    <ul>
-      <li>
-        <a href="/products" style="color:#8ab4ff;font-weight:600">Products</a>
-        <span class="muted">– Add / edit inventory items</span>
-      </li>
-      <li>
-        <a href="/stock" style="color:#8ab4ff;font-weight:600">Current Stock</a>
-        <span class="muted">– live totals (includes zeros)</span>
-      </li>
-      <li>
-        <a href="/movements" style="color:#8ab4ff;font-weight:600">Stock Movements</a>
-        <span class="muted">– IN / OUT / ADJ movements</span>
-      </li>
-    </ul>
+    <h2>Management</h2>
 
-    <hr style="border:0;border-top:1px solid #243055;margin:16px 0">
+    <div class="actions">
+      <a class="action" href="/products">
+        <strong>Products</strong>
+        <span>Add / edit inventory items</span>
+      </a>
 
-    <h2>Status</h2>
-    <p class="muted">App is running, session middleware works, Postgres connection works, and admin seeding works.</p>
+      <a class="action" href="/stock">
+        <strong>Current Stock</strong>
+        <span>Live totals (includes zeros)</span>
+      </a>
 
-    <h3>Health</h3>
-    <p><a href="/health" style="color:#8ab4ff">/health</a></p>
+      <a class="action" href="/movements">
+        <strong>Stock Movements</strong>
+        <span>IN / OUT / ADJ movements</span>
+      </a>
+    </div>
+
+    <div class="hr"></div>
+
+    <div class="section">
+      <h2 style="margin-bottom:8px;">Status</h2>
+      <p class="status">App is running, session middleware works, Postgres connection works, and admin seeding works.</p>
+    </div>
+
+    <div class="section">
+      <h2 style="margin-bottom:8px;">Health</h2>
+      <p><a href="/health">/health</a></p>
+    </div>
   </div>
 
 </body>
