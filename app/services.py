@@ -382,6 +382,32 @@ def movement_create(
 # --------------------
 # STOCK VIEW
 # --------------------
+
+# ---- Stock category ordering (manual) ----
+CATEGORY_ORDER = [
+    "Κοτόπουλο",
+    "Χοιρινό",
+    "Μοσχάρι",
+    "Πρόβειο",
+    "Αλλαντικα",
+    "Premium",
+    "Διάφορα",
+]
+
+
+def sort_grouped_categories(grouped: dict[str, list[dict]] | defaultdict) -> dict[str, list[dict]]:
+    """Sort grouped stock by a manual category order; unknown categories go after, alphabetically."""
+    order_index = {name: i for i, name in enumerate(CATEGORY_ORDER)}
+    return dict(
+        sorted(
+            grouped.items(),
+            key=lambda kv: (
+                order_index.get(kv[0], 10_000),
+                (kv[0] or "").lower(),
+            ),
+        )
+    )
+
 def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str, list[dict]]:
     """Builds the same grouped stock structure used by stock.html and stock_print_a4.html.
 
@@ -476,7 +502,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             cat = "Διάφορα"
         grouped[cat].append(item)
 
-    return dict(grouped)
+    return sort_grouped_categories(grouped)
 
 
 def _group_from_category(cat: str | None, name: str | None) -> str:
@@ -567,7 +593,7 @@ def stock_view(
             cat = "Διάφορα"
         grouped[cat].append(item)
 
-    grouped = dict(grouped)
+    grouped = sort_grouped_categories(grouped)
 
     return templates.TemplateResponse(
         "stock.html",
