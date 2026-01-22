@@ -5,37 +5,57 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Λίστα Εργαστηρίου (A4)</title>
   <style>
-    /* A4 Portrait, μικρά περιθώρια */
+    /* A4 Portrait */
     @page { size: A4 portrait; margin: 10mm; }
 
-    html, body, table, th, td, h1, h2, small, button{
+    html, body, table, th, td, h1, h2, small, button {
       font-family: Arial, system-ui, -apple-system, "Segoe UI", sans-serif !important;
       color:#000;
     }
 
     body{ margin:0; }
+
     h1{ font-size:16px; margin:0 0 6px 0; font-weight:800; }
     .meta{ font-size:11px; margin:0 0 10px 0; }
     h2{ font-size:12px; margin:12px 0 6px 0; border-top:2px solid #000; padding-top:4px; font-weight:800; }
 
-    /* ΠΙΝΑΚΑΣ: αυτοματη διάταξη (shrink-to-fit για Προϊόν), fixed μόνο οι αριθμητικές στήλες */
-    table{ width:100%; border-collapse:collapse; table-layout:auto; margin:0 0 8px 0; }
-    th,td{ border:1px solid #000; padding:4px 5px; font-size:11px; vertical-align:top; }
+    /* IMPORTANT:
+       - width:auto + inline-table => ο πίνακας ΔΕΝ τεντώνει στο 100% της σελίδας
+       - έτσι δεν υπάρχει τεράστιο "κενό" μέσα στη στήλη Προϊόν
+    */
+    table{
+      border-collapse:collapse;
+      width:auto;
+      max-width:100%;
+      display:inline-table;
+      table-layout:auto;
+      margin:0 0 8px 0;
+    }
+    th,td{
+      border:1px solid #000;
+      padding:4px 5px;
+      font-size:11px;
+      vertical-align:top;
+      white-space:nowrap;
+    }
     th{ background:#eee; text-align:left; font-weight:800; }
 
-    /* ΣΤΗΛΕΣ */
-    .col-product{ word-break:break-word; overflow-wrap:anywhere; } /* auto width */
-    .col-unit{ text-align:center; white-space:nowrap; }
-    .col-pending,.col-num{ text-align:right; font-variant-numeric: tabular-nums; white-space:nowrap; }
-    .col-check{ text-align:center; white-space:nowrap; }
-    .col-note{ }
+    /* Product: επιτρέπουμε wrap μόνο εδώ */
+    td.col-product, th.col-product{
+      white-space:normal;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
 
-    /* Μικρό checkbox τετραγωνάκι */
+    /* Σταθερά πλάτη σε αριθμητικές στήλες */
+    .col-unit{ width:34px; text-align:center }
+    .col-pending{ width:46px; text-align:right }
+    .col-num{ width:42px; text-align:right }
+    .col-check{ width:20px; text-align:center }
+    .col-note{ width:90px; }
+
     .box{ font-size:13px; line-height:1; }
-
-    /* Αποφυγή σπασίματος κατηγορίας στη μέση (όσο γίνεται) */
-    .section{ break-inside:avoid; page-break-inside:avoid; }
-
+    .section{ page-break-inside:avoid; }
     .sign{ margin-top:10px; font-size:11px; }
 
     @media print{
@@ -60,16 +80,15 @@
     <h2>{{ cat }}</h2>
 
     <table>
-      <!-- Προϊόν auto (χωρίς width) για να ΜΗΝ υπάρχει “νεκρό” κενό -->
       <colgroup>
-        <col> <!-- Προϊόν -->
-        <col style="width:36px"> <!-- Μον. -->
-        <col style="width:44px"> <!-- Pend -->
-        <col style="width:36px"> <!-- C -->
-        <col style="width:36px"> <!-- W -->
-        <col style="width:36px"> <!-- T -->
-        <col style="width:22px"> <!-- ✓ -->
-        <col style="width:90px"> <!-- Σχόλιο -->
+        <col><!-- Product: auto -->
+        <col style="width:34px">
+        <col style="width:46px">
+        <col style="width:42px">
+        <col style="width:42px">
+        <col style="width:42px">
+        <col style="width:20px">
+        <col style="width:90px">
       </colgroup>
 
       <thead>
@@ -90,7 +109,7 @@
           <tr>
             <td class="col-product"><b>{{ it.name }}</b></td>
             <td class="col-unit">{{ it.unit_label }}</td>
-            <td class="col-pending"><b>{{ it.pending|fmtqty(it.unit) }}</b></td>
+            <td class="col-pending">{{ it.pending|fmtqty(it.unit) }}</td>
             <td class="col-num">{{ it.central_qty|fmtqty(it.unit) }}</td>
             <td class="col-num">{{ it.workshop_qty|fmtqty(it.unit) }}</td>
             <td class="col-num">{{ it.target_central|fmtqty(it.unit) }}</td>
