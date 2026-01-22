@@ -5,11 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Λίστα Εργαστηρίου (A4)</title>
   <style>
-    /* A4 Portrait, μικρά περιθώρια */
     @page { size: A4 portrait; margin: 10mm; }
 
-    /* ΚΑΝΟΝΙΚΟΠΟΙΗΣΗ ΓΡΑΜΜΑΤΟΣΕΙΡΑΣ (και στο print) */
-    html, body, table, th, td, h1, h2, small, button { 
+    html, body, table, th, td, h1, h2, small, button {
       font-family: Arial, system-ui, -apple-system, "Segoe UI", sans-serif !important;
       color:#000;
     }
@@ -19,25 +17,19 @@
     .meta{ font-size:11px; margin:0 0 10px 0; }
     h2{ font-size:12px; margin:12px 0 6px 0; border-top:2px solid #000; padding-top:4px; font-weight:800; }
 
-    /* ΠΙΝΑΚΑΣ: να ΜΗΝ "σπάει" σε στήλες/κενά */
-    table{ width:100%; border-collapse:collapse; table-layout:auto; margin:0 0 8px 0; }
+    table{ width:100%; border-collapse:collapse; table-layout:fixed; margin:0 0 8px 0; }
     th,td{ border:1px solid #000; padding:4px 5px; font-size:11px; vertical-align:top; }
     th{ background:#eee; text-align:left; font-weight:800; }
 
-    /* ΣΤΗΛΕΣ */
-    .col-product{ width:auto; word-break:break-word; overflow-wrap:anywhere; }
-    .col-unit{ width:34px; text-align:center }
-    .col-pending{ width:46px; text-align:right }
-    .col-num{ width:42px; text-align:right }
-    .col-check{ width:20px; text-align:center }
-    .col-note{ width:80px }
+    td.col-product, th.col-product{ white-space:normal; word-break:break-word; overflow-wrap:anywhere; }
+    td.col-unit, th.col-unit{ text-align:center; }
+    td.col-pending, th.col-pending{ text-align:right; font-weight:800; }
+    td.col-num, th.col-num{ text-align:right; }
+    td.col-check, th.col-check{ text-align:center; }
+    td.col-note, th.col-note{ text-align:left; }
 
-    /* Μικρό checkbox τετραγωνάκι */
     .box{ font-size:13px; line-height:1; }
-
-    /* Καλύτερο spacing για πολλές κατηγορίες */
     .section{ page-break-inside:avoid; }
-
     .sign{ margin-top:10px; font-size:11px; }
 
     @media print{
@@ -60,18 +52,18 @@
 {% for cat, items in grouped.items() %}
   <div class="section">
     <h2>{{ cat }}</h2>
+
     <table>
-      <table>
-  <colgroup>
-    <col style="width:55%">
-    <col style="width:5%">
-    <col style="width:6%">
-    <col style="width:6%">
-    <col style="width:6%">
-    <col style="width:6%">
-    <col style="width:4%">
-    <col style="width:12%">
-  </colgroup>
+      <colgroup>
+        <col />                     <!-- Προϊόν -->
+        <col style="width:36px" />  <!-- Μον. -->
+        <col style="width:46px" />  <!-- Pend -->
+        <col style="width:36px" />  <!-- C -->
+        <col style="width:36px" />  <!-- W -->
+        <col style="width:36px" />  <!-- T -->
+        <col style="width:22px" />  <!-- ✓ -->
+        <col style="width:120px" /> <!-- Σχόλιο -->
+      </colgroup>
 
       <thead>
         <tr>
@@ -85,6 +77,7 @@
           <th class="col-note">Σχόλιο</th>
         </tr>
       </thead>
+
       <tbody>
         {% for it in items %}
           <tr>
