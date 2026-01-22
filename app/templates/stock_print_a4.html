@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Λίστα Εργαστηρίου (A4)</title>
   <style>
-    /* A4 Portrait */
+    /* A4 Portrait, μικρά περιθώρια */
     @page { size: A4 portrait; margin: 10mm; }
 
     html, body, table, th, td, h1, h2, small, button {
@@ -14,48 +14,35 @@
     }
 
     body{ margin:0; }
-
     h1{ font-size:16px; margin:0 0 6px 0; font-weight:800; }
     .meta{ font-size:11px; margin:0 0 10px 0; }
     h2{ font-size:12px; margin:12px 0 6px 0; border-top:2px solid #000; padding-top:4px; font-weight:800; }
 
-    /* IMPORTANT:
-       - width:auto + inline-table => ο πίνακας ΔΕΝ τεντώνει στο 100% της σελίδας
-       - έτσι δεν υπάρχει τεράστιο "κενό" μέσα στη στήλη Προϊόν
-    */
+    /* ΠΙΝΑΚΑΣ: σταθερό πλάτος σε mm (ίδιο σε όλες τις κατηγορίες) και κεντράρισμα */
     table{
-      border-collapse:collapse;
-      width:auto;
+      width:190mm;                 /* A4 content width (210 - 10 - 10) */
       max-width:100%;
-      display:inline-table;
-      table-layout:auto;
-      margin:0 0 8px 0;
+      border-collapse:collapse;
+      table-layout:fixed;          /* κρατάει τις στήλες ακριβώς όπως ορίζονται */
+      margin:0 auto 8px auto;      /* κέντρο */
     }
-    th,td{
-      border:1px solid #000;
-      padding:4px 5px;
-      font-size:11px;
-      vertical-align:top;
-      white-space:nowrap;
-    }
+    th,td{ border:1px solid #000; padding:4px 5px; font-size:11px; vertical-align:top; }
     th{ background:#eee; text-align:left; font-weight:800; }
 
-    /* Product: επιτρέπουμε wrap μόνο εδώ */
-    td.col-product, th.col-product{
-      white-space:normal;
-      word-break:break-word;
-      overflow-wrap:anywhere;
-    }
+    /* Στήλες */
+    .col-product{ width:90mm; word-break:break-word; overflow-wrap:anywhere; }
+    .col-unit{ width:10mm; text-align:center; }
+    .col-pending{ width:12mm; text-align:right; font-weight:800; }
+    .col-num{ width:10mm; text-align:right; }
+    .col-check{ width:6mm; text-align:center; }
+    .col-note{ width:42mm; }       /* εδώ “πηγαίνει” ο ελεύθερος χώρος, όχι ανάμεσα στο προϊόν και τα νούμερα */
 
-    /* Σταθερά πλάτη σε αριθμητικές στήλες */
-    .col-unit{ width:34px; text-align:center }
-    .col-pending{ width:46px; text-align:right }
-    .col-num{ width:42px; text-align:right }
-    .col-check{ width:20px; text-align:center }
-    .col-note{ width:90px; }
-
+    /* Μικρό checkbox */
     .box{ font-size:13px; line-height:1; }
+
+    /* Μην “σπάει” στη μέση μια κατηγορία */
     .section{ page-break-inside:avoid; }
+
     .sign{ margin-top:10px; font-size:11px; }
 
     @media print{
@@ -80,17 +67,6 @@
     <h2>{{ cat }}</h2>
 
     <table>
-      <colgroup>
-        <col><!-- Product: auto -->
-        <col style="width:34px">
-        <col style="width:46px">
-        <col style="width:42px">
-        <col style="width:42px">
-        <col style="width:42px">
-        <col style="width:20px">
-        <col style="width:90px">
-      </colgroup>
-
       <thead>
         <tr>
           <th class="col-product">Προϊόν</th>
