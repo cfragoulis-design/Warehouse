@@ -1,131 +1,109 @@
 <!doctype html>
 <html lang="el">
 <head>
-<meta charset="utf-8" />
-<title>Λίστα Εργαστηρίου (A4)</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Λίστα Εργαστηρίου (A4)</title>
+  <style>
+    /* A4 Portrait, μικρά περιθώρια */
+    @page { size: A4 portrait; margin: 10mm; }
 
-<style>
-@page { size: A4 portrait; margin: 10mm; }
+    html, body, table, th, td, h1, h2, small, button{
+      font-family: Arial, system-ui, -apple-system, "Segoe UI", sans-serif !important;
+      color:#000;
+    }
 
-*{
-  box-sizing:border-box;
-  font-family: Arial, system-ui, sans-serif;
-  color:#000;
-}
+    body{ margin:0; }
+    h1{ font-size:16px; margin:0 0 6px 0; font-weight:800; }
+    .meta{ font-size:11px; margin:0 0 10px 0; }
+    h2{ font-size:12px; margin:12px 0 6px 0; border-top:2px solid #000; padding-top:4px; font-weight:800; }
 
-body{ margin:0; }
+    /* ΠΙΝΑΚΑΣ: αυτοματη διάταξη (shrink-to-fit για Προϊόν), fixed μόνο οι αριθμητικές στήλες */
+    table{ width:100%; border-collapse:collapse; table-layout:auto; margin:0 0 8px 0; }
+    th,td{ border:1px solid #000; padding:4px 5px; font-size:11px; vertical-align:top; }
+    th{ background:#eee; text-align:left; font-weight:800; }
 
-h1{
-  font-size:16px;
-  margin:0 0 6px 0;
-  font-weight:800;
-}
+    /* ΣΤΗΛΕΣ */
+    .col-product{ word-break:break-word; overflow-wrap:anywhere; } /* auto width */
+    .col-unit{ text-align:center; white-space:nowrap; }
+    .col-pending,.col-num{ text-align:right; font-variant-numeric: tabular-nums; white-space:nowrap; }
+    .col-check{ text-align:center; white-space:nowrap; }
+    .col-note{ }
 
-.meta{
-  font-size:11px;
-  margin-bottom:8px;
-}
+    /* Μικρό checkbox τετραγωνάκι */
+    .box{ font-size:13px; line-height:1; }
 
-h2{
-  font-size:12px;
-  margin:12px 0 6px 0;
-  padding-top:4px;
-  border-top:2px solid #000;
-  font-weight:800;
-}
+    /* Αποφυγή σπασίματος κατηγορίας στη μέση (όσο γίνεται) */
+    .section{ break-inside:avoid; page-break-inside:avoid; }
 
-/* ΠΙΝΑΚΑΣ */
-table{
-  width:100%;
-  border-collapse:collapse;
-  table-layout:auto; /* ΚΡΙΣΙΜΟ */
-  margin-bottom:8px;
-}
+    .sign{ margin-top:10px; font-size:11px; }
 
-th, td{
-  border:1px solid #000;
-  padding:4px 5px;
-  font-size:11px;
-  vertical-align:top;
-}
-
-th{
-  background:#eee;
-  font-weight:800;
-}
-
-/* ΣΤΗΛΕΣ */
-.col-product{ width:20%; }
-.col-unit{ width:5%; text-align:center; }
-.col-pend{ width:6%; text-align:right; font-weight:800; }
-.col-num{ width:6%; text-align:right; }
-.col-check{ width:4%; text-align:center; }
-.col-note{ width:10%; }
-
-@media print{
-  .noprint{ display:none; }
-}
-</style>
+    @media print{
+      .noprint{ display:none !important; }
+      a[href]:after{ content:""; }
+    }
+  </style>
 </head>
-
 <body>
 
-<div class="noprint">
+<div class="noprint" style="margin-bottom:8px">
   <button onclick="window.print()">Εκτύπωση</button>
 </div>
 
 <h1>Λίστα Εργαστηρίου</h1>
 <div class="meta">
-  Εκτυπώθηκε: <b>{{ printed_at }}</b> • Προβολή:
-  <b>{{ "Pending" if scope=="pending" else "Όλα" }}</b>
+  Εκτυπώθηκε: <b>{{ printed_at }}</b> • Προβολή: <b>{{ "Pending" if scope=="pending" else "Όλα" }}</b>
 </div>
 
 {% for cat, items in grouped.items() %}
-<h2>{{ cat }}</h2>
+  <div class="section">
+    <h2>{{ cat }}</h2>
 
-<table>
-  <colgroup>
-    <col class="col-product">
-    <col class="col-unit">
-    <col class="col-pend">
-    <col class="col-num">
-    <col class="col-num">
-    <col class="col-num">
-    <col class="col-check">
-    <col class="col-note">
-  </colgroup>
+    <table>
+      <!-- Προϊόν auto (χωρίς width) για να ΜΗΝ υπάρχει “νεκρό” κενό -->
+      <colgroup>
+        <col> <!-- Προϊόν -->
+        <col style="width:36px"> <!-- Μον. -->
+        <col style="width:44px"> <!-- Pend -->
+        <col style="width:36px"> <!-- C -->
+        <col style="width:36px"> <!-- W -->
+        <col style="width:36px"> <!-- T -->
+        <col style="width:22px"> <!-- ✓ -->
+        <col style="width:90px"> <!-- Σχόλιο -->
+      </colgroup>
 
-  <thead>
-    <tr>
-      <th>Προϊόν</th>
-      <th>Μον.</th>
-      <th>Pend</th>
-      <th>C</th>
-      <th>W</th>
-      <th>T</th>
-      <th>✓</th>
-      <th>Σχόλιο</th>
-    </tr>
-  </thead>
+      <thead>
+        <tr>
+          <th class="col-product">Προϊόν</th>
+          <th class="col-unit">Μον.</th>
+          <th class="col-pending">Pend</th>
+          <th class="col-num">C</th>
+          <th class="col-num">W</th>
+          <th class="col-num">T</th>
+          <th class="col-check">✓</th>
+          <th class="col-note">Σχόλιο</th>
+        </tr>
+      </thead>
 
-  <tbody>
-    {% for it in items %}
-    <tr>
-      <td>{{ it.name }}</td>
-      <td class="col-unit">{{ it.unit_label }}</td>
-      <td class="col-pend">{{ it.pending|fmtqty(it.unit) }}</td>
-      <td class="col-num">{{ it.central_qty|fmtqty(it.unit) }}</td>
-      <td class="col-num">{{ it.workshop_qty|fmtqty(it.unit) }}</td>
-      <td class="col-num">{{ it.target_central|fmtqty(it.unit) }}</td>
-      <td class="col-check">☐</td>
-      <td></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+      <tbody>
+        {% for it in items %}
+          <tr>
+            <td class="col-product"><b>{{ it.name }}</b></td>
+            <td class="col-unit">{{ it.unit_label }}</td>
+            <td class="col-pending"><b>{{ it.pending|fmtqty(it.unit) }}</b></td>
+            <td class="col-num">{{ it.central_qty|fmtqty(it.unit) }}</td>
+            <td class="col-num">{{ it.workshop_qty|fmtqty(it.unit) }}</td>
+            <td class="col-num">{{ it.target_central|fmtqty(it.unit) }}</td>
+            <td class="col-check"><span class="box">☐</span></td>
+            <td class="col-note"></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 {% endfor %}
 
-<div style="font-size:11px; margin-top:10px">
+<div class="sign">
   Υπογραφή: ____________________  Ώρα: ________
 </div>
 
