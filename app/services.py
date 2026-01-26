@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import uuid4
 from datetime import datetime
+from collections import defaultdict
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -177,13 +178,6 @@ def dashboard(
     db: Session = Depends(get_db),
 ):
     stats = get_dashboard_stats(db)
-    total_pending = Decimal(0)
-    total_owed = Decimal(0)
-    for _cat, _items in grouped.items():
-        for _it in _items:
-            total_pending += Decimal(str(_it.get("pending") or 0))
-            total_owed += Decimal(str(_it.get("owed_workshop") or 0))
-
     return templates.TemplateResponse(
         "dashboard.html",
         {"request": request, "user": user, "stats": stats},
@@ -388,6 +382,32 @@ def movement_create(
 # --------------------
 # STOCK VIEW
 # --------------------
+
+# ---- Stock category ordering (manual) ----
+CATEGORY_ORDER = [
+    "Κοτόπουλο",
+    "Χοιρινό",
+    "Μοσχάρι",
+    "Πρόβειο",
+    "Αλλαντικα",
+    "Premium",
+    "Διάφορα",
+]
+
+
+def sort_grouped_categories(grouped: dict[str, list[dict]] | defaultdict) -> dict[str, list[dict]]:
+    """Sort grouped stock by a manual category order; unknown categories go after, alphabetically."""
+    order_index = {name: i for i, name in enumerate(CATEGORY_ORDER)}
+    return dict(
+        sorted(
+            grouped.items(),
+            key=lambda kv: (
+                order_index.get(kv[0], 10_000),
+                (kv[0] or "").lower(),
+            ),
+        )
+    )
+
 def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str, list[dict]]:
     """Builds the same grouped stock structure used by stock.html and stock_print_a4.html.
 
@@ -411,7 +431,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
-            Product.owed_workshop,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -430,7 +449,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
-        Product.owed_workshop,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     )
@@ -442,7 +460,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     rows = db.execute(stmt).all()
 
-    grouped: dict[str, list[dict]] = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
+    grouped = defaultdict(list)
 
     loc_norm = (loc or "all").strip().lower()
 
@@ -450,14 +468,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
         c = Decimal(r.central_qty)
         w = Decimal(r.workshop_qty)
         t = Decimal(r.target_central or 0)
-        owed = Decimal(getattr(r, "owed_workshop", None) or 0)
-
-        pending_live = t - c
-        if pending_live < 0:
-            pending_live = Decimal(0)
-
-        # Display pending = νέο έλλειμμα (live) - όσα χρωστάει ήδη το εργαστήριο
-        pending = pending_live - owed
+        pending = t - c
         if pending < 0:
             pending = Decimal(0)
 
@@ -483,13 +494,15 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "central_qty": c,
             "workshop_qty": w,
             "target_central": t,
-            "owed_workshop": owed,
             "pending": pending,
             "total_qty": c + w,
         }
-        grouped[_group_from_category(r.category, r.name)].append(item)
+        cat = (r.category or "").strip()
+        if not cat:
+            cat = "Διάφορα"
+        grouped[cat].append(item)
 
-    return grouped
+    return sort_grouped_categories(grouped)
 
 
 def _group_from_category(cat: str | None, name: str | None) -> str:
@@ -526,7 +539,6 @@ def stock_view(
             Product.category,
             Product.is_active,
             Product.target_central,
-            Product.owed_workshop,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -545,25 +557,17 @@ def stock_view(
             Product.category,
             Product.is_active,
             Product.target_central,
-        Product.owed_workshop,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     ).all()
 
-    grouped: dict[str, list[dict]] = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
+    grouped = defaultdict(list)
 
     for r in rows:
         c = Decimal(r.central_qty)
         w = Decimal(r.workshop_qty)
         t = Decimal(r.target_central or 0)
-        owed = Decimal(getattr(r, "owed_workshop", None) or 0)
-
-        pending_live = t - c
-        if pending_live < 0:
-            pending_live = Decimal(0)
-
-        # Display pending = νέο έλλειμμα (live) - όσα χρωστάει ήδη το εργαστήριο
-        pending = pending_live - owed
+        pending = t - c
         if pending < 0:
             pending = Decimal(0)
 
@@ -581,11 +585,15 @@ def stock_view(
             "central_qty": c,
             "workshop_qty": w,
             "target_central": t,
-            "owed_workshop": owed,
             "pending": pending,
             "total_qty": c + w,
         }
-        grouped[_group_from_category(r.category, r.name)].append(item)
+        cat = (r.category or "").strip()
+        if not cat:
+            cat = "Διάφορα"
+        grouped[cat].append(item)
+
+    grouped = sort_grouped_categories(grouped)
 
     return templates.TemplateResponse(
         "stock.html",
@@ -593,8 +601,6 @@ def stock_view(
             "request": request,
             "user": user,
             "grouped": grouped,
-            "total_pending": total_pending,
-            "total_owed": total_owed,
             "can_edit_target": (user.role == "admin"),
             "can_adjust_central": (user.role == "admin"),
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
@@ -956,44 +962,33 @@ async def stock_transfer_workshop_to_central_ui(
 
 
 @router.post("/stock/fulfill")
-async def stock_fulfill_pending_ui(
+async def stock_fulfill_pending(
     product_id: int = Form(...),
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User = Depends(require_login),
 ):
-    """
-    Μεταφορά από WORKSHOP -> CENTRAL για το τρέχον display-pending.
-    Αν το εργαστήριο δεν έχει αρκετό απόθεμα, στέλνει ό,τι έχει και
-    μεταφέρει το υπόλοιπο σε "owed_workshop" (χρέος), ώστε το Pending να μηδενίζει.
-    """
-    central = get_location(db, "CENTRAL")
-    workshop = get_location(db, "WORKSHOP")
+    if user.role not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
 
+    central = db.query(Location).filter(Location.code == "CENTRAL").first()
+    workshop = db.query(Location).filter(Location.code == "WORKSHOP").first()
+    if not central or not workshop:
+        raise HTTPException(status_code=500, detail="Locations missing")
+
     c_qty = get_stock_qty(db, product_id, central.id)
     ws_qty = get_stock_qty(db, product_id, workshop.id)
     t = p.target_central or Decimal("0")
-    owed = p.owed_workshop or Decimal("0")
+    pending = max(Decimal("0"), t - c_qty)
 
-    pending_live = t - c_qty
-    if pending_live < 0:
-        pending_live = Decimal("0")
-
-    # display-pending = live - owed
-    request = pending_live - owed
-    if request <= 0:
+    if pending <= 0:
         return RedirectResponse(url="/stock", status_code=303)
 
-    send_qty = ws_qty if ws_qty < request else request
-
-    # Αν δεν υπάρχει καθόλου απόθεμα στο εργαστήριο, απλά περνάμε όλο το request ως owed
-    if send_qty <= 0:
-        p.owed_workshop = owed + request
-        db.commit()
-        return RedirectResponse(url="/stock", status_code=303)
+    if ws_qty < pending:
+        raise HTTPException(status_code=422, detail="Not enough workshop stock to fulfill")
 
     tid = str(uuid4())
 
@@ -1002,7 +997,7 @@ async def stock_fulfill_pending_ui(
             product_id=product_id,
             location_id=workshop.id,
             movement_type="OUT",
-            qty=send_qty,
+            qty=pending,
             user_id=user.id,
             note="Fulfill pending to central",
             transfer_id=tid,
@@ -1013,14 +1008,14 @@ async def stock_fulfill_pending_ui(
             product_id=product_id,
             location_id=central.id,
             movement_type="IN",
-            qty=send_qty,
+            qty=pending,
             user_id=user.id,
             note="Fulfill from workshop",
             transfer_id=tid,
         )
     )
 
-    # Αυτό που δεν στάλθηκε γίνεται owed (χρέος εργαστηρίου)
-    p.owed_workshop = owed + (request - send_qty)
+    # reset target after fulfillment (per your rule)
+    p.target_central = Decimal("0")
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
