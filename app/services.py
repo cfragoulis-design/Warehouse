@@ -8,7 +8,7 @@ from collections import defaultdict
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, text
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
@@ -50,6 +50,54 @@ def fmtqty(val, unit: str | None = None) -> str:
 
 
 templates.env.filters["fmtqty"] = fmtqty
+
+
+# --------------------
+# owed pending (partial fulfill tracking)
+# --------------------
+def _ensure_owed_table(db: Session) -> None:
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS owed_pending (
+            product_id INTEGER PRIMARY KEY,
+            qty NUMERIC NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    db.commit()
+
+def _get_owed_map(db: Session) -> dict[int, Decimal]:
+    _ensure_owed_table(db)
+    rows = db.execute(text("SELECT product_id, qty FROM owed_pending")).fetchall()
+    out: dict[int, Decimal] = {}
+    for pid, qty in rows:
+        try:
+            out[int(pid)] = Decimal(str(qty))
+        except Exception:
+            out[int(pid)] = Decimal("0")
+    return out
+
+def _add_owed(db: Session, product_id: int, delta: Decimal) -> None:
+    _ensure_owed_table(db)
+    db.execute(
+        text("""
+            INSERT INTO owed_pending (product_id, qty, updated_at)
+            VALUES (:pid, :qty, CURRENT_TIMESTAMP)
+            ON CONFLICT (product_id)
+            DO UPDATE SET qty = owed_pending.qty + EXCLUDED.qty,
+                          updated_at = CURRENT_TIMESTAMP
+        """),
+        {"pid": int(product_id), "qty": str(delta)},
+    )
+    db.commit()
+
+def _clear_owed(db: Session, product_id: int) -> None:
+    _ensure_owed_table(db)
+    db.execute(
+        text("UPDATE owed_pending SET qty=0, updated_at=CURRENT_TIMESTAMP WHERE product_id=:pid"),
+        {"pid": int(product_id)},
+    )
+    db.commit()
+
 
 
 # --------------------
@@ -461,6 +509,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
     rows = db.execute(stmt).all()
 
     grouped = defaultdict(list)
+    owed_map = _get_owed_map(db)
 
     loc_norm = (loc or "all").strip().lower()
 
@@ -495,6 +544,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "workshop_qty": w,
             "target_central": t,
             "pending": pending,
+            "owed_qty": owed_map.get(p.id, Decimal("0")),
             "total_qty": c + w,
         }
         cat = (r.category or "").strip()
@@ -586,6 +636,7 @@ def stock_view(
             "workshop_qty": w,
             "target_central": t,
             "pending": pending,
+            "owed_qty": owed_map.get(r.id, Decimal("0")),
             "total_qty": c + w,
         }
         cat = (r.category or "").strip()
@@ -594,6 +645,8 @@ def stock_view(
         grouped[cat].append(item)
 
     grouped = sort_grouped_categories(grouped)
+    owed_total = sum((it.get('owed_qty') or 0) for items in grouped.values() for it in items)
+    msg = request.query_params.get('msg')
 
     return templates.TemplateResponse(
         "stock.html",
@@ -601,6 +654,8 @@ def stock_view(
             "request": request,
             "user": user,
             "grouped": grouped,
+            "owed_total": owed_total,
+            "msg": msg,
             "can_edit_target": (user.role == "admin"),
             "can_adjust_central": (user.role == "admin"),
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
@@ -979,43 +1034,31 @@ async def stock_fulfill_pending(
     if not central or not workshop:
         raise HTTPException(status_code=500, detail="Locations missing")
 
-    c_qty = get_stock_qty(db, product_id, central.id)
-    ws_qty = get_stock_qty(db, product_id, workshop.id)
-    t = p.target_central or Decimal("0")
-    pending = max(Decimal("0"), t - c_qty)
+    c_qty = Decimal(str(get_stock_qty(db, p.id, central.id) or 0))
+    w_qty = Decimal(str(get_stock_qty(db, p.id, workshop.id) or 0))
+    target = Decimal(str(p.target_central or 0))
 
+    pending = target - c_qty
     if pending <= 0:
-        return RedirectResponse(url="/stock", status_code=303)
+        return RedirectResponse(url="/stock?msg=no_pending", status_code=303)
 
-    if ws_qty < pending:
-        raise HTTPException(status_code=422, detail="Not enough workshop stock to fulfill")
+    send = min(pending, w_qty)
+    owed = pending - send
 
-    tid = str(uuid4())
+    if send > 0:
+        db.add(StockMovement(product_id=p.id, location_id=workshop.id, qty=-send, type="TRANSFER", note="W->C fulfill"))
+        db.add(StockMovement(product_id=p.id, location_id=central.id, qty=send, type="TRANSFER", note="W->C fulfill"))
+        db.commit()
 
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=workshop.id,
-            movement_type="OUT",
-            qty=pending,
-            user_id=user.id,
-            note="Fulfill pending to central",
-            transfer_id=tid,
-        )
-    )
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=central.id,
-            movement_type="IN",
-            qty=pending,
-            user_id=user.id,
-            note="Fulfill from workshop",
-            transfer_id=tid,
-        )
-    )
-
-    # reset target after fulfillment (per your rule)
-    p.target_central = Decimal("0")
+    # Close this pending by syncing target to the new central qty
+    new_c_qty = Decimal(str(get_stock_qty(db, p.id, central.id) or 0))
+    p.target_central = new_c_qty
+    db.add(p)
     db.commit()
-    return RedirectResponse(url="/stock", status_code=303)
+
+    if owed > 0:
+        _add_owed(db, p.id, owed)
+        return RedirectResponse(url="/stock?msg=partial_fulfill", status_code=303)
+
+    _clear_owed(db, p.id)
+    return RedirectResponse(url="/stock?msg=fulfilled", status_code=303)
