@@ -431,7 +431,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
-            Product.owed_workshop,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -450,7 +449,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
-            Product.owed_workshop,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     )
@@ -541,7 +539,6 @@ def stock_view(
             Product.category,
             Product.is_active,
             Product.target_central,
-            Product.owed_workshop,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -560,7 +557,6 @@ def stock_view(
             Product.category,
             Product.is_active,
             Product.target_central,
-            Product.owed_workshop,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     ).all()
@@ -729,10 +725,10 @@ def central_out(
     if available < q:
         return RedirectResponse("/stock", 303)
 
-        db.add(
-            StockMovement(
-                product_id=product_id,
-                location_id=central.id,
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=central.id,
             qty=q,
             movement_type="OUT",
             user_id=user.id,
@@ -939,8 +935,7 @@ async def stock_transfer_workshop_to_central_ui(
 
     tid = str(uuid4())
 
-    if transfer_qty > 0:
-        db.add(
+    db.add(
         StockMovement(
             product_id=product_id,
             location_id=workshop.id,
@@ -951,10 +946,10 @@ async def stock_transfer_workshop_to_central_ui(
             transfer_id=tid,
         )
     )
-        db.add(
-            StockMovement(
-                product_id=product_id,
-                location_id=central.id,
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=central.id,
             movement_type="IN",
             qty=q,
             user_id=user.id,
@@ -975,63 +970,52 @@ async def stock_fulfill_pending(
     if user.role not in ("admin", "workshop"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    central = get_location(db, "CENTRAL")
-    workshop = get_location(db, "WORKSHOP")
-
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    central_qty = get_current_stock(db, product_id, central.id)
-    ws_qty = get_current_stock(db, product_id, workshop.id)
+    central = db.query(Location).filter(Location.code == "CENTRAL").first()
+    workshop = db.query(Location).filter(Location.code == "WORKSHOP").first()
+    if not central or not workshop:
+        raise HTTPException(status_code=500, detail="Locations missing")
 
-    pending = max(Decimal("0"), Decimal(str(p.target_central or 0)) - Decimal(str(central_qty)))
+    c_qty = get_stock_qty(db, product_id, central.id)
+    ws_qty = get_stock_qty(db, product_id, workshop.id)
+    t = p.target_central or Decimal("0")
+    pending = max(Decimal("0"), t - c_qty)
+
     if pending <= 0:
         return RedirectResponse(url="/stock", status_code=303)
 
-    # Partial fulfil: send what we have, clear pending, and record remainder as owed.
-    transfer_qty = min(Decimal(str(ws_qty)), pending)
-    remainder = pending - transfer_qty
-
-    owed_now = Decimal(str(p.owed_workshop or 0))
-
-    # Pay down existing owed first with anything we transfer now
-    if transfer_qty > 0 and owed_now > 0:
-        pay = min(owed_now, transfer_qty)
-        owed_now -= pay
-
-    # Add new remainder to owed
-    if remainder > 0:
-        owed_now += remainder
+    if ws_qty < pending:
+        raise HTTPException(status_code=422, detail="Not enough workshop stock to fulfill")
 
     tid = str(uuid4())
 
-    if transfer_qty > 0:
-        db.add(
-            StockMovement(
-                product_id=product_id,
-                location_id=workshop.id,
-                qty=-transfer_qty,
-                user_id=user.id,
-                transfer_id=tid,
-                note="Fulfill pending (W→C)",
-            )
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=workshop.id,
+            movement_type="OUT",
+            qty=pending,
+            user_id=user.id,
+            note="Fulfill pending to central",
+            transfer_id=tid,
         )
-        db.add(
-            StockMovement(
-                product_id=product_id,
-                location_id=central.id,
-                qty=transfer_qty,
-                user_id=user.id,
-                transfer_id=tid,
-                note="Fulfill pending (W→C)",
-            )
+    )
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=central.id,
+            movement_type="IN",
+            qty=pending,
+            user_id=user.id,
+            note="Fulfill from workshop",
+            transfer_id=tid,
         )
+    )
 
     # reset target after fulfillment (per your rule)
     p.target_central = Decimal("0")
-    p.owed_workshop = owed_now
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
-
-

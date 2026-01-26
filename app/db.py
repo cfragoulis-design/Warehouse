@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 
 
@@ -45,19 +45,3 @@ def init_db() -> None:
     from . import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
-
-# --- lightweight migration: add products.owed_workshop if missing ---
-try:
-    with engine.begin() as conn:
-        col_exists = conn.execute(text("""
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_name='products' AND column_name='owed_workshop'
-            LIMIT 1
-        """)).fetchone()
-        if not col_exists:
-            conn.execute(text('ALTER TABLE products ADD COLUMN owed_workshop NUMERIC(12,3) NOT NULL DEFAULT 0'))
-except Exception:
-    # Do not crash app if migration cannot run (e.g., dev DB). Schema can be handled manually.
-    pass
-
