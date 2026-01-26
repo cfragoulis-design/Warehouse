@@ -1,18 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Consumables</title>
 
-<!-- PATCH 1: Supplier Dropdown -->
-<form method="post" action="/consumables/new">
-  <input name="name" placeholder="Όνομα αναλώσιμου" required>
-  <input name="category" placeholder="Κατηγορία">
-  <input name="unit" placeholder="Μονάδα (πχ Τεμ)">
-  <input name="pack_size" type="number" placeholder="Pack">
-  <input name="min_qty" type="number" placeholder="Min">
-  <input name="desired_qty" type="number" placeholder="Desired">
+<style>
+  :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);}
+  a{color:inherit;text-decoration:none}
+  .top{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg, rgba(17,25,54,.9), rgba(11,16,32,.9));position:sticky;top:0;z-index:10}
+  .nav{display:flex;gap:10px;flex-wrap:wrap}
+  .pill{padding:8px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.02)}
+  .pill:hover{border-color:#35508e}
+  .wrap{max-width:1150px;margin:0 auto;padding:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .card + .card{margin-top:14px}
+  .card-h{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .card-h h2{margin:0;font-size:16px;letter-spacing:.01em}
+  .card-h .sub{margin-top:2px;color:var(--muted);font-size:12px}
+  .card-b{padding:14px 16px}
+  .grid{display:grid;grid-template-columns: 2fr 1.2fr 1.2fr .9fr .8fr .9fr 1.2fr auto;gap:10px;align-items:end}
+  @media (max-width: 980px){.grid{grid-template-columns: 1fr 1fr;}}
+  label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px 2px}
+  input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:9px 10px;border-radius:10px;outline:none}
+  input:focus,select:focus,textarea:focus{border-color:#3d5fb5}
+  input[type="number"]{appearance:textfield}
+  .btn{border:1px solid var(--line);background:rgba(47,124,246,.14);color:var(--text);padding:9px 12px;border-radius:10px;cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:#3d5fb5}
+  .btn2{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
+  .btn2:hover{border-color:#3d5fb5}
+  .btnDanger{border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.12)}
+  .btnDanger:hover{border-color:rgba(239,68,68,.7)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .right{display:flex;gap:8px;align-items:center}
+  .muted{color:var(--muted)}
+  .hint{font-size:12px;color:var(--muted);margin-top:10px}
+  .hint a{text-decoration:underline;color:var(--text)}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.02);text-align:left;position:sticky;top:58px;z-index:5}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .name{font-weight:700}
+  .meta{font-size:12px;color:var(--muted);margin-top:3px}
+  .num{font-variant-numeric:tabular-nums}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+  .bDanger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10);color:#ffd3d3}
+  .bWarn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);color:#ffe9c2}
+  .bOk{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.10);color:#c8f7dd}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .mini{display:inline-flex;gap:6px;align-items:center}
+  .mini input{width:76px}
+  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .filters input{width:260px}
+  .toggle{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--line);background:rgba(255,255,255,.02);padding:8px 10px;border-radius:10px;cursor:pointer;user-select:none}
+  .toggle input{width:auto}
+  .empty{padding:18px 16px}
+  .empty h3{margin:0 0 6px 0;font-size:15px}
+  .empty p{margin:0;color:var(--muted);font-size:13px;line-height:1.4}
+  .footer{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+</style>
 
-  <select name="supplier_id" required>
-    {% for s in suppliers %}
-      <option value="{{ s.id }}">{{ s.name }}</option>
-    {% endfor %}
-  </select>
+</head>
+<body>
+  <div class="top">
+    <div class="nav">
+      <a class="pill" href="/dashboard">Dashboard</a>
+      <a class="pill" href="/stock">Stock</a>
+      <a class="pill" href="/movements">Movements</a>
+      <a class="pill" href="/products">Products</a>
+      <a class="pill" href="/consumables"><b>Consumables</b></a>
+      <a class="pill" href="/suppliers">Suppliers</a>
+      <a class="pill" href="/purchase-orders">Purchase Orders</a>
+    </div>
+    <div class="right">
+      <span class="muted">WORKSHOP only</span>
+    </div>
+  </div>
 
-  <button type="submit">Προσθήκη</button>
-</form>
+  <div class="wrap">
+
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <h2>Add consumable</h2>
+          <div class="sub">Create a new consumable item tracked at the workshop.</div>
+        </div>
+        <div class="sub">Required: <b>Name</b>, <b>Unit</b></div>
+      </div>
+      <div class="card-b">
+        <form id="addForm" method="post" action="/consumables/new">
+          <div class="grid">
+            <div>
+              <label for="name">Name *</label>
+              <input id="name" name="name" placeholder="e.g. Nitrile gloves XL" required />
+            </div>
+            <div>
+              <label for="category">Category</label>
+              <input id="category" name="category" placeholder="e.g. Gloves" />
+            </div>
+            <div>
+              <label for="unit">Unit *</label>
+              <input id="unit" name="unit" placeholder="e.g. pcs / box" required />
+            </div>
+            <div>
+              <label for="pack_size">Pack size</label>
+              <input id="pack_size" name="pack_size" type="number" min="1" step="1" value="1" />
+            </div>
+            <div>
+              <label for="min_qty">Min</label>
+              <input id="min_qty" name="min_qty" type="number" min="0" step="1" value="0" />
+            </div>
+            <div>
+              <label for="desired_qty">Desired</label>
+              <input id="desired_qty" name="desired_qty" type="number" min="0" step="1" value="0" />
+            </div>
+            <div>
+              <label for="supplier_id">Supplier ID</label>
+              <input id="supplier_id" name="supplier_id" placeholder="Find it in Suppliers" inputmode="numeric" />
+            </div>
+            <div style="display:flex;justify-content:flex-end">
+              <button id="addBtn" class="btn" type="submit">Add</button>
+            </div>
+          </div>
+
+          <div class="hint">
+            Tip: Open <a href="/suppliers" target="_blank" rel="noopener">Suppliers</a> to see each Supplier ID.
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <h2>Consumables (Workshop)</h2>
+          <div class="sub">Track on-hand, minimum, desired and suggested ordering.</div>
+        </div>
+        <div class="filters">
+          <input id="q" placeholder="Search by name…" />
+          <label class="toggle" title="Show only items with Suggested > 0">
+            <input id="onlySuggested" type="checkbox" />
+            Only suggested
+          </label>
+          <label class="toggle" title="Show only items below Min (when Min > 0)">
+            <input id="onlyLow" type="checkbox" />
+            Only low
+          </label>
+        </div>
+      </div>
+
+      {% if rows|length == 0 %}
+      <div class="empty">
+        <h3>No consumables yet</h3>
+        <p>Add your first consumable above to start tracking workshop supplies and suggested orders.</p>
+      </div>
+      {% else %}
+      <table>
+        <thead>
+          <tr>
+            <th style="min-width:240px">Name</th>
+            <th>Category</th>
+            <th>Supplier</th>
+            <th>Stock</th>
+            <th>On‑order</th>
+            <th>Min</th>
+            <th>Desired</th>
+            <th>Suggested</th>
+            <th style="min-width:220px">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          {% for r in rows %}
+          {% set is_low = (r.min_qty > 0 and r.on_hand < r.min_qty) %}
+          {% set has_suggested = (r.suggested > 0) %}
+          <tr class="r"
+              data-name="{{ r.name|lower }}"
+              data-low="{{ 1 if is_low else 0 }}"
+              data-suggested="{{ 1 if has_suggested else 0 }}">
+            <td>
+              <div class="name">{{ r.name }}</div>
+              <div class="meta">{{ r.unit }} • pack {{ r.pack_size }}</div>
+            </td>
+            <td class="muted">{{ r.category }}</td>
+            <td>{{ r.supplier_name }}</td>
+            <td class="num">
+              {% if is_low %}
+                <span class="badge bDanger">Low • {{ r.on_hand }}</span>
+              {% else %}
+                <span class="badge">{{ r.on_hand }}</span>
+              {% endif %}
+            </td>
+            <td class="num muted">{{ r.on_order }}</td>
+            <td class="num muted">{{ r.min_qty }}</td>
+            <td class="num muted">{{ r.desired_qty }}</td>
+            <td class="num">
+              {% if has_suggested %}
+                <span class="badge bWarn">Suggested • {{ r.suggested }}</span>
+              {% else %}
+                <span class="badge bOk">OK • 0</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="actions">
+                <form method="post" action="/consumables/{{ r.id }}/adjust" class="mini">
+                  <input name="delta" type="number" step="1" value="1" aria-label="Adjust delta" />
+                  <button class="btn2" type="submit">Adjust</button>
+                </form>
+                <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
+                  <input type="hidden" name="delta" value="1" />
+                  <button class="btn2" type="submit" title="Add 1">+1</button>
+                </form>
+                <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
+                  <input type="hidden" name="delta" value="-1" />
+                  <button class="btn2" type="submit" title="Remove 1">-1</button>
+                </form>
+                <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
+                  <button class="btn2 btnDanger" type="submit">Disable</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+    <div class="footer">
+      <form method="post" action="/purchase-orders/generate">
+        <button class="btn" type="submit">Generate POs by supplier</button>
+      </form>
+      <div class="muted" style="font-size:12px;">
+        Creates Draft purchase orders from <b>Suggested &gt; 0</b> (only items that have a Supplier).
+      </div>
+    </div>
+
+  </div>
+
+<script>
+(function(){
+  const q = document.getElementById('q');
+  const onlySuggested = document.getElementById('onlySuggested');
+  const onlyLow = document.getElementById('onlyLow');
+  const rows = () => Array.from(document.querySelectorAll('tr.r'));
+
+  function apply(){
+    const term = (q && q.value || '').trim().toLowerCase();
+    const s = !!(onlySuggested && onlySuggested.checked);
+    const l = !!(onlyLow && onlyLow.checked);
+
+    rows().forEach(tr => {
+      const name = tr.dataset.name || '';
+      const isS = tr.dataset.suggested === '1';
+      const isL = tr.dataset.low === '1';
+      let ok = true;
+      if (term && !name.includes(term)) ok = false;
+      if (s && !isS) ok = false;
+      if (l && !isL) ok = false;
+      tr.style.display = ok ? '' : 'none';
+    });
+  }
+
+  if (q) q.addEventListener('input', apply);
+  if (onlySuggested) onlySuggested.addEventListener('change', apply);
+  if (onlyLow) onlyLow.addEventListener('change', apply);
+
+  // Basic required fields guard (frontend only)
+  const addBtn = document.getElementById('addBtn');
+  const name = document.getElementById('name');
+  const unit = document.getElementById('unit');
+  function guard(){
+    if(!addBtn || !name || !unit) return;
+    const ok = name.value.trim().length > 0 && unit.value.trim().length > 0;
+    addBtn.disabled = !ok;
+    addBtn.style.opacity = ok ? '1' : '.55';
+    addBtn.style.cursor = ok ? 'pointer' : 'not-allowed';
+  }
+  if (name) name.addEventListener('input', guard);
+  if (unit) unit.addEventListener('input', guard);
+  guard();
+})();
+</script>
+
+</body>
+</html>
