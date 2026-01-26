@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import uuid4
 from datetime import datetime
+from collections import defaultdict
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -83,10 +84,9 @@ def parse_qty(qty: str) -> Decimal | None:
 
 
 def signed_qty_expr():
-    # OUT & ADJ- negative, OWED_* do not affect stock, everything else positive
+    # OUT & ADJ- negative, everything else positive
     return case(
         (StockMovement.movement_type.in_(["OUT", "ADJ-"]), -StockMovement.qty),
-        (StockMovement.movement_type.in_(["OWED_ADD", "OWED_PAY"]), 0),
         else_=StockMovement.qty,
     )
 
@@ -161,35 +161,6 @@ def get_stock_for_product(db: Session, product_id: int, location_id: int) -> Dec
 # compatibility alias (you used get_stock_qty later)
 def get_stock_qty(db: Session, product_id: int, location_id: int) -> Decimal:
     return get_stock_for_product(db, product_id, location_id)
-
-
-def get_owed_qty(db: Session, product_id: int) -> Decimal:
-    """Net owed qty created by partial fulfill. Stored as StockMovement rows:
-    - OWED_ADD: increases owed
-    - OWED_PAY: decreases owed
-    Does NOT affect stock quantities (see signed_qty_expr).
-    """
-    val = db.execute(
-        select(
-            func.coalesce(
-                func.sum(
-                    case(
-                        (StockMovement.movement_type == "OWED_ADD", StockMovement.qty),
-                        (StockMovement.movement_type == "OWED_PAY", -StockMovement.qty),
-                        else_=0,
-                    )
-                ),
-                0,
-            )
-        ).where(StockMovement.product_id == product_id)
-    ).scalar_one()
-    try:
-        v = Decimal(val)
-    except Exception:
-        v = Decimal("0")
-    if v < 0:
-        v = Decimal("0")
-    return v
 
 
 # --------------------
@@ -411,6 +382,32 @@ def movement_create(
 # --------------------
 # STOCK VIEW
 # --------------------
+
+# ---- Stock category ordering (manual) ----
+CATEGORY_ORDER = [
+    "Κοτόπουλο",
+    "Χοιρινό",
+    "Μοσχάρι",
+    "Πρόβειο",
+    "Αλλαντικα",
+    "Premium",
+    "Διάφορα",
+]
+
+
+def sort_grouped_categories(grouped: dict[str, list[dict]] | defaultdict) -> dict[str, list[dict]]:
+    """Sort grouped stock by a manual category order; unknown categories go after, alphabetically."""
+    order_index = {name: i for i, name in enumerate(CATEGORY_ORDER)}
+    return dict(
+        sorted(
+            grouped.items(),
+            key=lambda kv: (
+                order_index.get(kv[0], 10_000),
+                (kv[0] or "").lower(),
+            ),
+        )
+    )
+
 def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str, list[dict]]:
     """Builds the same grouped stock structure used by stock.html and stock_print_a4.html.
 
@@ -434,6 +431,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
+            Product.owed_workshop,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -442,15 +440,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
                 func.sum(case((StockMovement.location_id == workshop.id, signed_qty), else_=0)),
                 0,
             ).label("workshop_qty"),
-            func.coalesce(
-                func.sum(case((StockMovement.movement_type == "OWED_ADD", StockMovement.qty), else_=0)),
-                0,
-            ).label("owed_add"),
-            func.coalesce(
-                func.sum(case((StockMovement.movement_type == "OWED_PAY", StockMovement.qty), else_=0)),
-                0,
-            ).label("owed_pay"),
-
         )
         .outerjoin(StockMovement, StockMovement.product_id == Product.id)
         .group_by(
@@ -461,6 +450,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
+            Product.owed_workshop,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     )
@@ -472,7 +462,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     rows = db.execute(stmt).all()
 
-    grouped: dict[str, list[dict]] = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
+    grouped = defaultdict(list)
 
     loc_norm = (loc or "all").strip().lower()
 
@@ -480,23 +470,13 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
         c = Decimal(r.central_qty)
         w = Decimal(r.workshop_qty)
         t = Decimal(r.target_central or 0)
-
-        pending_live = t - c
-        if pending_live < 0:
-            pending_live = Decimal(0)
-
-        owed = Decimal(r.owed_add) - Decimal(r.owed_pay)
-        if owed < 0:
-            owed = Decimal(0)
-
-        # Display pending excludes owed from a previous partial transfer.
-        pending = pending_live - owed
+        pending = t - c
         if pending < 0:
             pending = Decimal(0)
 
         # basic location filter
         if loc_norm == "central":
-            if c == 0 and pending_live == 0 and t == 0:
+            if c == 0 and pending == 0 and t == 0:
                 continue
         elif loc_norm == "workshop":
             if w == 0:
@@ -517,13 +497,14 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "workshop_qty": w,
             "target_central": t,
             "pending": pending,
-            "owed": owed,
-            "pending_live": pending_live,
             "total_qty": c + w,
         }
-        grouped[_group_from_category(r.category, r.name)].append(item)
+        cat = (r.category or "").strip()
+        if not cat:
+            cat = "Διάφορα"
+        grouped[cat].append(item)
 
-    return grouped
+    return sort_grouped_categories(grouped)
 
 
 def _group_from_category(cat: str | None, name: str | None) -> str:
@@ -560,6 +541,7 @@ def stock_view(
             Product.category,
             Product.is_active,
             Product.target_central,
+            Product.owed_workshop,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -578,27 +560,18 @@ def stock_view(
             Product.category,
             Product.is_active,
             Product.target_central,
+            Product.owed_workshop,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     ).all()
 
-    grouped: dict[str, list[dict]] = {"Κοτόπουλα": [], "Χοιρινά": [], "Μοσχάρι": [], "Διάφορα": []}
+    grouped = defaultdict(list)
 
     for r in rows:
         c = Decimal(r.central_qty)
         w = Decimal(r.workshop_qty)
         t = Decimal(r.target_central or 0)
-
-        pending_live = t - c
-        if pending_live < 0:
-            pending_live = Decimal(0)
-
-        owed = Decimal(r.owed_add) - Decimal(r.owed_pay)
-        if owed < 0:
-            owed = Decimal(0)
-
-        # Display pending excludes owed from a previous partial transfer.
-        pending = pending_live - owed
+        pending = t - c
         if pending < 0:
             pending = Decimal(0)
 
@@ -619,7 +592,12 @@ def stock_view(
             "pending": pending,
             "total_qty": c + w,
         }
-        grouped[_group_from_category(r.category, r.name)].append(item)
+        cat = (r.category or "").strip()
+        if not cat:
+            cat = "Διάφορα"
+        grouped[cat].append(item)
+
+    grouped = sort_grouped_categories(grouped)
 
     return templates.TemplateResponse(
         "stock.html",
@@ -751,10 +729,10 @@ def central_out(
     if available < q:
         return RedirectResponse("/stock", 303)
 
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=central.id,
+        db.add(
+            StockMovement(
+                product_id=product_id,
+                location_id=central.id,
             qty=q,
             movement_type="OUT",
             user_id=user.id,
@@ -956,55 +934,37 @@ async def stock_transfer_workshop_to_central_ui(
         raise HTTPException(status_code=500, detail="Locations missing")
 
     ws_qty = get_stock_qty(db, product_id, workshop.id)
-    if ws_qty <= 0:
-        return RedirectResponse(url="/stock?msg=no_workshop_stock", status_code=303)
-
-    q_move = q if ws_qty >= q else ws_qty
+    if ws_qty < q:
+        raise HTTPException(status_code=422, detail="Not enough workshop stock")
 
     tid = str(uuid4())
 
-    # Physical transfer
-    db.add(
+    if transfer_qty > 0:
+        db.add(
         StockMovement(
             product_id=product_id,
             location_id=workshop.id,
             movement_type="OUT",
-            qty=q_move,
+            qty=q,
             user_id=user.id,
             note="Transfer to central",
             transfer_id=tid,
         )
     )
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=central.id,
+        db.add(
+            StockMovement(
+                product_id=product_id,
+                location_id=central.id,
             movement_type="IN",
-            qty=q_move,
+            qty=q,
             user_id=user.id,
             note="Transfer from workshop",
             transfer_id=tid,
         )
     )
-
-    # Auto-pay any owed qty with this transfer amount
-    owed_before = get_owed_qty(db, product_id)
-    pay = owed_before if owed_before <= q_move else q_move
-    if pay > 0:
-        db.add(
-            StockMovement(
-                product_id=product_id,
-                location_id=workshop.id,
-                movement_type="OWED_PAY",
-                qty=pay,
-                user_id=user.id,
-                note="Auto clear owed",
-                transfer_id=tid,
-            )
-        )
-
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
+
 
 @router.post("/stock/fulfill")
 async def stock_fulfill_pending(
@@ -1015,94 +975,62 @@ async def stock_fulfill_pending(
     if user.role not in ("admin", "workshop"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    central = get_location(db, "CENTRAL")
+    workshop = get_location(db, "WORKSHOP")
+
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    central = db.query(Location).filter(Location.code == "CENTRAL").first()
-    workshop = db.query(Location).filter(Location.code == "WORKSHOP").first()
-    if not central or not workshop:
-        raise HTTPException(status_code=500, detail="Locations missing")
+    central_qty = get_current_stock(db, product_id, central.id)
+    ws_qty = get_current_stock(db, product_id, workshop.id)
 
-    c_qty = get_stock_qty(db, product_id, central.id)
-    ws_qty = get_stock_qty(db, product_id, workshop.id)
-    t = p.target_central or Decimal("0")
-    pending_live = max(Decimal("0"), t - c_qty)
-
-    if pending_live <= 0:
+    pending = max(Decimal("0"), Decimal(str(p.target_central or 0)) - Decimal(str(central_qty)))
+    if pending <= 0:
         return RedirectResponse(url="/stock", status_code=303)
 
-    if ws_qty <= 0:
-        # No workshop stock → keep live pending, show owed unchanged
-        return RedirectResponse(url="/stock?msg=no_workshop_stock", status_code=303)
+    # Partial fulfil: send what we have, clear pending, and record remainder as owed.
+    transfer_qty = min(Decimal(str(ws_qty)), pending)
+    remainder = pending - transfer_qty
 
-    q_move = ws_qty if ws_qty < pending_live else pending_live
+    owed_now = Decimal(str(p.owed_workshop or 0))
+
+    # Pay down existing owed first with anything we transfer now
+    if transfer_qty > 0 and owed_now > 0:
+        pay = min(owed_now, transfer_qty)
+        owed_now -= pay
+
+    # Add new remainder to owed
+    if remainder > 0:
+        owed_now += remainder
+
     tid = str(uuid4())
 
-    # Physical transfer
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=workshop.id,
-            movement_type="OUT",
-            qty=q_move,
-            user_id=user.id,
-            note="Fulfill to central",
-            transfer_id=tid,
-        )
-    )
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=central.id,
-            movement_type="IN",
-            qty=q_move,
-            user_id=user.id,
-            note="Fulfill from workshop",
-            transfer_id=tid,
-        )
-    )
-
-    # Auto-pay existing owed first
-    owed_before = get_owed_qty(db, product_id)
-    pay = owed_before if owed_before <= q_move else q_move
-    if pay > 0:
+    if transfer_qty > 0:
         db.add(
             StockMovement(
                 product_id=product_id,
                 location_id=workshop.id,
-                movement_type="OWED_PAY",
-                qty=pay,
+                qty=-transfer_qty,
                 user_id=user.id,
-                note="Auto clear owed",
                 transfer_id=tid,
+                note="Fulfill pending (W→C)",
             )
         )
-
-    # After this transfer, if we still have remaining live pending, convert it to owed
-    remaining_live = pending_live - q_move
-    if remaining_live < 0:
-        remaining_live = Decimal("0")
-
-    owed_after_pay = owed_before - pay
-    if owed_after_pay < 0:
-        owed_after_pay = Decimal("0")
-
-    owed_add_needed = remaining_live - owed_after_pay
-    if owed_add_needed > 0:
         db.add(
             StockMovement(
                 product_id=product_id,
-                location_id=workshop.id,
-                movement_type="OWED_ADD",
-                qty=owed_add_needed,
+                location_id=central.id,
+                qty=transfer_qty,
                 user_id=user.id,
-                note="Unmet qty (owed)",
                 transfer_id=tid,
+                note="Fulfill pending (W→C)",
             )
         )
 
-    # NOTE: Do NOT reset target; pending remains dynamic
+    # reset target after fulfillment (per your rule)
+    p.target_central = Decimal("0")
+    p.owed_workshop = owed_now
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
 
