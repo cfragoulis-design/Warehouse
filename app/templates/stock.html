@@ -129,14 +129,20 @@
               </td>
 
               <td>
-                {% if it.pending > 0 %}
-                  <form method="post" action="/stock/fulfill" class="pendingForm">
-                    <input type="hidden" name="product_id" value="{{ it.id }}" />
-                    <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
-                  </form>
-                {% else %}
-                  <span class="pill">0</span>
-                {% endif %}
+                <div style="display:inline-flex;gap:8px;align-items:center;">
+                  {% if it.pending > 0 %}
+                    <form method="post" action="/stock/fulfill" class="pendingForm">
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
+                    </form>
+                  {% else %}
+                    <span class="pill">0</span>
+                  {% endif %}
+
+                  {% if it.owed and it.owed > 0 %}
+                    <span class="pill danger" title="Υπόλοιπο από προηγούμενη μεταφορά (δεν επηρεάζεται από αλλαγές stock/target)">+{{ it.owed|fmtqty(it.unit) }}</span>
+                  {% endif %}
+                </div>
               </td>
 
               <td>
