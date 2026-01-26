@@ -1,0 +1,6 @@
+<!doctype html><html><body>
+<h1>Παραγγελίες</h1>
+<ul>
+{% for po in orders %}<li>PO {{ po.id }} - {{ po.status }}</li>{% endfor %}
+</ul>
+</body></html>

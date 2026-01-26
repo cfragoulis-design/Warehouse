@@ -1,0 +1,8 @@
+<!doctype html><html><body>
+<h1>PO {{ po.id }}</h1>
+<table border="1"><tr><th>Είδος</th><th>Qty</th><th>Received</th></tr>
+{% for i in items %}
+<tr><td>{{ i.name }}</td><td>{{ i.qty_ordered }}</td><td>{{ i.qty_received }}</td></tr>
+{% endfor %}
+</table>
+</body></html>

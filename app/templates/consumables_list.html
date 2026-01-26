@@ -1,0 +1,11 @@
+<!doctype html><html><body>
+<h1>Αναλώσιμα (WORKSHOP)</h1>
+<table border="1"><tr><th>Όνομα</th><th>Κατηγορία</th><th>Stock</th><th>Min</th><th>Desired</th></tr>
+{% for c in consumables %}
+<tr>
+<td>{{ c.name }}</td><td>{{ c.category }}</td>
+<td>{{ c.stock }}</td><td>{{ c.min_qty }}</td><td>{{ c.desired_qty }}</td>
+</tr>
+{% endfor %}
+</table>
+</body></html>
