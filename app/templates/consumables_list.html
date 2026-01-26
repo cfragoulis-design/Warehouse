@@ -1,122 +1,18 @@
-<!doctype html>
-<html lang="el">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Αναλώσιμα</title>
-  
-<style>
-  :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;}
-  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);}
-  a{color:inherit;text-decoration:none}
-  .top{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg, rgba(17,25,54,.9), rgba(11,16,32,.9));position:sticky;top:0}
-  .nav{display:flex;gap:10px;flex-wrap:wrap}
-  .pill{padding:8px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.02)}
-  .pill:hover{border-color:#35508e}
-  .wrap{max-width:1100px;margin:0 auto;padding:18px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-  table{width:100%;border-collapse:collapse}
-  th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
-  th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.02);text-align:left}
-  tr:hover td{background:rgba(255,255,255,.02)}
-  .muted{color:var(--muted)}
-  .bad{color:var(--red);font-weight:700}
-  .ok{color:var(--green);font-weight:700}
-  .btn{border:1px solid var(--line);background:rgba(47,124,246,.12);color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
-  .btn:hover{border-color:#3d5fb5}
-  .btn2{border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
-  .btn2:hover{border-color:#3d5fb5}
-  input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:10px;outline:none}
-  input:focus,select:focus,textarea:focus{border-color:#3d5fb5}
-  .row{display:flex;gap:10px;flex-wrap:wrap}
-  .grow{flex:1}
-  .right{display:flex;gap:8px;align-items:center}
-</style>
 
-</head>
-<body>
-  <div class="top">
-    <div class="nav">
-      <a class="pill" href="/dashboard">Dashboard</a>
-      <a class="pill" href="/stock">Stock</a>
-      <a class="pill" href="/movements">Movements</a>
-      <a class="pill" href="/products">Products</a>
-      <a class="pill" href="/consumables"><b>Αναλώσιμα</b></a>
-      <a class="pill" href="/suppliers">Προμηθευτές</a>
-      <a class="pill" href="/purchase-orders">Παραγγελίες</a>
-    </div>
-    <div class="right">
-      <span class="muted">WORKSHOP μόνο</span>
-    </div>
-  </div>
+<!-- PATCH 1: Supplier Dropdown -->
+<form method="post" action="/consumables/new">
+  <input name="name" placeholder="Όνομα αναλώσιμου" required>
+  <input name="category" placeholder="Κατηγορία">
+  <input name="unit" placeholder="Μονάδα (πχ Τεμ)">
+  <input name="pack_size" type="number" placeholder="Pack">
+  <input name="min_qty" type="number" placeholder="Min">
+  <input name="desired_qty" type="number" placeholder="Desired">
 
-  <div class="wrap">
-    <div class="card" style="padding:14px;margin-bottom:14px;">
-      <form class="row" method="post" action="/consumables/new">
-        <input class="grow" name="name" placeholder="Όνομα αναλώσιμου" required />
-        <input name="category" placeholder="Κατηγορία" />
-        <input name="unit" placeholder="Μονάδα (πχ Τεμ/Κιβ)" />
-        <input name="pack_size" placeholder="Pack (πχ 10)" value="1" style="width:110px" />
-        <input name="min_qty" placeholder="Min" value="0" style="width:90px" />
-        <input name="desired_qty" placeholder="Desired" value="0" style="width:110px" />
-        <input name="supplier_id" placeholder="Supplier ID" style="width:120px" />
-        <button class="btn" type="submit">+ Προσθήκη</button>
-      </form>
-      <div class="muted" style="margin-top:8px;font-size:12px;">
-        Tip: Το Supplier ID το βλέπεις στη σελίδα Προμηθευτών.
-      </div>
-    </div>
+  <select name="supplier_id" required>
+    {% for s in suppliers %}
+      <option value="{{ s.id }}">{{ s.name }}</option>
+    {% endfor %}
+  </select>
 
-    <div class="card">
-      <table>
-        <thead>
-          <tr>
-            <th>Όνομα</th>
-            <th>Κατηγορία</th>
-            <th>Supplier</th>
-            <th>Stock (WS)</th>
-            <th>On-Order</th>
-            <th>Min</th>
-            <th>Desired</th>
-            <th>Suggested</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in rows %}
-          <tr>
-            <td><b>{{ r.name }}</b><div class="muted" style="font-size:12px;">{{ r.unit }} • pack {{ r.pack_size }}</div></td>
-            <td>{{ r.category }}</td>
-            <td>{{ r.supplier_name }}</td>
-            <td class="{% if r.on_hand < r.min_qty and r.min_qty > 0 %}bad{% endif %}">{{ r.on_hand }}</td>
-            <td class="muted">{{ r.on_order }}</td>
-            <td class="muted">{{ r.min_qty }}</td>
-            <td class="muted">{{ r.desired_qty }}</td>
-            <td><b>{{ r.suggested }}</b></td>
-            <td>
-              <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline-flex;gap:6px;align-items:center;">
-                <input name="delta" value="1" style="width:70px" />
-                <button class="btn2" type="submit">Adjust</button>
-              </form>
-              <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
-                <button class="btn2" type="submit">Disable</button>
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-          {% if rows|length == 0 %}
-          <tr><td colspan="9" class="muted">Δεν υπάρχουν αναλώσιμα ακόμα.</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
-    </div>
-
-    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;">
-      <form method="post" action="/purchase-orders/generate">
-        <button class="btn" type="submit">Generate POs ανά προμηθευτή</button>
-      </form>
-      <div class="muted" style="font-size:12px;">Δημιουργεί Draft παραγγελίες από Suggested &gt; 0 (μόνο για items με Supplier).</div>
-    </div>
-  </div>
-</body>
-</html>
+  <button type="submit">Προσθήκη</button>
+</form>
