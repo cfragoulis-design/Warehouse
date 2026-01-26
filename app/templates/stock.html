@@ -157,6 +157,11 @@
                 {% else %}
                   <span class="pill">0</span>
                 {% endif %}
+
+                {% if total_owed and total_owed > 0 %}
+                  <span class="badge badge-danger">+{{ total_owed|fmtqty("TEM") }}</span>
+                {% endif %}
+
               </td>
 
               <td>
