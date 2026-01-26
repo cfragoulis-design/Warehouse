@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stock</title>
-  <style>
+ <style>
     :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--warn:#caa24a;--danger:#ff6b6b;}
     *{box-sizing:border-box}
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;}
     a{color:#8ab4ff;text-decoration:none}
-    .top{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;background:linear-gradient(180deg,#0b1020 0%, #0b1020 20%, rgba(11,16,32,0) 100%);}
+    .top{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;background:linear-gradient(180deg,#0b1020 0%, #0b1020 20%, rgba(11,16,32,0) 100%);} 
     .brand{font-weight:900;font-size:26px;letter-spacing:.2px}
     .sub{color:var(--muted);font-size:12px;margin-top:2px}
     .nav{display:flex;gap:16px;align-items:center}
@@ -23,39 +23,20 @@
     table{width:100%;border-collapse:collapse}
     th,td{padding:10px 10px;border-bottom:1px solid rgba(36,48,85,.65);text-align:left;vertical-align:middle}
     th{font-size:12px;color:#c9d1ea;letter-spacing:.6px;text-transform:uppercase}
-
-    /* ===== ΚΑΤΗΓΟΡΙΕΣ: πιο ευανάγνωστες (μόνο αυτό αλλάξαμε) ===== */
-    .catrow td{
-      padding:14px 12px;
-      font-weight:900;
-      letter-spacing:.5px;
-      color:#ffffff;
-      background:linear-gradient(90deg, rgba(47,124,246,.38), rgba(15,22,45,.88));
-      border-top:1px solid rgba(47,124,246,.65);
-      border-bottom:1px solid rgba(36,48,85,.95);
-      box-shadow: inset 0 -1px 0 rgba(255,255,255,.04);
-    }
-    .catrow td::before{
-      content:"";
-      display:inline-block;
-      width:10px;height:10px;
-      border-radius:50%;
-      margin-right:10px;
-      background:rgba(47,124,246,.95);
-      box-shadow:0 0 0 3px rgba(47,124,246,.18);
-    }
-    tbody tr:not(.catrow):hover td{
-      background:rgba(47,124,246,.06);
-    }
-
+    .catrow td{padding:12px 10px;font-weight:900;color:#dfe6ff;background:rgba(15,22,45,.45)}
     .prod{font-weight:800}
     .sku{color:var(--muted);font-size:12px;margin-top:2px}
     .muted{color:var(--muted)}
     .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55)}
     .pill.warn{border-color:rgba(202,162,74,.75);color:#f1d694}
     .pill.danger{border-color:rgba(255,107,107,.6);color:#ffb2b2}
-    .pillBtn{cursor:pointer;border:3px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55);color:var(--text);}
-    .pillBtn:hover{filter:brightness(1.08)}
+    .pillBtn{
+    cursor:pointer;
+    border:3px solid rgba(36,48,85,.9);
+    background:rgba(11,16,32,.55);
+    color:var(--text);
+  }
+  .pillBtn:hover{filter:brightness(1.08)}
     .btn{border:0;border-radius:10px;padding:8px 10px;font-weight:800;cursor:pointer}
     .btnBlue{background:var(--blue);color:#fff}
     .btnGhost{background:rgba(11,16,32,.45);border:1px solid rgba(36,48,85,.9);color:var(--text)}
@@ -64,8 +45,8 @@
     .pm button{width:34px;height:34px;border-radius:10px;font-weight:900}
     .pm .minus{background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2}
     .pm .plus{background:rgba(255,255,255,.04);border:1px solid rgba(36,48,85,.9);color:#dfe6ff}
-    .transferBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(47,124,246,.15); border:1px solid rgba(47,124,246,.45);color:#8ab4ff;cursor:pointer;}
-    .transferBtn:hover{filter:brightness(1.1);}
+    .transferBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(47,124,246,.15); border:1px solid rgba(47,124,246,.45);color:#8ab4ff;cursor:pointer;}.transferBtn:hover{
+      filter:brightness(1.1);}
     .actions{display:flex;gap:10px;align-items:center}
     .tag{color:var(--muted);font-size:12px;min-width:14px;text-align:center}
     .targetBox{display:flex;gap:8px;align-items:center}
@@ -107,8 +88,7 @@
 
           <span class="pill">0 = OK</span>
           <span class="pill warn">Pending</span>
-          <span class="pill danger">Low</span>
-        </div>
+          </div>
       </div>
 
       <table>
@@ -157,11 +137,6 @@
                 {% else %}
                   <span class="pill">0</span>
                 {% endif %}
-
-                {% if total_owed and total_owed > 0 %}
-                  <span class="badge badge-danger">+{{ total_owed|fmtqty("TEM") }}</span>
-                {% endif %}
-
               </td>
 
               <td>
@@ -188,11 +163,12 @@
 
                   {% if can_adjust_workshop %}
                     <form method="post" action="/stock/transfer_wc">
-                      <input type="hidden" name="product_id" value="{{ it.id }}" />
-                      <input type="hidden" name="qty" value="1" />
-                      <button class="transferBtn" title="Μεταφορά 1 από Workshop σε Central">→</button>
-                    </form>
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
+                    <input type="hidden" name="qty" value="1" />
+                    <button class="transferBtn" title="Μεταφορά 1 από Workshop σε Central">→</button>
+                  </form>
                   {% endif %}
+
                 </div>
               </td>
             </tr>
@@ -202,24 +178,5 @@
       </table>
     </div>
   </div>
-<script>
-  // αποθήκευση scroll πριν από submit
-  document.querySelectorAll("form").forEach(form => {
-    form.addEventListener("submit", () => {
-      sessionStorage.setItem("stockScrollY", window.scrollY);
-    });
-  });
-
-  // επαναφορά scroll μετά το reload
-  window.addEventListener("load", () => {
-    const y = sessionStorage.getItem("stockScrollY");
-    if (y !== null) {
-      window.scrollTo(0, parseInt(y, 10));
-      sessionStorage.removeItem("stockScrollY");
-    }
-  });
-</script>
-
-
 </body>
 </html>
