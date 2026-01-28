@@ -52,20 +52,31 @@
         <div style="font-weight:800;margin-bottom:10px;">Receive into WORKSHOP stock</div>
         <table>
           <thead>
-            <tr><th>Consumable</th><th>Unit</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Receive now</th></tr>
+            <tr><th>Consumable</th><th>Unit</th><th>Pack size</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Receive now (units)</th></tr>
           </thead>
           <tbody>
             {% for r in rows %}
             <tr>
               <td><b>{{ r.consumable }}</b></td>
               <td class="muted">{{ r.unit }}</td>
-              <td>{{ r.ordered }}</td>
+              <td class="muted">{{ r.pack_size|int }}</td>
+              <td>
+                {{ r.ordered }}
+                {% if r.ordered_packs > 0 %}<div class="muted" style="font-size:12px;">= {{ r.ordered_packs }} pack{% if r.ordered_packs != 1 %}s{% endif %}</div>{% endif %}
+              </td>
               <td>{{ r.received }}</td>
-              <td>{% if r.remaining > 0 %}<span class="bad">{{ r.remaining }}</span>{% else %}<span class="ok">0</span>{% endif %}</td>
-              <td><input style="width:120px" name="recv_{{ r.item_id }}" placeholder="0" {% if r.remaining == 0 %}disabled{% endif %}></td>
+              <td>
+                {% if r.remaining > 0 %}
+                  <span class="bad">{{ r.remaining }}</span>
+                  {% if r.remaining_packs > 0 %}<div class="muted" style="font-size:12px;">≈ {{ r.remaining_packs }} pack{% if r.remaining_packs != 1 %}s{% endif %}</div>{% endif %}
+                {% else %}
+                  <span class="ok">0</span>
+                {% endif %}
+              </td>
+              <td><input style="width:140px" name="recv_{{ r.item_id }}" placeholder="0" {% if r.remaining == 0 %}disabled{% endif %}></td>
             </tr>
             {% endfor %}
-            {% if rows|length == 0 %}<tr><td colspan="6" class="muted">No items.</td></tr>{% endif %}
+            {% if rows|length == 0 %}<tr><td colspan="7" class="muted">No items.</td></tr>{% endif %}
           </tbody>
         </table>
 

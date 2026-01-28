@@ -36,8 +36,19 @@ def _d(x) -> Decimal:
     if x is None:
         return Decimal("0")
     if isinstance(x, Decimal):
-        return x
+        # Normalize negative zero which can show up from some DB backends
+        return Decimal("0") if x == Decimal("-0") else x
     return Decimal(str(x))
+
+
+def _packs_for(qty_units: Decimal, pack_size: Decimal) -> int:
+    """Return how many packs are represented by qty_units (rounded up)."""
+    if qty_units <= 0:
+        return 0
+    p = pack_size if pack_size and pack_size > 0 else Decimal("1")
+    n = qty_units / p
+    n_int = int(n) if n == int(n) else int(n) + 1
+    return int(n_int)
 
 
 def _round_to_pack(qty: Decimal, pack: Decimal) -> Decimal:
@@ -79,7 +90,9 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
         desired = _d(c.desired_qty)
         pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
         suggested_raw = desired - (on_hand + on_order)
-        suggested = _round_to_pack(suggested_raw, pack) if suggested_raw > 0 else Decimal("0")
+        # Suggested is stored/handled in *units* but always rounded up to a whole pack.
+        suggested_units = _round_to_pack(suggested_raw, pack) if suggested_raw > 0 else Decimal("0")
+        suggested_packs = _packs_for(suggested_units, pack) if suggested_units > 0 else 0
         rows.append({
             "id": c.id,
             "name": c.name,
@@ -90,7 +103,8 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
             "desired_qty": desired,
             "on_hand": on_hand,
             "on_order": on_order,
-            "suggested": suggested,
+            "suggested_units": suggested_units,
+            "suggested_packs": suggested_packs,
             "supplier_name": suppliers.get(c.supplier_id).name if c.supplier_id and c.supplier_id in suppliers else "",
             "notes": c.notes or "",
         })
@@ -279,13 +293,20 @@ def po_view(po_id: int, request: Request, db: Session = Depends(get_db), user: U
         remaining = ordered - received
         if remaining < 0:
             remaining = Decimal("0")
+
+        pack = _d(it.pack_size_snapshot) if it.pack_size_snapshot is not None else Decimal("1")
+        ordered_packs = _packs_for(ordered, pack) if ordered > 0 else 0
+        remaining_packs = _packs_for(remaining, pack) if remaining > 0 else 0
         rows.append({
             "item_id": it.id,
             "consumable": cname,
             "unit": it.unit_snapshot or "",
+            "pack_size": pack,
             "ordered": ordered,
             "received": received,
             "remaining": remaining,
+            "ordered_packs": ordered_packs,
+            "remaining_packs": remaining_packs,
         })
 
     return templates.TemplateResponse(

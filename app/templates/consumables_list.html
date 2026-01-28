@@ -51,7 +51,10 @@
   .bOk{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.10);color:#c8f7dd}
   .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .mini{display:inline-flex;gap:6px;align-items:center}
-  .mini input{width:76px}
+  .mini input{width:82px}
+  .btnIcon{width:38px;display:inline-flex;justify-content:center}
+  .kpi{display:flex;flex-direction:column;gap:4px}
+  .kpi .small{font-size:12px;color:var(--muted)}
   .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   .filters input{width:260px}
   .toggle{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--line);background:rgba(255,255,255,.02);padding:8px 10px;border-radius:10px;cursor:pointer;user-select:none}
@@ -136,7 +139,7 @@
       <div class="card-h">
         <div>
           <h2>Consumables (Workshop)</h2>
-          <div class="sub">Track on-hand, minimum, desired and suggested ordering.</div>
+          <div class="sub">Stock is tracked in <b>units</b>. Suggested ordering is shown in <b>packs</b> (rounded up).</div>
         </div>
         <div class="filters">
           <input id="q" placeholder="Search by name…" />
@@ -163,43 +166,49 @@
             <th style="min-width:240px">Name</th>
             <th>Category</th>
             <th>Supplier</th>
-            <th>Stock</th>
-            <th>On‑order</th>
+            <th>Stock (units)</th>
+            <th>On‑order (units)</th>
             <th>Min</th>
             <th>Desired</th>
-            <th>Suggested</th>
+            <th>Suggested (packs)</th>
             <th style="min-width:220px">Actions</th>
           </tr>
         </thead>
         <tbody id="tbody">
           {% for r in rows %}
           {% set is_low = (r.min_qty > 0 and r.on_hand < r.min_qty) %}
-          {% set has_suggested = (r.suggested > 0) %}
+          {% set has_suggested = (r.suggested_packs > 0) %}
           <tr class="r"
               data-name="{{ r.name|lower }}"
               data-low="{{ 1 if is_low else 0 }}"
               data-suggested="{{ 1 if has_suggested else 0 }}">
             <td>
               <div class="name">{{ r.name }}</div>
-              <div class="meta">{{ r.unit }} • pack {{ r.pack_size }}</div>
+              <div class="meta">
+                {% if r.unit %}{{ r.unit }}{% else %}<span class="muted">unit</span>{% endif %}
+                • pack {{ r.pack_size|int }}
+                {% if r.unit %} {{ r.unit }}{% endif %}/pack
+              </div>
             </td>
             <td class="muted">{{ r.category }}</td>
             <td>{{ r.supplier_name }}</td>
             <td class="num">
               {% if is_low %}
-                <span class="badge bDanger">Low • {{ r.on_hand }}</span>
-              {% else %}
-                <span class="badge">{{ r.on_hand }}</span>
+                <span class="badge bDanger">LOW</span>
               {% endif %}
+              <span class="badge">{{ r.on_hand }}</span>
             </td>
             <td class="num muted">{{ r.on_order }}</td>
             <td class="num muted">{{ r.min_qty }}</td>
             <td class="num muted">{{ r.desired_qty }}</td>
             <td class="num">
               {% if has_suggested %}
-                <span class="badge bWarn">Suggested • {{ r.suggested }}</span>
+                <div class="kpi">
+                  <span class="badge bWarn">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
+                  <span class="small">= {{ r.suggested_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
+                </div>
               {% else %}
-                <span class="badge bOk">OK • 0</span>
+                <span class="muted">—</span>
               {% endif %}
             </td>
             <td>
@@ -210,14 +219,14 @@
                 </form>
                 <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
                   <input type="hidden" name="delta" value="1" />
-                  <button class="btn2" type="submit" title="Add 1">+1</button>
+                  <button class="btn2 btnIcon" type="submit" title="Add 1">+1</button>
                 </form>
                 <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
                   <input type="hidden" name="delta" value="-1" />
-                  <button class="btn2" type="submit" title="Remove 1">-1</button>
+                  <button class="btn2 btnIcon" type="submit" title="Remove 1">-1</button>
                 </form>
                 <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
-                  <button class="btn2 btnDanger" type="submit">Disable</button>
+                  <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
                 </form>
               </div>
             </td>
