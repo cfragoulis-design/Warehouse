@@ -255,6 +255,103 @@ def po_generate(db: Session = Depends(get_db), user: User = Depends(require_role
     return RedirectResponse("/purchase-orders", status_code=303)
 
 
+
+@router.get("/purchase-orders/{po_id}")
+def po_view(po_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    po = db.get(PurchaseOrder, po_id)
+    if not po:
+        raise HTTPException(404)
+
+    supplier = db.get(Supplier, po.supplier_id)
+
+    items = (
+        db.query(PurchaseOrderItem, Consumable.name)
+        .join(Consumable, Consumable.id == PurchaseOrderItem.consumable_id)
+        .filter(PurchaseOrderItem.purchase_order_id == po_id)
+        .order_by(Consumable.name.asc())
+        .all()
+    )
+
+    rows = []
+    for it, cname in items:
+        ordered = _d(it.qty_ordered)
+        received = _d(it.qty_received)
+        remaining = ordered - received
+        if remaining < 0:
+            remaining = Decimal("0")
+        rows.append({
+            "item_id": it.id,
+            "consumable": cname,
+            "unit": it.unit_snapshot or "",
+            "ordered": ordered,
+            "received": received,
+            "remaining": remaining,
+        })
+
+    return templates.TemplateResponse(
+        "purchase_order_view.html",
+        {"request": request, "user": user, "po": po, "supplier": supplier, "rows": rows},
+    )
+
+
+@router.post("/purchase-orders/{po_id}/receive")
+async def po_receive(
+    po_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    po = db.get(PurchaseOrder, po_id)
+    if not po:
+        raise HTTPException(404)
+
+    form = await request.form()
+    items = db.query(PurchaseOrderItem).filter(PurchaseOrderItem.purchase_order_id == po_id).all()
+    if not items:
+        return RedirectResponse(f"/purchase-orders/{po_id}", status_code=303)
+
+    any_received = False
+    all_fully_received = True
+
+    for it in items:
+        key = f"recv_{it.id}"
+        raw = str(form.get(key, "")).strip()
+        add = _d(raw) if raw else Decimal("0")
+
+        ordered = _d(it.qty_ordered)
+        received = _d(it.qty_received)
+        remaining = ordered - received
+
+        if remaining <= 0:
+            continue
+
+        if add <= 0:
+            all_fully_received = False
+            continue
+
+        if add > remaining:
+            add = remaining
+
+        it.qty_received = received + add
+        any_received = True
+
+        # Update WORKSHOP stock
+        st = db.query(ConsumableStock).filter_by(consumable_id=it.consumable_id, location_code=WORKSHOP_CODE).first()
+        if not st:
+            st = ConsumableStock(consumable_id=it.consumable_id, location_code=WORKSHOP_CODE, qty=Decimal("0"))
+            db.add(st)
+            db.flush()
+        st.qty = _d(st.qty) + add
+
+        if _d(it.qty_received) < ordered:
+            all_fully_received = False
+
+    if any_received:
+        po.status = "RECEIVED" if all_fully_received else "PARTIAL"
+
+    db.commit()
+    return RedirectResponse(f"/purchase-orders/{po_id}", status_code=303)
+
 @router.post("/purchase-orders/{po_id}/status")
 def po_set_status(po_id: int, status: str = Form(...), db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
     po = db.get(PurchaseOrder, po_id)
