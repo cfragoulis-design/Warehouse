@@ -1,8 +1,79 @@
-<!doctype html><html><body>
-<h1>PO {{ po.id }}</h1>
-<table border="1"><tr><th>Είδος</th><th>Qty</th><th>Received</th></tr>
-{% for i in items %}
-<tr><td>{{ i.name }}</td><td>{{ i.qty_ordered }}</td><td>{{ i.qty_received }}</td></tr>
-{% endfor %}
-</table>
-</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PO #{{ po.id }}</title>
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--green:#22c55e;--red:#ef4444;}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);}
+    a{color:inherit;text-decoration:none}
+    .top{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg, rgba(17,25,54,.9), rgba(11,16,32,.9));position:sticky;top:0}
+    .nav{display:flex;gap:10px;flex-wrap:wrap}
+    .pill{padding:8px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.02)}
+    .pill:hover{border-color:#35508e}
+    .wrap{max-width:1100px;margin:0 auto;padding:18px}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    .muted{color:var(--muted)}
+    .btn{border:1px solid var(--line);background:rgba(47,124,246,.12);color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
+    .btn:hover{border-color:#3d5fb5}
+    input{background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:10px;outline:none}
+    input:focus{border-color:#3d5fb5}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+    th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.02);text-align:left}
+    tr:hover td{background:rgba(255,255,255,.02)}
+    .bad{color:var(--red);font-weight:800}
+    .ok{color:var(--green);font-weight:800}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="nav">
+      <a class="pill" href="/purchase-orders">← Back</a>
+      <a class="pill" href="/consumables">Consumables</a>
+    </div>
+    <div class="muted" style="font-size:12px;">Status: <b style="color:var(--text)">{{ po.status }}</b></div>
+  </div>
+
+  <div class="wrap">
+    <div class="card" style="padding:14px;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:900;font-size:16px;">PO #{{ po.id }}</div>
+          <div class="muted" style="font-size:12px;">Supplier: <b style="color:var(--text)">{{ supplier.name if supplier else "" }}</b></div>
+        </div>
+        <div class="muted" style="font-size:12px;">Created: {{ po.created_at }}</div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:14px;">
+      <form method="post" action="/purchase-orders/{{ po.id }}/receive">
+        <div style="font-weight:800;margin-bottom:10px;">Receive into WORKSHOP stock</div>
+        <table>
+          <thead>
+            <tr><th>Consumable</th><th>Unit</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Receive now</th></tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+            <tr>
+              <td><b>{{ r.consumable }}</b></td>
+              <td class="muted">{{ r.unit }}</td>
+              <td>{{ r.ordered }}</td>
+              <td>{{ r.received }}</td>
+              <td>{% if r.remaining > 0 %}<span class="bad">{{ r.remaining }}</span>{% else %}<span class="ok">0</span>{% endif %}</td>
+              <td><input style="width:120px" name="recv_{{ r.item_id }}" placeholder="0" {% if r.remaining == 0 %}disabled{% endif %}></td>
+            </tr>
+            {% endfor %}
+            {% if rows|length == 0 %}<tr><td colspan="6" class="muted">No items.</td></tr>{% endif %}
+          </tbody>
+        </table>
+
+        <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+          <button class="btn" type="submit">Apply Receipt</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
