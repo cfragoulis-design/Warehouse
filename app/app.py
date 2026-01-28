@@ -13,14 +13,12 @@ try:
     from app.auth import seed_admins
     from app.services import router as services_router
     from app.auth import router as auth_router
-    from app.consumables_service import router as consumables_router
     from app.seed import seed_locations
 except Exception:
     from db import init_db, SessionLocal
     from auth import seed_admins
     from services import router as services_router
     from auth import router as auth_router
-    from consumables_service import router as consumables_router
     from seed import seed_locations
 
 SECRET_KEY = os.getenv("SECRET_KEY", "change-me")
@@ -63,7 +61,6 @@ if static_dir:
 
 app.include_router(auth_router)
 app.include_router(services_router)
-app.include_router(consumables_router)
 
 
 @app.get("/health")

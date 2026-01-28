@@ -139,21 +139,11 @@ body{
 
 /* Section header rows */
 .section-row td{
-  padding: 18px 14px;
-  background: linear-gradient(90deg, rgba(255,255,255,.07), rgba(255,255,255,.025));
-  border-top: 2px solid rgba(255,255,255,.18);
+  padding: 14px 12px;
+  background: rgba(255,255,255,.02);
   border-bottom: 1px solid var(--line2);
-  font-weight: 850;
-  letter-spacing: .65px;
-  text-transform: uppercase;
-  color: rgba(255,255,255,.95);
-}
-
-.category-spacer td{
-  height: 12px;
-  padding: 0;
-  border: none;
-  background: transparent;
+  font-weight: 700;
+  letter-spacing: .2px;
 }
 
 /* Product line */

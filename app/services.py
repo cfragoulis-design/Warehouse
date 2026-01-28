@@ -4,7 +4,6 @@ from decimal import Decimal
 from uuid import uuid4
 from datetime import datetime
 from collections import defaultdict
-import unicodedata
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -385,74 +384,29 @@ def movement_create(
 # --------------------
 
 # ---- Stock category ordering (manual) ----
-# Stable, human-defined order:
-# Κοτόπουλα -> Χοιρινά -> Μοσχάρι -> Πρόβειο -> Premium -> Αλλαντικά -> Διάφορα -> (others A-Z)
 CATEGORY_ORDER = [
-    "Κοτόπουλα",
-    "Χοιρινά",
+    "Κοτόπουλο",
+    "Χοιρινό",
     "Μοσχάρι",
     "Πρόβειο",
+    "Αλλαντικα",
     "Premium",
-    "Αλλαντικά",
     "Διάφορα",
 ]
 
 
-def _norm_cat(s: str | None) -> str:
-    """Normalize category for comparisons (casefold + strip accents + collapse spaces)."""
-    if not s:
-        return ""
-    s = " ".join(s.strip().split())
-    s = s.casefold()
-    s = unicodedata.normalize("NFD", s)
-    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
-    return s
-
-
-# Aliases -> canonical order key (all normalized)
-_CATEGORY_ALIASES: dict[str, str] = {
-    # Chicken
-    _norm_cat("κοτόπουλα"): _norm_cat("Κοτόπουλα"),
-    _norm_cat("κοτόπουλο"): _norm_cat("Κοτόπουλα"),
-    _norm_cat("chicken"): _norm_cat("Κοτόπουλα"),
-    _norm_cat("poultry"): _norm_cat("Κοτόπουλα"),
-    # Pork
-    _norm_cat("χοιρινά"): _norm_cat("Χοιρινά"),
-    _norm_cat("χοιρινό"): _norm_cat("Χοιρινά"),
-    _norm_cat("pork"): _norm_cat("Χοιρινά"),
-    # Beef / Veal
-    _norm_cat("μοσχάρι"): _norm_cat("Μοσχάρι"),
-    _norm_cat("beef"): _norm_cat("Μοσχάρι"),
-    _norm_cat("veal"): _norm_cat("Μοσχάρι"),
-    # Lamb / Sheep / Goat
-    _norm_cat("πρόβειο"): _norm_cat("Πρόβειο"),
-    _norm_cat("αρνί"): _norm_cat("Πρόβειο"),
-    _norm_cat("κατσίκι"): _norm_cat("Πρόβειο"),
-    _norm_cat("lamb"): _norm_cat("Πρόβειο"),
-    _norm_cat("goat"): _norm_cat("Πρόβειο"),
-    # Premium
-    _norm_cat("premium"): _norm_cat("Premium"),
-    # Deli / cold cuts
-    _norm_cat("αλλαντικά"): _norm_cat("Αλλαντικά"),
-    _norm_cat("αλλαντικα"): _norm_cat("Αλλαντικά"),
-    _norm_cat("deli"): _norm_cat("Αλλαντικά"),
-    # Misc
-    _norm_cat("διάφορα"): _norm_cat("Διάφορα"),
-    _norm_cat("διαφορα"): _norm_cat("Διάφορα"),
-}
-
-
 def sort_grouped_categories(grouped: dict[str, list[dict]] | defaultdict) -> dict[str, list[dict]]:
-    """Sort grouped stock by CATEGORY_ORDER; unknown categories go after, alphabetically."""
-    order_index = {_norm_cat(name): i for i, name in enumerate(CATEGORY_ORDER)}
-
-    def cat_sort_key(cat: str) -> tuple[int, str]:
-        n = _norm_cat(cat)
-        canonical = _CATEGORY_ALIASES.get(n, n)
-        return (order_index.get(canonical, 10_000), n)
-
-    return dict(sorted(grouped.items(), key=lambda kv: cat_sort_key(kv[0] or "")))
-
+    """Sort grouped stock by a manual category order; unknown categories go after, alphabetically."""
+    order_index = {name: i for i, name in enumerate(CATEGORY_ORDER)}
+    return dict(
+        sorted(
+            grouped.items(),
+            key=lambda kv: (
+                order_index.get(kv[0], 10_000),
+                (kv[0] or "").lower(),
+            ),
+        )
+    )
 
 def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str, list[dict]]:
     """Builds the same grouped stock structure used by stock.html and stock_print_a4.html.
