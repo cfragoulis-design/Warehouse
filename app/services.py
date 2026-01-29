@@ -202,14 +202,7 @@ def products_list(
     db: Session = Depends(get_db),
 ):
     products = db.execute(
-        select(Product)
-        .outerjoin(Category, Category.name == Product.category)
-        .order_by(
-            Product.is_active.desc(),
-            func.coalesce(Category.sort_order, 9999),
-            func.coalesce(Product.category, ''),
-            Product.name.asc(),
-        )
+        select(Product).order_by(Product.is_active.desc(), Product.name.asc())
     ).scalars().all()
 
     return templates.TemplateResponse(
@@ -239,14 +232,12 @@ def product_create(
     sku: str | None = Form(None),
     category: str | None = Form(None),
     unit: str = Form("pcs"),
-    min_stock: int = Form(0),
 ):
     p = Product(
         name=name.strip(),
         sku=sku.strip() if sku else None,
         category=category.strip() if category else None,
         unit=unit,
-        min_stock=int(min_stock or 0),
     )
     db.add(p)
     db.commit()
@@ -280,7 +271,6 @@ def product_update(
     sku: str | None = Form(None),
     category: str | None = Form(None),
     unit: str = Form("pcs"),
-    min_stock: int = Form(0),
 ):
     product = db.get(Product, pid)
     if not product:
@@ -290,7 +280,6 @@ def product_update(
     product.sku = sku.strip() if sku else None
     product.category = category.strip() if category else None
     product.unit = unit
-    product.min_stock = int(min_stock or 0)
     db.commit()
     return RedirectResponse(url="/products", status_code=303)
 
@@ -633,7 +622,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
-            Product.min_stock,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -652,7 +640,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
-            Product.min_stock,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     )
@@ -699,8 +686,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "workshop_qty": w,
             "target_central": t,
             "pending": pending,
-            "min_stock": int(r.min_stock or 0),
-            "is_low": (int(r.min_stock or 0) > 0 and c < Decimal(int(r.min_stock or 0))),
             "total_qty": c + w,
         }
         cat = (r.category or "").strip()
@@ -792,8 +777,6 @@ def stock_view(
             "workshop_qty": w,
             "target_central": t,
             "pending": pending,
-            "min_stock": int(r.min_stock or 0),
-            "is_low": (int(r.min_stock or 0) > 0 and c < Decimal(int(r.min_stock or 0))),
             "total_qty": c + w,
         }
         cat = (r.category or "").strip()
@@ -803,22 +786,6 @@ def stock_view(
 
     grouped = sort_grouped_categories(grouped, db)
 
-# Low stock filter & count (based on min_stock vs CENTRAL)
-low_count = 0
-for _cat, _items in grouped.items():
-    for _it in _items:
-        if _it.get("is_low"):
-            low_count += 1
-
-low_only = request.query_params.get("low") in {"1", "true", "yes"}
-if low_only:
-    filtered = {}
-    for _cat, _items in grouped.items():
-        keep = [x for x in _items if x.get("is_low")]
-        if keep:
-            filtered[_cat] = keep
-    grouped = filtered
-
     return templates.TemplateResponse(
         "stock.html",
         {
@@ -826,8 +793,6 @@ if low_only:
             "user": user,
             "grouped": grouped,
             "can_edit_target": (user.role == "admin"),
-            "low_count": low_count,
-            "low_only": low_only,
             "can_adjust_central": (user.role == "admin"),
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
         },
