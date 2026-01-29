@@ -73,11 +73,6 @@
     .targetBox{display:flex;gap:8px;align-items:center}
     .targetInput{width:72px;min-width:72px;text-align:center;padding:8px 10px;border-radius:12px}
     .pendingForm{display:inline}
-  
-.badge{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:800;letter-spacing:.3px;border:1px solid rgba(255,255,255,.18);margin-left:10px}
-.badge.low{background:rgba(255,80,80,.12);border-color:rgba(255,80,80,.45);color:#ff8e8e}
-.pill.low{background:rgba(255,80,80,.10);border-color:rgba(255,80,80,.35);color:#ff9b9b}
-
   </style>
 </head>
 <body>
@@ -113,7 +108,6 @@
           <a class="btn btnGhost btnTiny" href="/stock/print?scope=all" target="_blank">🖨️ Εκτύπωση (Όλα)</a>
 
           <span class="pill">0 = OK</span>
-          <a class="pill low" href="/stock{% if low_only %}{% else %}?low=1{% endif %}">Low: {{ low_count or 0 }}{% if low_only %} (showing){% endif %}</a>
           <span class="pill warn">Pending</span>
           </div>
       </div>
@@ -136,7 +130,7 @@
           {% for it in items %}
             <tr>
               <td>
-                <div class="prod">{{ it.name }}{% if it.is_low %}<span class="badge low">LOW</span>{% endif %}</div>
+                <div class="prod">{{ it.name }}</div>
                 <div class="sku">{{ it.sku or '' }}</div>
               </td>
               <td class="muted">{{ it.unit_label }}</td>
