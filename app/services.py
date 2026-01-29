@@ -16,11 +16,11 @@ from sqlalchemy.orm import Session
 try:
     from app.auth import require_user
     from app.db import get_db
-    from app.models import User, Product, StockMovement, Location
+    from app.models import User, Product, Category, StockMovement, Location
 except Exception:
     from auth import require_user
     from db import get_db
-    from models import User, Product, StockMovement, Location
+    from models import User, Product, Category, StockMovement, Location
 
 router = APIRouter()
 
@@ -72,6 +72,14 @@ require_login = require_user
 def get_locations(db: Session) -> dict[str, Location]:
     locs = db.execute(select(Location)).scalars().all()
     return {l.code: l for l in locs}
+
+
+def get_categories(db: Session, include_inactive: bool = False) -> list[Category]:
+    stmt = select(Category)
+    if not include_inactive:
+        stmt = stmt.where(Category.is_active == True)
+    stmt = stmt.order_by(Category.sort_order.asc(), Category.name.asc())
+    return db.execute(stmt).scalars().all()
 
 
 def parse_qty(qty: str) -> Decimal | None:
@@ -207,10 +215,12 @@ def products_list(
 def product_new_form(
     request: Request,
     user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
 ):
+    categories = get_categories(db)
     return templates.TemplateResponse(
         "product_form.html",
-        {"request": request, "user": user, "product": None, "action": "/products/new"},
+        {"request": request, "user": user, "product": None, "action": "/products/new", "categories": categories},
     )
 
 
@@ -245,9 +255,10 @@ def product_edit_form(
     if not product:
         return RedirectResponse(url="/products", status_code=303)
 
+    categories = get_categories(db)
     return templates.TemplateResponse(
         "product_form.html",
-        {"request": request, "user": user, "product": product, "action": f"/products/{pid}/edit"},
+        {"request": request, "user": user, "product": product, "action": f"/products/{pid}/edit", "categories": categories},
     )
 
 
@@ -284,6 +295,115 @@ def product_toggle(
         product.is_active = not product.is_active
         db.commit()
     return RedirectResponse(url="/products", status_code=303)
+
+
+# --------------------
+# CATEGORIES (admin)
+# --------------------
+
+@router.get("/categories", response_class=HTMLResponse)
+def categories_list(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    categories = get_categories(db, include_inactive=True)
+    return templates.TemplateResponse(
+        "categories_list.html",
+        {"request": request, "user": user, "categories": categories},
+    )
+
+
+@router.get("/categories/new", response_class=HTMLResponse)
+def category_new_form(
+    request: Request,
+    user: User = Depends(require_admin),
+):
+    return templates.TemplateResponse(
+        "category_form.html",
+        {"request": request, "user": user, "category": None, "action": "/categories/new"},
+    )
+
+
+@router.post("/categories/new")
+def category_create(
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    name: str = Form(...),
+    sort_order: int = Form(1000),
+):
+    nm = (name or "").strip()
+    if not nm:
+        return RedirectResponse(url="/categories/new?err=name", status_code=303)
+
+    exists = db.execute(select(Category).where(Category.name == nm)).scalar_one_or_none()
+    if exists:
+        return RedirectResponse(url="/categories/new?err=exists", status_code=303)
+
+    db.add(Category(name=nm, sort_order=int(sort_order or 1000), is_active=True))
+    db.commit()
+    return RedirectResponse(url="/categories", status_code=303)
+
+
+@router.get("/categories/{cid}/edit", response_class=HTMLResponse)
+def category_edit_form(
+    cid: int,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    category = db.get(Category, cid)
+    if not category:
+        return RedirectResponse(url="/categories", status_code=303)
+
+    return templates.TemplateResponse(
+        "category_form.html",
+        {"request": request, "user": user, "category": category, "action": f"/categories/{cid}/edit"},
+    )
+
+
+@router.post("/categories/{cid}/edit")
+def category_update(
+    cid: int,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    name: str = Form(...),
+    sort_order: int = Form(1000),
+):
+    category = db.get(Category, cid)
+    if not category:
+        return RedirectResponse(url="/categories", status_code=303)
+
+    new_name = (name or "").strip()
+    if not new_name:
+        return RedirectResponse(url=f"/categories/{cid}/edit?err=name", status_code=303)
+
+    # If renaming: propagate to products.category (non-destructive, keeps consistency)
+    old_name = category.name
+    if new_name != old_name:
+        conflict = db.execute(select(Category).where(Category.name == new_name, Category.id != cid)).scalar_one_or_none()
+        if conflict:
+            return RedirectResponse(url=f"/categories/{cid}/edit?err=exists", status_code=303)
+
+        db.query(Product).filter(Product.category == old_name).update({"category": new_name})
+        category.name = new_name
+
+    category.sort_order = int(sort_order or 1000)
+    db.commit()
+    return RedirectResponse(url="/categories", status_code=303)
+
+
+@router.post("/categories/{cid}/toggle")
+def category_toggle(
+    cid: int,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    category = db.get(Category, cid)
+    if category:
+        category.is_active = not category.is_active
+        db.commit()
+    return RedirectResponse(url="/categories", status_code=303)
 
 
 # --------------------
@@ -384,14 +504,14 @@ def movement_create(
 # STOCK VIEW
 # --------------------
 
-# ---- Stock category ordering (manual) ----
-# Stable, human-defined order:
-# Κοτόπουλα -> Χοιρινά -> Μοσχάρι -> Πρόβειο -> Premium -> Αλλαντικά -> Διάφορα -> (others A-Z)
-CATEGORY_ORDER = [
+# ---- Stock category ordering ----
+# Primary source: categories table (sort_order). Fallback: manual stable order.
+CATEGORY_ORDER_FALLBACK = [
     "Κοτόπουλα",
     "Χοιρινά",
     "Μοσχάρι",
     "Πρόβειο",
+    "Παρασκευάσματα",
     "Premium",
     "Αλλαντικά",
     "Διάφορα",
@@ -442,13 +562,38 @@ _CATEGORY_ALIASES: dict[str, str] = {
 }
 
 
-def sort_grouped_categories(grouped: dict[str, list[dict]] | defaultdict) -> dict[str, list[dict]]:
-    """Sort grouped stock by CATEGORY_ORDER; unknown categories go after, alphabetically."""
-    order_index = {_norm_cat(name): i for i, name in enumerate(CATEGORY_ORDER)}
+def _category_order_index(db: Session | None = None) -> dict[str, int]:
+    """Returns normalized category-name -> sort_index.
+
+    If categories table is available and has active rows, we use its sort_order.
+    Otherwise we use the fallback order.
+    """
+
+    if db is not None:
+        try:
+            cats = db.execute(
+                select(Category).where(Category.is_active == True).order_by(Category.sort_order.asc(), Category.name.asc())
+            ).scalars().all()
+            if cats:
+                return {_norm_cat(c.name): int(c.sort_order or 1000) for c in cats}
+        except Exception:
+            pass
+
+    # fallback index (0..n)
+    return {_norm_cat(name): i for i, name in enumerate(CATEGORY_ORDER_FALLBACK)}
+
+
+def sort_grouped_categories(grouped: dict[str, list[dict]] | defaultdict, db: Session | None = None) -> dict[str, list[dict]]:
+    """Sort grouped stock by categories.sort_order (preferred), else fallback order.
+
+    Unknown categories go after, alphabetically.
+    """
+    order_index = _category_order_index(db)
 
     def cat_sort_key(cat: str) -> tuple[int, str]:
         n = _norm_cat(cat)
         canonical = _CATEGORY_ALIASES.get(n, n)
+        # If we are using DB-backed sort_order, it can be large (e.g. 9990 for Διάφορα)
         return (order_index.get(canonical, 10_000), n)
 
     return dict(sorted(grouped.items(), key=lambda kv: cat_sort_key(kv[0] or "")))
@@ -548,7 +693,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             cat = "Διάφορα"
         grouped[cat].append(item)
 
-    return sort_grouped_categories(grouped)
+    return sort_grouped_categories(grouped, db)
 
 
 def _group_from_category(cat: str | None, name: str | None) -> str:
@@ -639,7 +784,7 @@ def stock_view(
             cat = "Διάφορα"
         grouped[cat].append(item)
 
-    grouped = sort_grouped_categories(grouped)
+    grouped = sort_grouped_categories(grouped, db)
 
     return templates.TemplateResponse(
         "stock.html",
