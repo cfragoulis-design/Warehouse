@@ -53,15 +53,31 @@
 
       {# ---- Category: dropdown + optional custom ---- #}
       {% set cat = (product.category if product else '') %}
-      {% set preset = ['Κοτόπουλα','Χοιρινά','Μοσχάρι','Πρόβειο','Παρασκευάσματα','Αλλαντικά','Premium','Διάφορα'] %}
-      {% set is_custom = (cat and (cat not in preset)) %}
+      {% set ns = namespace(found=false) %}
+      {% if categories is defined and categories %}
+        {% for c in categories %}
+          {% if cat == c.name %}{% set ns.found = True %}{% endif %}
+        {% endfor %}
+      {% endif %}
+      {% set is_custom = (cat and (not ns.found)) %}
 
       <label>Κατηγορία</label>
       <select id="category_select">
         <option value="">—</option>
-        {% for c in preset %}
-          <option value="{{ c }}" {% if cat == c %}selected{% endif %}>{{ c }}</option>
-        {% endfor %}
+        {% if categories is defined and categories %}
+          {% for c in categories %}
+            <option value="{{ c.name }}" {% if cat == c.name %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        {% else %}
+          <option value="Κοτόπουλα" {% if cat == 'Κοτόπουλα' %}selected{% endif %}>Κοτόπουλα</option>
+          <option value="Χοιρινά" {% if cat == 'Χοιρινά' %}selected{% endif %}>Χοιρινά</option>
+          <option value="Μοσχάρι" {% if cat == 'Μοσχάρι' %}selected{% endif %}>Μοσχάρι</option>
+          <option value="Πρόβειο" {% if cat == 'Πρόβειο' %}selected{% endif %}>Πρόβειο</option>
+          <option value="Παρασκευάσματα" {% if cat == 'Παρασκευάσματα' %}selected{% endif %}>Παρασκευάσματα</option>
+          <option value="Premium" {% if cat == 'Premium' %}selected{% endif %}>Premium</option>
+          <option value="Αλλαντικά" {% if cat == 'Αλλαντικά' %}selected{% endif %}>Αλλαντικά</option>
+          <option value="Διάφορα" {% if cat == 'Διάφορα' %}selected{% endif %}>Διάφορα</option>
+        {% endif %}
         <option value="__custom__" {% if is_custom %}selected{% endif %}>Άλλο…</option>
       </select>
       <div class="muted">Χρησιμοποιείται για αυτόματη ομαδοποίηση στο Stock.</div>
