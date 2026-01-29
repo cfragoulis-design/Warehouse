@@ -9,18 +9,18 @@ import unicodedata
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case, Table, MetaData
+from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
     from app.auth import require_user
     from app.db import get_db
-    from app.models import User, Product, StockMovement, Location
+    from app.models import User, Product, StockMovement, Location, Category
 except Exception:
     from auth import require_user
     from db import get_db
-    from models import User, Product, StockMovement, Location
+    from models import User, Product, StockMovement, Location, Category
 
 router = APIRouter()
 
@@ -73,6 +73,58 @@ def get_locations(db: Session) -> dict[str, Location]:
     locs = db.execute(select(Location)).scalars().all()
     return {l.code: l for l in locs}
 
+
+
+
+# --------------------
+# categories helpers
+# --------------------
+DEFAULT_CATEGORIES = [
+    ("Κοτόπουλα", 10),
+    ("Χοιρινά", 20),
+    ("Μοσχάρι", 30),
+    ("Πρόβειο", 40),
+    ("Παρασκευάσματα", 50),
+    ("Αλλαντικά", 60),
+    ("Premium", 70),
+    ("Διάφορα", 90),
+]
+
+def ensure_categories(db: Session) -> None:
+    """Idempotent: create categories table rows for defaults and any existing product.category strings."""
+    # 1) ensure default categories exist
+    existing = {c.name: c for c in db.execute(select(Category)).scalars().all()}
+    changed = False
+    for name, order in DEFAULT_CATEGORIES:
+        c = existing.get(name)
+        if not c:
+            db.add(Category(name=name, sort_order=order, is_active=True))
+            changed = True
+        else:
+            # do not override user-defined sort_order; only fill missing/invalid
+            if (c.sort_order is None) or (c.sort_order == 0 and order != 0):
+                c.sort_order = order
+                changed = True
+
+    # 2) seed any categories seen in products table (as inactive? keep active=True)
+    prod_cats = db.execute(select(func.distinct(Product.category)).where(Product.category.isnot(None))).all()
+    for (cat,) in prod_cats:
+        if not cat:
+            continue
+        cat = str(cat).strip()
+        if not cat:
+            continue
+        if cat not in existing:
+            db.add(Category(name=cat, sort_order=999, is_active=True))
+            changed = True
+
+    if changed:
+        db.commit()
+
+def get_category_order_map(db: Session) -> dict[str, int]:
+    ensure_categories(db)
+    rows = db.execute(select(Category.name, Category.sort_order).where(Category.is_active == True)).all()  # noqa: E712
+    return {name: int(order or 999) for name, order in rows}
 
 def parse_qty(qty: str) -> Decimal | None:
     try:
@@ -184,6 +236,87 @@ def dashboard(
         {"request": request, "user": user, "stats": stats},
     )
 
+
+# --------------------
+# CATEGORIES (admin)
+# --------------------
+@router.get("/categories", response_class=HTMLResponse)
+def categories_list(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    ensure_categories(db)
+    cats = db.execute(select(Category).order_by(Category.sort_order.asc(), Category.name.asc())).scalars().all()
+    return templates.TemplateResponse(
+        "categories_list.html",
+        {"request": request, "user": user, "categories": cats},
+    )
+
+
+@router.post("/categories/new")
+def category_create(
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    name: str = Form(...),
+    sort_order: int = Form(999),
+):
+    name = name.strip()
+    if not name:
+        return RedirectResponse(url="/categories", status_code=303)
+
+    # upsert-like behavior
+    existing = db.execute(select(Category).where(Category.name == name)).scalar_one_or_none()
+    if existing:
+        existing.sort_order = int(sort_order or existing.sort_order or 999)
+        existing.is_active = True
+    else:
+        db.add(Category(name=name, sort_order=int(sort_order or 999), is_active=True))
+    db.commit()
+    return RedirectResponse(url="/categories", status_code=303)
+
+
+@router.post("/categories/{cid}/edit")
+def category_edit(
+    cid: int,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    name: str = Form(...),
+    sort_order: int = Form(999),
+):
+    cat = db.get(Category, cid)
+    if not cat:
+        return RedirectResponse(url="/categories", status_code=303)
+
+    new_name = name.strip()
+    if not new_name:
+        return RedirectResponse(url="/categories", status_code=303)
+
+    old_name = cat.name
+    cat.name = new_name
+    cat.sort_order = int(sort_order or 999)
+
+    # propagate rename to products (safe, controlled)
+    if old_name != new_name:
+        db.query(Product).filter(Product.category == old_name).update({Product.category: new_name})
+
+    db.commit()
+    return RedirectResponse(url="/categories", status_code=303)
+
+
+@router.post("/categories/{cid}/toggle")
+def category_toggle(
+    cid: int,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    cat = db.get(Category, cid)
+    if cat:
+        cat.is_active = not bool(cat.is_active)
+        db.commit()
+    return RedirectResponse(url="/categories", status_code=303)
+
+
 # --------------------
 # PRODUCTS (admin)
 # --------------------
@@ -193,40 +326,31 @@ def products_list(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    # Order: Active first -> Category sort_order (if categories table exists) -> Category name -> Product name
-    try:
-        from sqlalchemy import Table, MetaData
+    # Ensure categories exist so ordering is stable
+    ensure_categories(db)
 
-        md = MetaData()
-        categories = Table("categories", md, autoload_with=db.get_bind())
-
-        stmt = (
-            select(Product)
-            .outerjoin(categories, categories.c.name == Product.category)
+    cat_order = func.coalesce(Category.sort_order, 999)
+    cat_name = func.coalesce(Category.name, Product.category, "")
+    rows = (
+        db.execute(
+            select(Product, cat_order.label("cat_order"), cat_name.label("cat_name"))
+            .outerjoin(Category, Category.name == Product.category)
             .order_by(
                 Product.is_active.desc(),
-                categories.c.sort_order.asc().nulls_last(),
-                Product.category.asc().nulls_last(),
+                cat_order.asc(),
+                cat_name.asc(),
                 Product.name.asc(),
             )
         )
-        products = db.execute(stmt).scalars().all()
-    except Exception:
-        # Fallback if categories table doesn't exist yet
-        products = db.execute(
-            select(Product).order_by(
-                Product.is_active.desc(),
-                Product.category.asc().nulls_last(),
-                Product.name.asc(),
-            )
-        ).scalars().all()
+        .all()
+    )
+
+    products = [{"p": p, "cat_name": cn} for (p, _co, cn) in rows]
 
     return templates.TemplateResponse(
         "products_list.html",
         {"request": request, "user": user, "products": products},
     )
-
-
 
 @router.get("/products/new", response_class=HTMLResponse)
 def product_new_form(
