@@ -45,19 +45,13 @@ class Product(Base):
     )
 
 
-
 class Category(Base):
     __tablename__ = "categories"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=999)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-    )
 
 
 class Location(Base):
