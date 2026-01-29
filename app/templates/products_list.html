@@ -33,6 +33,7 @@
       <a href="/dashboard">Dashboard</a>
       <a href="/stock">Stock</a>
       <a href="/movements">Movements</a>
+      <a href="/categories">Categories</a>
       <a class="btn" href="/products/new" style="color:white">+ New Product</a>
     </div>
   </div>
@@ -51,11 +52,23 @@
         <th>Status</th>
         <th>Actions</th>
       </tr>
-      {% for p in products %}
+      {% set current_cat = None %}
+      {% for row in products %}
+      {% set p = row.p %}
+      {% set cat = (row.cat_name or '') %}
+      {% if cat != current_cat %}
+      <tr>
+        <td colspan="7" style="padding:14px 8px;font-weight:950;letter-spacing:.08em;text-transform:uppercase;color:#d7def5;background:linear-gradient(90deg, rgba(255,255,255,.08), rgba(255,255,255,0));border-top:1px solid #2a3a66;border-bottom:1px solid #243055">
+          <span style="display:inline-block;width:6px;height:18px;background:#8ab4ff;border-radius:999px;margin-right:10px;vertical-align:middle"></span>
+          {{ cat if cat else 'Uncategorized' }}
+        </td>
+      </tr>
+      {% set current_cat = cat %}
+      {% endif %}
       <tr>
         <td style="font-weight:800">{{ p.name }}</td>
         <td class="mono">{{ p.sku or '' }}</td>
-        <td>{{ p.category or '' }}</td>
+        <td>{{ cat }}</td>
         <td>{{ 'Κιβ' if p.unit=='box' else 'Τεμ' }}</td>
         <td class="right mono">{{ (p.min_stock or 0) }}</td>
         <td>

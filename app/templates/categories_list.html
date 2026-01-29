@@ -7,7 +7,7 @@
   <style>
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
     .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#111936;border-bottom:1px solid #243055;}
-    .card{max-width:980px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
+    .card{max-width:1100px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px;}
     .muted{color:#a7b0c7}
     a{color:#8ab4ff;text-decoration:none}
     table{width:100%;border-collapse:collapse}
@@ -19,8 +19,11 @@
     .btnlink{display:inline-block;border:1px solid #243055;border-radius:10px;padding:6px 10px;font-weight:800}
     .btnlink:hover{border-color:#3a4b80}
     .actions{display:flex;gap:8px;flex-wrap:wrap}
-    .right{text-align:right}
+    input,select{background:#0b1020;border:1px solid #243055;color:#e7e9ee;border-radius:10px;padding:8px 10px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
     .mono{font-variant-numeric:tabular-nums}
+    .w120{width:120px}
+    .w220{width:220px}
   </style>
 </head>
 <body>
@@ -31,27 +34,43 @@
     </div>
     <div style="display:flex;gap:12px;align-items:center">
       <a href="/dashboard">Dashboard</a>
-      <a href="/products">Products</a>
       <a href="/stock">Stock</a>
-      <a class="btn" href="/categories/new" style="color:white">+ New Category</a>
+      <a href="/products">Products</a>
+      <a href="/movements">Movements</a>
     </div>
   </div>
 
   <div class="card">
     <h2 style="margin-top:0">Categories</h2>
-    <p class="muted">Οι κατηγορίες είναι ξεχωριστές οντότητες για καθαρή σειρά (sort order). Τα προϊόντα συνεχίζουν να κρατάνε το category ως text για ασφάλεια.</p>
+    <p class="muted">Διαχείριση κατηγοριών και σειρά εμφάνισης (sort order).</p>
+
+    <form method="post" action="/categories/new" style="margin:0 0 18px 0">
+      <div class="row">
+        <div>
+          <div class="muted" style="font-size:12px;margin-bottom:6px">Name</div>
+          <input class="w220" name="name" placeholder="π.χ. Παρασκευάσματα" required />
+        </div>
+        <div>
+          <div class="muted" style="font-size:12px;margin-bottom:6px">Sort order</div>
+          <input class="w120 mono" name="sort_order" type="number" value="999" />
+        </div>
+        <div>
+          <button class="btn" type="submit">+ Add</button>
+        </div>
+      </div>
+    </form>
 
     <table>
       <tr>
+        <th style="width:70px">Order</th>
         <th>Name</th>
-        <th class="right">Sort</th>
         <th>Status</th>
-        <th>Actions</th>
+        <th style="width:320px">Actions</th>
       </tr>
       {% for c in categories %}
       <tr>
-        <td style="font-weight:800">{{ c.name }}</td>
-        <td class="right mono">{{ c.sort_order }}</td>
+        <td class="mono">{{ c.sort_order }}</td>
+        <td style="font-weight:900">{{ c.name }}</td>
         <td>
           {% if c.is_active %}
             <span class="pill">Active</span>
@@ -61,7 +80,11 @@
         </td>
         <td>
           <div class="actions">
-            <a class="btnlink" href="/categories/{{ c.id }}/edit">Edit</a>
+            <form method="post" action="/categories/{{ c.id }}/edit" style="display:flex;gap:8px;align-items:center;margin:0;flex-wrap:wrap">
+              <input class="w220" name="name" value="{{ c.name }}" />
+              <input class="w120 mono" name="sort_order" type="number" value="{{ c.sort_order }}" />
+              <button class="btnlink" type="submit" style="background:transparent;color:#e7e9ee;cursor:pointer">Save</button>
+            </form>
             <form method="post" action="/categories/{{ c.id }}/toggle" style="display:inline;margin:0">
               <button class="btnlink" type="submit" style="background:transparent;color:#e7e9ee;cursor:pointer">
                 {{ 'Deactivate' if c.is_active else 'Activate' }}
@@ -72,6 +95,10 @@
       </tr>
       {% endfor %}
     </table>
+
+    <div class="muted" style="margin-top:14px;font-size:12px">
+      Σημείωση: Μετονομασία κατηγορίας ενημερώνει αυτόματα όλα τα προϊόντα που είχαν την παλιά τιμή.
+    </div>
   </div>
 </body>
 </html>
