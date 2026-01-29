@@ -38,7 +38,11 @@ class Product(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Desired stock at CENTRAL. Used to compute Pending (Target - Central)
     target_central: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
-
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
 
 
 class Category(Base):
@@ -46,7 +50,7 @@ class Category(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=999)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -97,6 +101,11 @@ class StockMovement(Base):
     # if this movement is part of a transfer: same UUID on both rows (OUT + IN)
     transfer_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
 
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
 
 
 # -----------------------------
@@ -150,3 +159,22 @@ class PurchaseOrder(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey("suppliers.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="DRAFT")  # DRAFT/SUBMITTED/PARTIAL/RECEIVED/CANCELLED
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class PurchaseOrderItem(Base):
+    __tablename__ = "purchase_order_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    purchase_order_id: Mapped[int] = mapped_column(Integer, ForeignKey("purchase_orders.id"), nullable=False)
+    consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=False)
+
+    qty_ordered: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    qty_received: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("0"))
+
+    # snapshots (so PO remains stable even if consumable changes)
+    unit_snapshot: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    pack_size_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    min_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    desired_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
