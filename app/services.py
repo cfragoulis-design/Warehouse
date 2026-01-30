@@ -5,6 +5,8 @@ from uuid import uuid4
 from datetime import datetime
 from collections import defaultdict
 import unicodedata
+import os
+from urllib import request as urlrequest, parse as urlparse
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -65,6 +67,26 @@ def require_admin(user: User = Depends(require_user)) -> User:
 # compatibility alias (you used require_login later)
 require_login = require_user
 
+
+# --------------------
+# Telegram alerts (Need Order)
+# --------------------
+def send_telegram_message(text: str) -> None:
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        raise RuntimeError("Missing TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": True,
+    }
+    data = urlparse.urlencode(payload).encode("utf-8")
+    req = urlrequest.Request(url, data=data, method="POST")
+    with urlrequest.urlopen(req, timeout=8) as resp:
+        # Telegram returns JSON; we only need to ensure request succeeded.
+        resp.read()
 
 # --------------------
 # data helpers
@@ -1210,3 +1232,72 @@ async def stock_fulfill_pending(
     p.target_central = Decimal("0")
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
+
+
+@router.post("/api/stock/need")
+def stock_need_order(
+    request: Request,
+    product_id: int = Form(...),
+    qty: str = Form(...),
+    location: str = Form("CENTRAL"),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    # allow admin + workshop
+    if user.role not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    q = parse_qty(qty)
+    if q is None:
+        raise HTTPException(status_code=400, detail="Invalid qty")
+
+    locs = get_locations(db)
+    central = locs.get("CENTRAL")
+    workshop = locs.get("WORKSHOP")
+
+    signed_qty = signed_qty_expr()
+
+    row = db.execute(
+        select(
+            Product.name,
+            Product.sku,
+            Product.unit,
+            func.coalesce(
+                func.sum(case((StockMovement.location_id == (central.id if central else -1), signed_qty), else_=0)),
+                0,
+            ).label("central_qty"),
+            func.coalesce(
+                func.sum(case((StockMovement.location_id == (workshop.id if workshop else -1), signed_qty), else_=0)),
+                0,
+            ).label("workshop_qty"),
+        )
+        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
+        .where(Product.id == product_id)
+        .group_by(Product.id)
+    ).first()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    pname, psku, punit, cqty, wqty = row
+    unit_label = (punit or "").upper() if (punit or "").strip() else ""
+    loc_label = (location or "CENTRAL").upper()
+
+    msg = (
+        "🆘 NEED ORDER\n"
+        f"Product: {pname}{(' ('+psku+')') if psku else ''}\n"
+        f"Qty: {fmtqty(q, punit)} {unit_label}\n"
+        f"Location: {loc_label}\n"
+        f"Stock (C/W): {fmtqty(cqty, punit)} / {fmtqty(wqty, punit)}\n"
+        f"By: {user.username}"
+    )
+
+    try:
+        send_telegram_message(msg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Telegram send failed: {e}")
+
+    # redirect back to where user came from
+    ref = request.headers.get("referer") or "/stock"
+    return RedirectResponse(url=ref, status_code=303)
+
