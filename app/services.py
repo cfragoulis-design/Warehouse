@@ -789,8 +789,8 @@ def stock_need_telegram(
     workshop_qty: str = Form(""),
 ):
     # roles allowed
-    if user.role not in ("admin", "workshop"):
-        raise HTTPException(status_code=403, detail="Not allowed")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
 
     q = parse_qty(qty)
     if not q:
