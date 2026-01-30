@@ -66,6 +66,15 @@ def require_admin(user: User = Depends(require_user)) -> User:
     return user
 
 
+def admin_only_dialog(request: Request, user: User, next_url: str = "/dashboard") -> HTMLResponse:
+    # Friendly access denied page (prevents raw JSON 403 in browser)
+    return templates.TemplateResponse(
+        "access_denied.html",
+        {"request": request, "user": user, "next_url": next_url},
+        status_code=403,
+    )
+
+
 # compatibility alias (you used require_login later)
 require_login = require_user
 
@@ -202,7 +211,7 @@ def dashboard(
 @router.get("/products", response_class=HTMLResponse)
 def products_list(
     request: Request,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
     # Keep products list clean: Active first, then by Category.sort_order (when category exists), then by category name, then product name.
@@ -231,7 +240,7 @@ def products_list(
 @router.get("/products/new", response_class=HTMLResponse)
 def product_new_form(
     request: Request,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
     categories = get_categories(db)
@@ -324,6 +333,8 @@ def categories_list(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    if user.role != "admin":
+        return admin_only_dialog(request, user)
     categories = get_categories(db, include_inactive=True)
     return templates.TemplateResponse(
         "categories_list.html",
@@ -336,6 +347,8 @@ def category_new_form(
     request: Request,
     user: User = Depends(require_admin),
 ):
+    if user.role != "admin":
+        return admin_only_dialog(request, user)
     return templates.TemplateResponse(
         "category_form.html",
         {"request": request, "user": user, "category": None, "action": "/categories/new"},
@@ -344,11 +357,14 @@ def category_new_form(
 
 @router.post("/categories/new")
 def category_create(
-    user: User = Depends(require_admin),
+    request: Request,
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     name: str = Form(...),
     sort_order: int = Form(1000),
 ):
+    if user.role != "admin":
+        return admin_only_dialog(request, user)
     nm = (name or "").strip()
     if not nm:
         return RedirectResponse(url="/categories/new?err=name", status_code=303)
@@ -369,6 +385,8 @@ def category_edit_form(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    if user.role != "admin":
+        return admin_only_dialog(request, user)
     category = db.get(Category, cid)
     if not category:
         return RedirectResponse(url="/categories", status_code=303)
@@ -381,12 +399,15 @@ def category_edit_form(
 
 @router.post("/categories/{cid}/edit")
 def category_update(
+    request: Request,
     cid: int,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
     name: str = Form(...),
     sort_order: int = Form(1000),
 ):
+    if user.role != "admin":
+        return admin_only_dialog(request, user)
     category = db.get(Category, cid)
     if not category:
         return RedirectResponse(url="/categories", status_code=303)
@@ -412,10 +433,13 @@ def category_update(
 
 @router.post("/categories/{cid}/toggle")
 def category_toggle(
+    request: Request,
     cid: int,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    if user.role != "admin":
+        return admin_only_dialog(request, user)
     category = db.get(Category, cid)
     if category:
         category.is_active = not category.is_active
@@ -789,8 +813,8 @@ def stock_need_telegram(
     workshop_qty: str = Form(""),
 ):
     # roles allowed
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+    if user.role not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Not allowed")
 
     q = parse_qty(qty)
     if not q:
