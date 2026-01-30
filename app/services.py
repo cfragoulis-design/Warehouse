@@ -6,7 +6,9 @@ from datetime import datetime
 from collections import defaultdict
 import unicodedata
 import os
-from urllib import request as urlrequest, parse as urlparse
+import json
+import urllib.parse
+import urllib.request
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -67,26 +69,6 @@ def require_admin(user: User = Depends(require_user)) -> User:
 # compatibility alias (you used require_login later)
 require_login = require_user
 
-
-# --------------------
-# Telegram alerts (Need Order)
-# --------------------
-def send_telegram_message(text: str) -> None:
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-    if not token or not chat_id:
-        raise RuntimeError("Missing TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "disable_web_page_preview": True,
-    }
-    data = urlparse.urlencode(payload).encode("utf-8")
-    req = urlrequest.Request(url, data=data, method="POST")
-    with urlrequest.urlopen(req, timeout=8) as resp:
-        # Telegram returns JSON; we only need to ensure request succeeded.
-        resp.read()
 
 # --------------------
 # data helpers
@@ -223,9 +205,22 @@ def products_list(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    products = db.execute(
-        select(Product).order_by(Product.is_active.desc(), Product.name.asc())
-    ).scalars().all()
+    # Keep products list clean: Active first, then by Category.sort_order (when category exists), then by category name, then product name.
+    cat_order = func.coalesce(Category.sort_order, 9999)
+    products = (
+        db.execute(
+            select(Product)
+            .outerjoin(Category, Category.name == Product.category)
+            .order_by(
+                Product.is_active.desc(),
+                cat_order.asc(),
+                func.coalesce(Product.category, "").asc(),
+                Product.name.asc(),
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     return templates.TemplateResponse(
         "products_list.html",
@@ -732,81 +727,12 @@ def _group_from_category(cat: str | None, name: str | None) -> str:
 @router.get("/stock", response_class=HTMLResponse)
 def stock_view(
     request: Request,
+    loc: str = "all",
+    q: str = "",
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    locs = get_locations(db)
-    central = locs.get("CENTRAL")
-    workshop = locs.get("WORKSHOP")
-    if not central or not workshop:
-        raise RuntimeError("Locations CENTRAL/WORKSHOP not found – run seed and ensure tables exist")
-
-    signed_qty = signed_qty_expr()
-
-    rows = db.execute(
-        select(
-            Product.id,
-            Product.name,
-            Product.sku,
-            Product.unit,
-            Product.category,
-            Product.is_active,
-            Product.target_central,
-            func.coalesce(
-                func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
-                0,
-            ).label("central_qty"),
-            func.coalesce(
-                func.sum(case((StockMovement.location_id == workshop.id, signed_qty), else_=0)),
-                0,
-            ).label("workshop_qty"),
-        )
-        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .group_by(
-            Product.id,
-            Product.name,
-            Product.sku,
-            Product.unit,
-            Product.category,
-            Product.is_active,
-            Product.target_central,
-        )
-        .order_by(Product.is_active.desc(), Product.name.asc())
-    ).all()
-
-    grouped = defaultdict(list)
-
-    for r in rows:
-        c = Decimal(r.central_qty)
-        w = Decimal(r.workshop_qty)
-        t = Decimal(r.target_central or 0)
-        pending = t - c
-        if pending < 0:
-            pending = Decimal(0)
-
-        unit = (r.unit or "").lower()
-        unit_label = "Τεμ" if unit == "pcs" else ("Κιβ" if unit == "box" else ("Kg" if unit == "kg" else r.unit))
-
-        item = {
-            "id": r.id,
-            "name": r.name,
-            "sku": r.sku,
-            "unit": r.unit,
-            "unit_label": unit_label,
-            "category": r.category,
-            "is_active": r.is_active,
-            "central_qty": c,
-            "workshop_qty": w,
-            "target_central": t,
-            "pending": pending,
-            "total_qty": c + w,
-        }
-        cat = (r.category or "").strip()
-        if not cat:
-            cat = "Διάφορα"
-        grouped[cat].append(item)
-
-    grouped = sort_grouped_categories(grouped, db)
+    grouped = build_stock_grouped(db, loc=loc, q=q)
 
     return templates.TemplateResponse(
         "stock.html",
@@ -814,11 +740,91 @@ def stock_view(
             "request": request,
             "user": user,
             "grouped": grouped,
+            "loc": (loc or "all"),
+            "q": (q or ""),
             "can_edit_target": (user.role == "admin"),
             "can_adjust_central": (user.role == "admin"),
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
         },
     )
+
+
+def _telegram_send(text: str) -> None:
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        raise HTTPException(status_code=500, detail="Telegram is not configured (missing TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID)")
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": True,
+    }
+    data = urllib.parse.urlencode(payload).encode("utf-8")
+    try:
+        req = urllib.request.Request(url, data=data, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode("utf-8", errors="ignore")
+        parsed = json.loads(body) if body else {"ok": True}
+        if not parsed.get("ok"):
+            raise HTTPException(status_code=500, detail=f"Telegram send failed: {parsed}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Telegram send error: {e}")
+
+
+@router.post("/stock/need")
+def stock_need_telegram(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    product_id: int = Form(...),
+    qty: str = Form("1"),
+    loc: str = Form("all"),
+    name: str = Form(""),
+    sku: str = Form(""),
+    unit_label: str = Form(""),
+    central_qty: str = Form(""),
+    workshop_qty: str = Form(""),
+):
+    # roles allowed
+    if user.role not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    q = parse_qty(qty)
+    if not q:
+        return RedirectResponse("/stock", 303)
+
+    p = db.get(Product, product_id)
+    pname = (p.name if p else name) or "(unknown)"
+    psku = (p.sku if p else sku) or ""
+
+    ul = (unit_label or "").strip()
+    if not ul and p:
+        ul = "Τεμ" if (p.unit or "").lower() == "pcs" else ("Κιβ" if (p.unit or "").lower() == "box" else (p.unit or ""))
+
+    loc_norm = (loc or "all").strip().lower()
+    loc_label = "CENTRAL" if loc_norm == "central" else ("WORKSHOP" if loc_norm == "workshop" else "ALL")
+    who = (user.username or user.email or str(user.id))
+
+    qty_text = fmtqty(q, (p.unit if p else None))
+    stock_line = ""
+    if central_qty or workshop_qty:
+        stock_line = f"\nStock: C={central_qty} | W={workshop_qty}"
+
+    text = (
+        "🆘 NEED ORDER"\
+        f"\nProduct: {pname}"\
+        f"{(' (' + psku + ')') if psku else ''}"\
+        f"\nQty: {qty_text} {ul}"\
+        f"\nLocation: {loc_label}"\
+        f"\nBy: {who}"\
+        f"{stock_line}"
+    )
+
+    _telegram_send(text)
+    return RedirectResponse(url=f"/stock?loc={loc_norm}", status_code=303)
 
 
 @router.get("/stock/print", response_class=HTMLResponse)
@@ -1232,72 +1238,3 @@ async def stock_fulfill_pending(
     p.target_central = Decimal("0")
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
-
-
-@router.post("/api/stock/need")
-def stock_need_order(
-    request: Request,
-    product_id: int = Form(...),
-    qty: str = Form(...),
-    location: str = Form("CENTRAL"),
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    # allow admin + workshop
-    if user.role not in ("admin", "workshop"):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    q = parse_qty(qty)
-    if q is None:
-        raise HTTPException(status_code=400, detail="Invalid qty")
-
-    locs = get_locations(db)
-    central = locs.get("CENTRAL")
-    workshop = locs.get("WORKSHOP")
-
-    signed_qty = signed_qty_expr()
-
-    row = db.execute(
-        select(
-            Product.name,
-            Product.sku,
-            Product.unit,
-            func.coalesce(
-                func.sum(case((StockMovement.location_id == (central.id if central else -1), signed_qty), else_=0)),
-                0,
-            ).label("central_qty"),
-            func.coalesce(
-                func.sum(case((StockMovement.location_id == (workshop.id if workshop else -1), signed_qty), else_=0)),
-                0,
-            ).label("workshop_qty"),
-        )
-        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .where(Product.id == product_id)
-        .group_by(Product.id)
-    ).first()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Product not found")
-
-    pname, psku, punit, cqty, wqty = row
-    unit_label = (punit or "").upper() if (punit or "").strip() else ""
-    loc_label = (location or "CENTRAL").upper()
-
-    msg = (
-        "🆘 NEED ORDER\n"
-        f"Product: {pname}{(' ('+psku+')') if psku else ''}\n"
-        f"Qty: {fmtqty(q, punit)} {unit_label}\n"
-        f"Location: {loc_label}\n"
-        f"Stock (C/W): {fmtqty(cqty, punit)} / {fmtqty(wqty, punit)}\n"
-        f"By: {user.username}"
-    )
-
-    try:
-        send_telegram_message(msg)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Telegram send failed: {e}")
-
-    # redirect back to where user came from
-    ref = request.headers.get("referer") or "/stock"
-    return RedirectResponse(url=ref, status_code=303)
-
