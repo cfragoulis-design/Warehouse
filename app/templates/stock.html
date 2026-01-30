@@ -73,10 +73,10 @@
     .targetBox{display:flex;gap:8px;align-items:center}
     .targetInput{width:72px;min-width:72px;text-align:center;padding:8px 10px;border-radius:12px}
     .pendingForm{display:inline}
-    .needForm{display:inline-flex;gap:6px;align-items:center}
-    .needQty{width:58px;min-width:58px;text-align:center;padding:7px 8px;border-radius:10px;font-weight:900}
-    .needBtn{width:38px;height:34px;border-radius:10px;font-weight:900;cursor:pointer;background:rgba(255,107,107,.16);border:1px solid rgba(255,107,107,.55);color:#ffb2b2}
-    .needBtn:hover{filter:brightness(1.12)}
+  .needForm{display:inline-flex;align-items:center;gap:6px;margin-left:6px}
+  .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
+  .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
+  .needBtn:hover{filter:brightness(1.1)}
   </style>
 </head>
 <body>
@@ -190,17 +190,22 @@
                     <form method="post" action="/stock/transfer_wc">
                     <input type="hidden" name="product_id" value="{{ it.id }}" />
                     <input type="hidden" name="qty" value="1" />
-                    <button class="transferBtn" title="Μεταφορά 1 από Workshop σε Central">→</button>
-                  
-                  <form method="post" action="/api/stock/need" class="needForm" onsubmit="return confirm('Send NEED order to Telegram?')">
-                    <input type="hidden" name="product_id" value="{{ it.id }}" />
-                    <input type="hidden" name="location" value="{{ 'WORKSHOP' if loc=='workshop' else 'CENTRAL' }}" />
-                    <input class="needQty" name="qty" value="1" inputmode="decimal" />
-                    <button class="needBtn" title="Send NEED order to Telegram">🆘</button>
+                    <button class="transferBtn" type="submit" title="Μεταφορά 1 από Workshop σε Central">→</button>
                   </form>
-
-</form>
                   {% endif %}
+
+                  {# Telegram NEED (isolated form so it never triggers transfer) #}
+                  <form method="post" action="/stock/need" class="needForm">
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
+                    <input type="hidden" name="loc" value="{{ loc }}" />
+                    <input type="hidden" name="name" value="{{ it.name }}" />
+                    <input type="hidden" name="sku" value="{{ it.sku or '' }}" />
+                    <input type="hidden" name="unit_label" value="{{ it.unit_label }}" />
+                    <input type="hidden" name="central_qty" value="{{ it.central_qty|fmtqty(it.unit) }}" />
+                    <input type="hidden" name="workshop_qty" value="{{ it.workshop_qty|fmtqty(it.unit) }}" />
+                    <input class="needQty" name="qty" value="1" inputmode="decimal" />
+                    <button class="needBtn" type="submit" title="Παραγγελία ανάγκης (Telegram)">🆘</button>
+                  </form>
 
                 </div>
               </td>
