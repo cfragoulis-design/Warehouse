@@ -73,6 +73,10 @@
     .targetBox{display:flex;gap:8px;align-items:center}
     .targetInput{width:72px;min-width:72px;text-align:center;padding:8px 10px;border-radius:12px}
     .pendingForm{display:inline}
+    .needForm{display:inline-flex;gap:6px;align-items:center}
+    .needQty{width:58px;min-width:58px;text-align:center;padding:7px 8px;border-radius:10px;font-weight:900}
+    .needBtn{width:38px;height:34px;border-radius:10px;font-weight:900;cursor:pointer;background:rgba(255,107,107,.16);border:1px solid rgba(255,107,107,.55);color:#ffb2b2}
+    .needBtn:hover{filter:brightness(1.12)}
   </style>
 </head>
 <body>
@@ -187,7 +191,15 @@
                     <input type="hidden" name="product_id" value="{{ it.id }}" />
                     <input type="hidden" name="qty" value="1" />
                     <button class="transferBtn" title="Μεταφορά 1 από Workshop σε Central">→</button>
+                  
+                  <form method="post" action="/api/stock/need" class="needForm" onsubmit="return confirm('Send NEED order to Telegram?')">
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
+                    <input type="hidden" name="location" value="{{ 'WORKSHOP' if loc=='workshop' else 'CENTRAL' }}" />
+                    <input class="needQty" name="qty" value="1" inputmode="decimal" />
+                    <button class="needBtn" title="Send NEED order to Telegram">🆘</button>
                   </form>
+
+</form>
                   {% endif %}
 
                 </div>
