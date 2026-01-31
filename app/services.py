@@ -11,7 +11,7 @@ import urllib.parse
 import urllib.request
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session
@@ -748,6 +748,40 @@ def _group_from_category(cat: str | None, name: str | None) -> str:
     return "Διάφορα"
 
 
+
+
+@router.get("/api/stock")
+def api_stock(
+    loc: str = "all",
+    q: str = "",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Lightweight JSON feed for live stock updates (polling).
+    Returns only the quantities needed to update the stock table without reloading the page.
+    """
+    grouped = build_stock_grouped(db, loc=loc, q=q)
+
+    items = []
+    for _cat, arr in grouped.items():
+        for it in arr:
+            # Use same formatting rules as the UI (pcs/box => int, kg => trim decimals)
+            unit = it.get("unit")
+            c = it.get("central_qty")
+            w = it.get("workshop_qty")
+            p = it.get("pending")
+            items.append(
+                {
+                    "product_id": it.get("id"),
+                    "central_qty_text": fmtqty(c, unit),
+                    "workshop_qty_text": fmtqty(w, unit),
+                    "pending_text": fmtqty(p, unit),
+                    "pending_value": float(p or 0),
+                }
+            )
+
+    return JSONResponse({"ok": True, "items": items})
 @router.get("/stock", response_class=HTMLResponse)
 def stock_view(
     request: Request,
