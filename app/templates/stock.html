@@ -82,53 +82,6 @@
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
-  
-    /* ---------- Mobile responsive (table -> cards) ---------- */
-    @media (max-width: 768px){
-      .wrap{padding:12px}
-      .topbar{flex-wrap:wrap; gap:10px}
-      .filters{flex-direction:column; align-items:stretch}
-      .filters .row{flex-direction:column; align-items:stretch; gap:10px}
-      .filters select, .filters input{width:100%}
-      .btn, .btnGhost{min-height:44px}
-      .stockTable{width:100%; border-collapse:separate; border-spacing:0 10px}
-      .stockTable thead{display:none}
-      .stockTable tbody{display:block}
-      .stockTable tr{display:block}
-      .stockTable tr.catrow{margin-top:18px}
-      .stockTable tr.catrow td{display:block; font-size:18px; padding:12px 12px; border-radius:14px}
-      .stockTable tr[data-product-id]{background:var(--panel2); border:1px solid var(--line); border-radius:16px; overflow:hidden}
-      .stockTable tr[data-product-id] > td{display:flex; justify-content:space-between; gap:12px; padding:10px 12px; border-top:1px solid rgba(255,255,255,0.06)}
-      .stockTable tr[data-product-id] > td:first-child{border-top:0}
-      .stockTable tr[data-product-id] > td[data-label="Product"]{display:block}
-      .stockTable tr[data-product-id] > td[data-label="Product"]::before{display:none}
-      .stockTable td::before{
-        content: attr(data-label);
-        color: var(--muted);
-        font-size: 12px;
-        letter-spacing: .02em;
-        text-transform: uppercase;
-      }
-      .actions{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
-      .btnTiny, .transferBtn{height:44px; min-width:44px; font-size:18px}
-      .pm{display:flex; gap:10px}
-      .tag{padding:8px 10px}
-      .targetBox{display:flex; gap:10px; width:100%}
-      .targetInput{flex:1; height:44px; font-size:16px}
-      .pendingForm{width:100%}
-      .pillBtn{width:100%; height:44px; font-size:16px; justify-content:center}
-    }
-
-
-    /* Mini dialog for errors (e.g., not enough workshop stock) */
-    .miniOverlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:9999;padding:22px;}
-    .miniDialog{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:360px;width:100%;padding:14px 14px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35);}
-    .miniTitle{font-weight:900;margin:0 0 6px;font-size:14px;letter-spacing:.2px}
-    .miniMsg{color:var(--text);opacity:.95;font-size:13px;line-height:1.35;margin:0 0 12px;}
-    .miniActions{display:flex;justify-content:flex-end;gap:8px}
-    .miniOk{background:var(--blue);border:none;border-radius:10px;padding:8px 12px;color:white;font-weight:800;cursor:pointer}
-    .miniOk:active{transform:translateY(1px)}
-
   </style>
 </head>
 <body>
@@ -172,7 +125,7 @@
           </div>
       </div>
 
-      <table class="stockTable">
+      <table>
         <thead>
           <tr>
             <th style="width:34%">Product</th>
@@ -189,15 +142,15 @@
           <tr class="catrow"><td colspan="7">{{ cat }}</td></tr>
           {% for it in items %}
             <tr data-product-id="{{ it.id }}">
-              <td data-label="Product">
+              <td>
                 <div class="prod">{{ it.name }}</div>
                 <div class="sku">{{ it.sku or '' }}</div>
               </td>
-              <td class="muted" data-label="Unit">{{ it.unit_label }}</td>
-              <td data-label="Central"><span data-field="central_qty">{{ it.central_qty|fmtqty(it.unit) }}</span></td>
-              <td data-label="Workshop"><span data-field="workshop_qty">{{ it.workshop_qty|fmtqty(it.unit) }}</span></td>
+              <td class="muted">{{ it.unit_label }}</td>
+              <td><span data-field="central_qty">{{ it.central_qty|fmtqty(it.unit) }}</span></td>
+              <td><span data-field="workshop_qty">{{ it.workshop_qty|fmtqty(it.unit) }}</span></td>
 
-              <td data-label="Target">
+              <td>
                 {% if can_edit_target %}
                   <form method="post" action="/stock/target" class="targetBox">
                     <input type="hidden" name="product_id" value="{{ it.id }}" />
@@ -209,7 +162,7 @@
                 {% endif %}
               </td>
 
-              <td data-field="pending" data-label="Pending">
+              <td data-field="pending">
                 <form method="post" action="/stock/fulfill" class="pendingForm" data-pending-form {% if not (it.pending > 0) %}style="display:none"{% endif %}>
                     <input type="hidden" name="product_id" value="{{ it.id }}" />
                     <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
@@ -217,7 +170,7 @@
                   <span class="pill" data-pending-zero {% if it.pending > 0 %}style="display:none"{% endif %}>0</span>
               </td>
 
-              <td data-label="Actions">
+              <td>
                 <div class="actions">
                   {% if can_adjust_central %}
                     <span class="tag">C</span>
@@ -343,90 +296,6 @@
 
   refreshStockLive();
   setInterval(refreshStockLive, POLL_MS);
-})();
-</script>
-
-
-<script>
-(function(){
-  function showMiniDialog(message){
-    const overlay = document.createElement("div");
-    overlay.className = "miniOverlay";
-    overlay.innerHTML = `
-      <div class="miniDialog" role="dialog" aria-modal="true">
-        <div class="miniTitle">Προσοχή</div>
-        <div class="miniMsg"></div>
-        <div class="miniActions">
-          <button class="miniOk" type="button">OK</button>
-        </div>
-      </div>
-    `;
-    overlay.querySelector(".miniMsg").textContent = message || "Κάτι πήγε στραβά.";
-    const okBtn = overlay.querySelector(".miniOk");
-    function close(){
-      overlay.remove();
-      document.removeEventListener("keydown", onKey);
-    }
-    function onKey(e){
-      if (e.key === "Escape") close();
-    }
-    okBtn.addEventListener("click", close);
-    overlay.addEventListener("click", (e)=>{ if (e.target === overlay) close(); });
-    document.addEventListener("keydown", onKey);
-    document.body.appendChild(overlay);
-    okBtn.focus();
-  }
-
-  async function handlePendingSubmit(form){
-    const btn = form.querySelector("button[type='submit']");
-    const prevText = btn ? btn.textContent : null;
-    if (btn){
-      btn.disabled = true;
-      btn.textContent = "…";
-    }
-    try{
-      const res = await fetch(form.action, {
-        method: "POST",
-        body: new FormData(form),
-        headers: { "X-Requested-With": "fetch" },
-        cache: "no-store"
-      });
-
-      if (!res.ok){
-        let msg = "Δεν έγινε η μεταφορά.";
-        try{
-          const ct = (res.headers.get("content-type") || "");
-          if (ct.includes("application/json")){
-            const j = await res.json();
-            msg = j.detail || msg;
-          } else {
-            // fallback
-            const t = await res.text();
-            if (t && t.length < 200) msg = t;
-          }
-        }catch(_){}
-        showMiniDialog(msg);
-        return;
-      }
-
-      // success: no redirect / no reload, live polling will update numbers
-    }catch(e){
-      showMiniDialog("Σφάλμα δικτύου. Δοκίμασε ξανά.");
-    }finally{
-      if (btn){
-        btn.disabled = false;
-        btn.textContent = prevText || btn.textContent;
-      }
-    }
-  }
-
-  document.addEventListener("submit", function(e){
-    const form = e.target;
-    if (!(form instanceof HTMLFormElement)) return;
-    if (!form.classList.contains("pendingForm")) return;
-    e.preventDefault();
-    handlePendingSubmit(form);
-  }, true);
 })();
 </script>
 
