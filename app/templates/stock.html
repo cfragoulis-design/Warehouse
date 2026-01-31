@@ -132,14 +132,14 @@
         {% for cat, items in grouped.items() %}
           <tr class="catrow"><td colspan="7">{{ cat }}</td></tr>
           {% for it in items %}
-            <tr>
+            <tr data-product-id="{{ it.id }}">
               <td>
                 <div class="prod">{{ it.name }}</div>
                 <div class="sku">{{ it.sku or '' }}</div>
               </td>
               <td class="muted">{{ it.unit_label }}</td>
-              <td>{{ it.central_qty|fmtqty(it.unit) }}</td>
-              <td>{{ it.workshop_qty|fmtqty(it.unit) }}</td>
+              <td><span data-field="central_qty">{{ it.central_qty|fmtqty(it.unit) }}</span></td>
+              <td><span data-field="workshop_qty">{{ it.workshop_qty|fmtqty(it.unit) }}</span></td>
 
               <td>
                 {% if can_edit_target %}
@@ -153,15 +153,12 @@
                 {% endif %}
               </td>
 
-              <td>
-                {% if it.pending > 0 %}
-                  <form method="post" action="/stock/fulfill" class="pendingForm">
+              <td data-field="pending">
+                <form method="post" action="/stock/fulfill" class="pendingForm" data-pending-form {% if not (it.pending > 0) %}style="display:none"{% endif %}>
                     <input type="hidden" name="product_id" value="{{ it.id }}" />
                     <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
                   </form>
-                {% else %}
-                  <span class="pill">0</span>
-                {% endif %}
+                  <span class="pill" data-pending-zero {% if it.pending > 0 %}style="display:none"{% endif %}>0</span>
               </td>
 
               <td>
@@ -218,5 +215,61 @@
       </table>
     </div>
   </div>
+
+<script>
+(function(){
+  const POLL_MS = 4000;
+
+  function setText(el, text){
+    if (!el) return;
+    if ((el.textContent || "").trim() !== String(text)) el.textContent = String(text);
+  }
+
+  async function refreshStockLive(){
+    try{
+      const params = new URLSearchParams();
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has("loc")) params.set("loc", urlParams.get("loc"));
+      if (urlParams.has("q")) params.set("q", urlParams.get("q"));
+
+      const res = await fetch("/api/stock?" + params.toString(), { cache: "no-store" });
+      const data = await res.json();
+      if (!data || !data.ok || !Array.isArray(data.items)) return;
+
+      for (const item of data.items){
+        const row = document.querySelector(`tr[data-product-id="${item.product_id}"]`);
+        if (!row) continue;
+
+        setText(row.querySelector('[data-field="central_qty"]'), item.central_qty_text);
+        setText(row.querySelector('[data-field="workshop_qty"]'), item.workshop_qty_text);
+
+        const pendingTd = row.querySelector('td[data-field="pending"]');
+        if (!pendingTd) continue;
+
+        const form = pendingTd.querySelector('[data-pending-form]');
+        const zero = pendingTd.querySelector('[data-pending-zero]');
+        const btn = form ? form.querySelector('button') : null;
+
+        const pVal = Number(item.pending_value || 0);
+        if (pVal > 0){
+          if (form) form.style.display = "";
+          if (zero) zero.style.display = "none";
+          if (btn) setText(btn, "+" + item.pending_text);
+        } else {
+          if (form) form.style.display = "none";
+          if (zero) zero.style.display = "";
+          if (zero) setText(zero, "0");
+        }
+      }
+    }catch(e){
+      // silent
+    }
+  }
+
+  refreshStockLive();
+  setInterval(refreshStockLive, POLL_MS);
+})();
+</script>
+
 </body>
 </html>
