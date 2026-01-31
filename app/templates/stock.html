@@ -13,6 +13,11 @@
     .brand{font-weight:900;font-size:26px;letter-spacing:.2px}
     .sub{color:var(--muted);font-size:12px;margin-top:2px}
     .nav{display:flex;gap:16px;align-items:center}
+    .live{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.03)}
+    .dot{width:8px;height:8px;border-radius:50%;background:var(--danger)}
+    .dot.ok{background:#2ecc71}
+    .cellFlash{animation:cellFlash .35s ease-out}
+    @keyframes cellFlash{0%{background:rgba(47,124,246,.35)}100%{background:transparent}}
     .wrap{max-width:1080px;margin:0 auto;padding:0 16px 24px}
     .card{background:rgba(17,25,54,.75);border:1px solid rgba(36,48,85,.75);border-radius:16px;box-shadow:0 12px 45px rgba(0,0,0,.35);overflow:hidden}
     .cardHead{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:14px 14px;border-bottom:1px solid rgba(36,48,85,.75);background:rgba(15,22,45,.55)}
@@ -86,6 +91,10 @@
       <div class="sub">CENTRAL / WORKSHOP • Target Central • Pending</div>
     </div>
     <div class="nav">
+      <div class="live" id="liveBadge" title="Live updates">
+        <span class="dot bad" id="liveDot" aria-hidden="true"></span>
+        <span id="liveText">Offline</span>
+      </div>
       <a href="/dashboard">Dashboard</a>
       <a href="/products">Products</a>
       <a href="/movements">Movements</a>
@@ -222,7 +231,15 @@
 
   function setText(el, text){
     if (!el) return;
-    if ((el.textContent || "").trim() !== String(text)) el.textContent = String(text);
+    const next = String(text);
+    const prev = (el.textContent || "").trim();
+    if (prev !== next){
+      el.textContent = next;
+      el.classList.remove("cellFlash");
+      // force reflow so animation retriggers
+      void el.offsetWidth;
+      el.classList.add("cellFlash");
+    }
   }
 
   async function refreshStockLive(){
@@ -235,6 +252,13 @@
       const res = await fetch("/api/stock?" + params.toString(), { cache: "no-store" });
       const data = await res.json();
       if (!data || !data.ok || !Array.isArray(data.items)) return;
+
+      // live indicator
+      const dot = document.getElementById("liveDot");
+      const txt = document.getElementById("liveText");
+      if (dot) { dot.classList.add("ok"); dot.classList.remove("bad"); }
+      if (txt) txt.textContent = "Live";
+
 
       for (const item of data.items){
         const row = document.querySelector(`tr[data-product-id="${item.product_id}"]`);
@@ -262,6 +286,10 @@
         }
       }
     }catch(e){
+      const dot = document.getElementById("liveDot");
+      const txt = document.getElementById("liveText");
+      if (dot) { dot.classList.remove("ok"); }
+      if (txt) txt.textContent = "Offline";
       // silent
     }
   }
