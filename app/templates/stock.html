@@ -82,7 +82,44 @@
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
-  </style>
+  
+    /* ---------- Mobile responsive (table -> cards) ---------- */
+    @media (max-width: 768px){
+      .wrap{padding:12px}
+      .topbar{flex-wrap:wrap; gap:10px}
+      .filters{flex-direction:column; align-items:stretch}
+      .filters .row{flex-direction:column; align-items:stretch; gap:10px}
+      .filters select, .filters input{width:100%}
+      .btn, .btnGhost{min-height:44px}
+      .stockTable{width:100%; border-collapse:separate; border-spacing:0 10px}
+      .stockTable thead{display:none}
+      .stockTable tbody{display:block}
+      .stockTable tr{display:block}
+      .stockTable tr.catrow{margin-top:18px}
+      .stockTable tr.catrow td{display:block; font-size:18px; padding:12px 12px; border-radius:14px}
+      .stockTable tr[data-product-id]{background:var(--panel2); border:1px solid var(--line); border-radius:16px; overflow:hidden}
+      .stockTable tr[data-product-id] > td{display:flex; justify-content:space-between; gap:12px; padding:10px 12px; border-top:1px solid rgba(255,255,255,0.06)}
+      .stockTable tr[data-product-id] > td:first-child{border-top:0}
+      .stockTable tr[data-product-id] > td[data-label="Product"]{display:block}
+      .stockTable tr[data-product-id] > td[data-label="Product"]::before{display:none}
+      .stockTable td::before{
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: .02em;
+        text-transform: uppercase;
+      }
+      .actions{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
+      .btnTiny, .transferBtn{height:44px; min-width:44px; font-size:18px}
+      .pm{display:flex; gap:10px}
+      .tag{padding:8px 10px}
+      .targetBox{display:flex; gap:10px; width:100%}
+      .targetInput{flex:1; height:44px; font-size:16px}
+      .pendingForm{width:100%}
+      .pillBtn{width:100%; height:44px; font-size:16px; justify-content:center}
+    }
+
+</style>
 </head>
 <body>
   <div class="top wrap" style="padding-bottom:10px">
@@ -125,7 +162,7 @@
           </div>
       </div>
 
-      <table>
+      <table class="stockTable">
         <thead>
           <tr>
             <th style="width:34%">Product</th>
@@ -142,15 +179,15 @@
           <tr class="catrow"><td colspan="7">{{ cat }}</td></tr>
           {% for it in items %}
             <tr data-product-id="{{ it.id }}">
-              <td>
+              <td data-label="Product">
                 <div class="prod">{{ it.name }}</div>
                 <div class="sku">{{ it.sku or '' }}</div>
               </td>
-              <td class="muted">{{ it.unit_label }}</td>
-              <td><span data-field="central_qty">{{ it.central_qty|fmtqty(it.unit) }}</span></td>
-              <td><span data-field="workshop_qty">{{ it.workshop_qty|fmtqty(it.unit) }}</span></td>
+              <td class="muted" data-label="Unit">{{ it.unit_label }}</td>
+              <td data-label="Central"><span data-field="central_qty">{{ it.central_qty|fmtqty(it.unit) }}</span></td>
+              <td data-label="Workshop"><span data-field="workshop_qty">{{ it.workshop_qty|fmtqty(it.unit) }}</span></td>
 
-              <td>
+              <td data-label="Target">
                 {% if can_edit_target %}
                   <form method="post" action="/stock/target" class="targetBox">
                     <input type="hidden" name="product_id" value="{{ it.id }}" />
@@ -162,7 +199,7 @@
                 {% endif %}
               </td>
 
-              <td data-field="pending">
+              <td data-field="pending" data-label="Pending">
                 <form method="post" action="/stock/fulfill" class="pendingForm" data-pending-form {% if not (it.pending > 0) %}style="display:none"{% endif %}>
                     <input type="hidden" name="product_id" value="{{ it.id }}" />
                     <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
@@ -170,7 +207,7 @@
                   <span class="pill" data-pending-zero {% if it.pending > 0 %}style="display:none"{% endif %}>0</span>
               </td>
 
-              <td>
+              <td data-label="Actions">
                 <div class="actions">
                   {% if can_adjust_central %}
                     <span class="tag">C</span>
