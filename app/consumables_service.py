@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from collections import defaultdict
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import RedirectResponse
@@ -27,6 +28,15 @@ except Exception:
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+
+
+def _url_with_msg(url: str, msg: str, level: str = "error") -> str:
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}msg={quote(msg)}&level={quote(level)}"
+
+
+def redirect_with_msg(url: str, msg: str, level: str = "error") -> RedirectResponse:
+    return RedirectResponse(_url_with_msg(url, msg, level), status_code=303)
 
 OPEN_PO_STATUSES = {"DRAFT", "SUBMITTED", "PARTIAL"}
 WORKSHOP_CODE = "WORKSHOP"
@@ -147,7 +157,7 @@ def consumable_new(
 def consumable_toggle(cid: int, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
     c = db.get(Consumable, cid)
     if not c:
-        raise HTTPException(404)
+        return redirect_with_msg("/consumables", "Consumable not found.", "error")
     c.is_active = not bool(c.is_active)
     db.commit()
     return RedirectResponse("/consumables", status_code=303)
@@ -162,7 +172,7 @@ def consumable_adjust(
 ):
     c = db.get(Consumable, cid)
     if not c:
-        raise HTTPException(404)
+        return redirect_with_msg("/consumables", "Consumable not found.", "error")
     st = db.query(ConsumableStock).filter_by(consumable_id=cid, location_code=WORKSHOP_CODE).first()
     if not st:
         st = ConsumableStock(consumable_id=cid, location_code=WORKSHOP_CODE, qty=Decimal("0"))
@@ -200,7 +210,7 @@ def supplier_new(
 def supplier_toggle(sid: int, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
     s = db.get(Supplier, sid)
     if not s:
-        raise HTTPException(404)
+        return redirect_with_msg("/suppliers", "Supplier not found.", "error")
     s.is_active = not bool(s.is_active)
     db.commit()
     return RedirectResponse("/suppliers", status_code=303)
@@ -274,7 +284,7 @@ def po_generate(db: Session = Depends(get_db), user: User = Depends(require_role
 def po_view(po_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
     po = db.get(PurchaseOrder, po_id)
     if not po:
-        raise HTTPException(404)
+        return redirect_with_msg("/purchase-orders", "Purchase order not found.", "error")
 
     supplier = db.get(Supplier, po.supplier_id)
 
@@ -324,7 +334,7 @@ async def po_receive(
 ):
     po = db.get(PurchaseOrder, po_id)
     if not po:
-        raise HTTPException(404)
+        return redirect_with_msg("/purchase-orders", "Purchase order not found.", "error")
 
     form = await request.form()
     items = db.query(PurchaseOrderItem).filter(PurchaseOrderItem.purchase_order_id == po_id).all()
@@ -377,10 +387,10 @@ async def po_receive(
 def po_set_status(po_id: int, status: str = Form(...), db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
     po = db.get(PurchaseOrder, po_id)
     if not po:
-        raise HTTPException(404)
+        return redirect_with_msg("/purchase-orders", "Purchase order not found.", "error")
     status = status.strip().upper()
     if status not in {"DRAFT", "SUBMITTED", "PARTIAL", "RECEIVED", "CANCELLED"}:
-        raise HTTPException(400)
+        return redirect_with_msg(f"/purchase-orders/{po_id}", "Invalid status.", "error")
     po.status = status
     db.commit()
     return RedirectResponse("/purchase-orders", status_code=303)

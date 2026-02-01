@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -43,14 +44,24 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User | 
 
 def require_user(user: User | None = Depends(get_current_user)) -> User:
     if not user:
-        raise HTTPException(status_code=303, headers={"Location": "/login"})
+        raise HTTPException(
+            status_code=303,
+            headers={
+                "Location": f"/login?msg={quote('Please log in.')}&level=error"
+            },
+        )
     return user
 
 
 def require_role(role: str):
     def _dep(user: User = Depends(require_user)) -> User:
         if user.role != role:
-            raise HTTPException(status_code=303, headers={"Location": "/dashboard"})
+            raise HTTPException(
+                status_code=303,
+                headers={
+                    "Location": f"/dashboard?msg={quote('Access denied.')}&level=error"
+                },
+            )
         return user
 
     return _dep
@@ -73,7 +84,10 @@ def login(
 
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if not user or not verify_pin(pin, user.pin_hash):
-        return RedirectResponse(url="/login?err=1", status_code=303)
+        return RedirectResponse(
+            url=f"/login?msg={quote('Invalid username or PIN.')}&level=error",
+            status_code=303,
+        )
 
     request.session["uid"] = user.id
     return RedirectResponse(url="/dashboard", status_code=303)
