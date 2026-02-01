@@ -3,9 +3,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+
+from fastapi.responses import RedirectResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+import urllib.parse
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
@@ -33,6 +37,40 @@ STATIC_DIR_CANDIDATES = [
 static_dir = next((p for p in STATIC_DIR_CANDIDATES if p.exists()), None)
 
 app = FastAPI()
+
+
+@app.exception_handler(StarletteHTTPException)
+async def pretty_http_exceptions(request: Request, exc: StarletteHTTPException):
+    # For browser navigation, redirect and show message in modal dialog (instead of JSON / error page)
+    accept = (request.headers.get("accept") or "").lower()
+    if exc.status_code in (403, 404) and "text/html" in accept:
+        referer = request.headers.get("referer") or ""
+        target = "/dashboard"
+        if referer:
+            try:
+                # keep only path+query from same-origin referer
+                u = urllib.parse.urlparse(referer)
+                target = (u.path or "/dashboard") + (("?" + u.query) if u.query else "")
+            except Exception:
+                target = "/dashboard"
+
+        msg = "Access denied." if exc.status_code == 403 else "Not found."
+        # append msg/level safely
+        try:
+            u = urllib.parse.urlparse(target)
+            q = urllib.parse.parse_qs(u.query)
+            q["msg"] = [msg]
+            q["level"] = ["error"]
+            new_q = urllib.parse.urlencode(q, doseq=True)
+            target = urllib.parse.urlunparse((u.scheme, u.netloc, u.path, u.params, new_q, u.fragment))
+        except Exception:
+            target = f"/dashboard?msg={urllib.parse.quote(msg)}&level=error"
+
+        return RedirectResponse(target, status_code=303)
+
+    # default behavior
+    raise exc
+
 
 
 @app.on_event("startup")
