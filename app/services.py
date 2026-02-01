@@ -47,7 +47,7 @@ def fmtqty(val, unit: str | None = None) -> str:
     except Exception:
         return str(val)
 
-    if u in {"pcs", "box", "tray", "piece", "pieces"}:
+    if u in {"pcs", "box", "piece", "pieces"}:
         return str(int(round(v)))
 
     s = f"{v:.3f}".rstrip("0").rstrip(".")
@@ -67,9 +67,12 @@ def require_admin(user: User = Depends(require_user)) -> User:
 
 
 def admin_only_dialog(request: Request, user: User, next_url: str = "/dashboard") -> HTMLResponse:
-    # Redirect back with a friendly modal message (instead of a full-page error)
-    msg = urllib.parse.quote("You don't have permission for this action.")
-    return RedirectResponse(f"{next_url}?msg={msg}&level=error", status_code=303)
+    # Friendly access denied page (prevents raw JSON 403 in browser)
+    return templates.TemplateResponse(
+        "access_denied.html",
+        {"request": request, "user": user, "next_url": next_url},
+        status_code=403,
+    )
 
 
 # compatibility alias (you used require_login later)
@@ -710,7 +713,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
                 continue
 
         unit = (r.unit or "").lower()
-        unit_label = ("Τεμ" if unit == "pcs" else ("Κιβ" if unit == "box" else ("Δίσ" if unit == "tray" else ("Kg" if unit == "kg" else r.unit))))
+        unit_label = "Τεμ" if unit == "pcs" else ("Κιβ" if unit == "box" else ("Kg" if unit == "kg" else r.unit))
 
         item = {
             "id": r.id,
