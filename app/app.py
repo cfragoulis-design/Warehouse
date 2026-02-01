@@ -3,10 +3,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import urllib.parse
@@ -39,33 +38,32 @@ static_dir = next((p for p in STATIC_DIR_CANDIDATES if p.exists()), None)
 app = FastAPI()
 
 
-@app.exception_handler(StarletteHTTPException)
-async def ui_http_exception_handler(request, exc: StarletteHTTPException):
-    """Render user-friendly dialog-style errors for UI pages.
+def _url_with_msg(url: str, msg: str, level: str = "error") -> str:
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}msg={urllib.parse.quote(msg)}&level={urllib.parse.quote(level)}"
 
-    For browser (HTML) requests, we redirect to a real page and show the message via the modal.
-    For API/JSON requests, keep the default error response.
-    """
+def _wants_html(request: Request) -> bool:
     accept = (request.headers.get("accept") or "").lower()
-    wants_html = ("text/html" in accept) and ("application/json" not in accept)
+    # Browsers usually send text/html; fetch() for APIs often prefers application/json
+    return "text/html" in accept or "*/*" in accept or accept == ""
 
-    # Do not interfere with API-style requests.
-    if not wants_html:
-        return await http_exception_handler(request, exc)
+@app.exception_handler(StarletteHTTPException)
+async def ui_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    # Convert common UI errors to redirect + modal dialog.
+    # Keep JSON/API behavior intact.
+    if not _wants_html(request):
+        raise exc
 
-    # Map common UI errors to a dashboard redirect.
+    if exc.status_code == 403:
+        msg = exc.detail if isinstance(getattr(exc, "detail", None), str) and exc.detail else "Access denied."
+            return RedirectResponse(url=_url_with_msg("/dashboard", msg, "error"), status_code=303)
     if exc.status_code == 404:
-        msg = "Page not found."
-        level = "warning"
-    elif exc.status_code == 403:
-        msg = "Access denied."
-        level = "error"
-    else:
-        msg = exc.detail if isinstance(exc.detail, str) else "Request failed."
-        level = "error"
+        msg = exc.detail if isinstance(getattr(exc, "detail", None), str) and exc.detail else "Not found."
+            return RedirectResponse(url=_url_with_msg("/dashboard", msg, "error"), status_code=303)
 
-    url = f"/dashboard?msg={urllib.parse.quote(msg)}&level={urllib.parse.quote(level)}"
-    return RedirectResponse(url=url, status_code=303)
+    # For other HTTP errors, keep default behavior
+    raise exc
+
 
 
 @app.on_event("startup")

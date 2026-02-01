@@ -29,16 +29,6 @@ except Exception:
 router = APIRouter()
 
 
-def _url_with_msg(url: str, msg: str, level: str = "error") -> str:
-    """Append msg/level query params safely."""
-    sep = "&" if "?" in url else "?"
-    return f"{url}{sep}msg={urllib.parse.quote(msg)}&level={urllib.parse.quote(level)}"
-
-
-def redirect_with_msg(url: str, msg: str, level: str = "error") -> RedirectResponse:
-    return RedirectResponse(url=_url_with_msg(url, msg, level), status_code=303)
-
-
 # --------------------
 # templates + filters
 # --------------------
@@ -72,17 +62,13 @@ templates.env.filters["fmtqty"] = fmtqty
 # --------------------
 def require_admin(user: User = Depends(require_user)) -> User:
     if user.role != "admin":
-        raise HTTPException(
-            status_code=303,
-            headers={"Location": _url_with_msg("/dashboard", "Admin only.")},
-        )
+        raise HTTPException(status_code=403, detail="Admin only")
     return user
 
 
 def admin_only_dialog(request: Request, user: User, next_url: str = "/dashboard") -> HTMLResponse:
-    # Redirect back with a dialog message (modal is handled in templates)
-    return redirect_with_msg(next_url or "/dashboard", "Access denied.", "error")
-
+    # Backwards-compatible helper: raise 403 so the global handler can redirect + show modal.
+    raise HTTPException(status_code=403, detail="You don't have permission for this action.")
 
 # compatibility alias (you used require_login later)
 require_login = require_user
@@ -857,7 +843,7 @@ def stock_need_telegram(
 ):
     # roles allowed
     if user.role not in ("admin", "workshop"):
-        return redirect_with_msg("/stock", "You don't have permission for this action.", "error")
+        raise HTTPException(status_code=403, detail="Not allowed")
 
     q = parse_qty(qty)
     if not q:
@@ -890,14 +876,7 @@ def stock_need_telegram(
         f"{stock_line}"
     )
 
-    try:
-        _telegram_send(text)
-    except HTTPException as e:
-        detail = getattr(e, "detail", None)
-        return redirect_with_msg("/stock", str(detail or "Telegram error."), "error")
-    except Exception as e:
-        return redirect_with_msg("/stock", f"Telegram error: {e}", "error")
-
+    _telegram_send(text)
     return RedirectResponse(url=f"/stock?loc={loc_norm}", status_code=303)
 
 
@@ -1134,17 +1113,17 @@ async def stock_set_target(
     user: User = Depends(require_login),
 ):
     if user.role != "admin":
-        return redirect_with_msg("/stock", "You don't have permission for this action.", "error")
+        raise HTTPException(status_code=403, detail="Forbidden")
     try:
         target_dec = Decimal(target)
     except Exception:
-        return redirect_with_msg("/stock", "Invalid target value.", "error")
+        raise HTTPException(status_code=422, detail="Invalid target")
     if target_dec < 0:
-        return redirect_with_msg("/stock", "Invalid target value.", "error")
+        raise HTTPException(status_code=422, detail="Invalid target")
 
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
-        return redirect_with_msg("/stock", "Product not found.", "error")
+        raise HTTPException(status_code=404, detail="Product not found")
 
     p.target_central = target_dec
     db.commit()
@@ -1166,17 +1145,17 @@ async def stock_adjust(
         loc = "WORKSHOP"
 
     if loc not in ("CENTRAL", "WORKSHOP"):
-        return redirect_with_msg("/stock", "Invalid location.", "error")
+        raise HTTPException(status_code=422, detail="Invalid location")
 
     if loc == "CENTRAL" and user.role != "admin":
-        return redirect_with_msg("/stock", "You don't have permission for this action.", "error")
+        raise HTTPException(status_code=403, detail="Forbidden")
     if loc == "WORKSHOP" and user.role not in ("admin", "workshop"):
-        return redirect_with_msg("/stock", "You don't have permission for this action.", "error")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
         q = Decimal(qty)
     except Exception:
-        return redirect_with_msg("/stock", "Invalid quantity.", "error")
+        raise HTTPException(status_code=422, detail="Invalid qty")
     if q == 0:
         return RedirectResponse(url="/stock", status_code=303)
 
@@ -1185,7 +1164,7 @@ async def stock_adjust(
 
     loc_row = db.query(Location).filter(Location.code == loc).first()
     if not loc_row:
-        return redirect_with_msg("/stock", "Location is missing (server configuration).", "error")
+        raise HTTPException(status_code=500, detail="Location missing")
 
     mv = StockMovement(
         product_id=product_id,
@@ -1208,23 +1187,23 @@ async def stock_transfer_workshop_to_central_ui(
     user: User = Depends(require_login),
 ):
     if user.role not in ("admin", "workshop"):
-        return redirect_with_msg("/stock", "You don't have permission for this action.", "error")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
         q = Decimal(qty)
     except Exception:
-        return redirect_with_msg("/stock", "Invalid quantity.", "error")
+        raise HTTPException(status_code=422, detail="Invalid qty")
     if q <= 0:
-        return redirect_with_msg("/stock", "Invalid quantity.", "error")
+        raise HTTPException(status_code=422, detail="Invalid qty")
 
     central = db.query(Location).filter(Location.code == "CENTRAL").first()
     workshop = db.query(Location).filter(Location.code == "WORKSHOP").first()
     if not central or not workshop:
-        return redirect_with_msg("/stock", "Locations are missing (server configuration).", "error")
+        raise HTTPException(status_code=500, detail="Locations missing")
 
     ws_qty = get_stock_qty(db, product_id, workshop.id)
     if ws_qty < q:
-        return redirect_with_msg("/stock", "Not enough workshop stock.", "error")
+        raise HTTPException(status_code=422, detail="Not enough workshop stock")
 
     tid = str(uuid4())
 
@@ -1261,16 +1240,16 @@ async def stock_fulfill_pending(
     user: User = Depends(require_login),
 ):
     if user.role not in ("admin", "workshop"):
-        return redirect_with_msg("/stock", "You don't have permission for this action.", "error")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
-        return redirect_with_msg("/stock", "Product not found.", "error")
+        raise HTTPException(status_code=404, detail="Product not found")
 
     central = db.query(Location).filter(Location.code == "CENTRAL").first()
     workshop = db.query(Location).filter(Location.code == "WORKSHOP").first()
     if not central or not workshop:
-        return redirect_with_msg("/stock", "Locations are missing (server configuration).", "error")
+        raise HTTPException(status_code=500, detail="Locations missing")
 
     c_qty = get_stock_qty(db, product_id, central.id)
     ws_qty = get_stock_qty(db, product_id, workshop.id)
@@ -1281,7 +1260,7 @@ async def stock_fulfill_pending(
         return RedirectResponse(url="/stock", status_code=303)
 
     if ws_qty < pending:
-        return redirect_with_msg("/stock", "Not enough workshop stock to fulfill pending.", "error")
+        raise HTTPException(status_code=422, detail="Not enough workshop stock to fulfill")
 
     tid = str(uuid4())
 
