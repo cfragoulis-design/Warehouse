@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Περιορισμένη πρόσβαση</title>
+  <style>
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: #0b1020; color: #e7eaf0; }
+    .overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(0,0,0,.55); }
+    .card { width: min(520px, 100%); background: rgba(20,27,48,.92); border: 1px solid rgba(255,255,255,.08);
+            border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 18px 18px 14px; }
+    .title { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin: 0 0 10px; }
+    .icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+            background: rgba(255,193,7,.14); border: 1px solid rgba(255,193,7,.25); }
+    .body { font-size: 14px; line-height: 1.45; opacity: .95; }
+    .muted { opacity: .7; margin-top: 10px; font-size: 12px; }
+    .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+    a.btn { text-decoration: none; padding: 9px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.10); color: #e7eaf0; background: rgba(255,255,255,.06); }
+    a.btn.primary { background: rgba(59,130,246,.18); border-color: rgba(59,130,246,.35); }
+    a.btn:hover { filter: brightness(1.08); }
+  </style>
+</head>
+<body>
+  <div class="overlay" role="dialog" aria-modal="true" aria-labelledby="ttl">
+    <div class="card">
+      <div class="title" id="ttl">
+        <div class="icon">🔒</div>
+        Περιορισμένη πρόσβαση
+      </div>
+      <div class="body">
+        Αυτή η ενότητα είναι διαθέσιμη μόνο σε <b>διαχειριστές (admin)</b>.
+        <div class="muted">Αν χρειάζεσαι πρόσβαση, ενημέρωσε τον υπεύθυνο.</div>
+      </div>
+      <div class="actions">
+        <a class="btn" href="/stock">Επιστροφή στο Stock</a>
+        <a class="btn primary" href="{{ next_url or '/dashboard' }}">OK</a>
+      </div>
+    </div>
+  </div>
+{% include "_dialog.html" %}
+</body>
+</html>

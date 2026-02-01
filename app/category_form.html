@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ 'New Category' if not category else 'Edit Category' }}</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
+    .top{padding:16px 20px;background:#111936;border-bottom:1px solid #243055}
+    .card{max-width:560px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px}
+    label{display:block;margin-top:14px;font-weight:800}
+    input{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #243055;background:#0b1020;color:#e7e9ee}
+    .actions{margin-top:18px;display:flex;gap:10px;align-items:center}
+    .btn{background:#2f7cf6;color:#fff;border:0;border-radius:10px;padding:10px 14px;font-weight:900;cursor:pointer}
+    .link{color:#8ab4ff;text-decoration:none}
+    .muted{color:#a7b0c7;font-size:12px;margin-top:6px}
+    .warn{margin-bottom:12px;color:#ff8a8a;font-weight:800}
+    .mono{font-variant-numeric:tabular-nums}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <strong>EasyProInv</strong>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">{{ 'New Category' if not category else 'Edit Category' }}</h2>
+
+    {% if request.query_params.get('err') == 'name' %}
+      <div class="warn">⚠️ Το όνομα είναι υποχρεωτικό.</div>
+    {% elif request.query_params.get('err') == 'exists' %}
+      <div class="warn">⚠️ Υπάρχει ήδη κατηγορία με αυτό το όνομα.</div>
+    {% endif %}
+
+    <form method="post" action="{{ action }}">
+      <label>Όνομα</label>
+      <input name="name" required value="{{ category.name if category else '' }}">
+      <div class="muted">Αν κάνεις rename, θα ενημερωθούν αυτόματα και τα προϊόντα που έχουν την παλιά κατηγορία.</div>
+
+      <label>Sort Order</label>
+      <input class="mono" name="sort_order" type="number" step="1" value="{{ category.sort_order if category else 1000 }}">
+      <div class="muted">Μικρότερο = πιο ψηλά στο Stock.</div>
+
+      <div class="actions">
+        <button class="btn" type="submit">Save</button>
+        <a class="link" href="/categories">Cancel</a>
+      </div>
+    </form>
+  </div>
+
+{% include "_dialog.html" %}
+</body>
+</html>

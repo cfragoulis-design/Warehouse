@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sklavounos Stock</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#111936;
+      --panel2:#0e1530;
+      --line:#243055;
+      --text:#e7e9ee;
+      --muted:#a7b0c7;
+      --blue:#2f7cf6;
+      --blue2:#4b7bec;
+      --good:#35c27d;
+      --warn:#caa24a;
+      --danger:#ff6b6b;
+    }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;}
+    a{color:#8ab4ff;text-decoration:none}
+    .top{
+      display:flex;justify-content:space-between;align-items:center;
+      padding:16px 20px;
+      background:linear-gradient(180deg,#111936 0%, #0b1020 100%);
+      border-bottom:1px solid var(--line);
+    }
+    .brand{display:flex;align-items:center;gap:10px;}
+    .brand img{height:32px;}
+    .brand-title{font-weight:800;letter-spacing:0.4px;}
+    .muted{color:var(--muted)}
+    .btn{background:var(--blue);color:white;border:0;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
+    .btn:active{transform:translateY(1px)}
+    form{margin:0}
+
+    .page{max-width:980px;margin:22px auto;padding:0 16px;}
+
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(12,1fr);
+      gap:14px;
+      align-items:stretch;
+    }
+
+    .card{
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:16px;
+    }
+
+    .stats{grid-column:span 12;}
+    .statsRow{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:12px;
+      margin-top:10px;
+    }
+
+    .statLink{display:block;text-decoration:none;color:inherit;}
+    .statLink:hover .stat{border-color:rgba(75,123,236,0.65)}
+    .badgeLink{text-decoration:none;display:inline-flex;}
+    .badgeLink:hover .badge{border-color:rgba(75,123,236,0.65)}
+
+    .stat{
+      background:var(--panel2);
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-end;
+      gap:10px;
+      min-height:72px;
+    }
+    .stat .k{font-size:12px;color:var(--muted);}
+    .stat .v{font-size:22px;font-weight:800;letter-spacing:0.2px;}
+    .badge{
+      font-size:11px;
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid var(--line);
+      color:var(--muted);
+      background:rgba(255,255,255,0.03);
+      white-space:nowrap;
+    }
+    .badge.good{border-color:rgba(53,194,125,0.35);color:#b8f0d4;background:rgba(53,194,125,0.10);}
+    .badge.warn{border-color:rgba(202,162,74,0.35);color:#ffe4a5;background:rgba(202,162,74,0.10);}
+    .badge.danger{border-color:rgba(255,107,107,0.35);color:#ffd0d0;background:rgba(255,107,107,0.10);}
+
+    .actions{grid-column:span 12;}
+    .actionsGrid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+      gap:14px;
+      margin-top:10px;
+    }
+    .action{
+      display:block;
+      padding:14px;
+      border-radius:12px;
+      background:var(--panel2);
+      border:1px solid var(--line);
+      color:var(--text);
+      text-decoration:none;
+      transition:transform .05s ease, border-color .08s ease;
+      min-height:86px;
+    }
+    .action strong{display:block;margin-bottom:4px;}
+    .action span{color:var(--muted);font-size:13px;line-height:1.3;}
+    .action:hover{border-color:rgba(75,123,236,0.65)}
+    .action:active{transform:translateY(1px)}
+
+    .quick{grid-column:span 12;}
+    .quickRow{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;}
+    .qbtn{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:10px 12px;border-radius:12px;
+      border:1px solid var(--line);
+      background:var(--panel2);
+      color:var(--text);
+      font-weight:700;
+    }
+    .qbtn:hover{border-color:rgba(75,123,236,0.65)}
+    .qbtn small{font-weight:600;color:var(--muted)}
+
+    .foot{margin-top:16px;color:var(--muted);font-size:12px;opacity:0.9}
+    @media (max-width:640px){
+      .statsRow{grid-template-columns:1fr}
+      .top{padding:14px 14px}
+    }
+  </style>
+</head>
+<body>
+
+  <div class="top">
+    <div class="brand">
+      <img src="/static/logo-icon.png" alt="Sklavounos">
+      <div>
+        <div class="brand-title">Sklavounos Stock</div>
+        <div class="muted">
+          Logged in as <strong>{{ user.username }}</strong> ({{ user.role }})
+        </div>
+      </div>
+    </div>
+
+    <form method="post" action="/logout">
+      <button class="btn" type="submit">Logout</button>
+    </form>
+  </div>
+
+  <div class="page">
+    <div class="grid">
+
+      <div class="card stats">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:900;font-size:18px">Overview</div>
+            <div class="muted" style="font-size:13px">Quick snapshot of inventory &amp; activity</div>
+          </div>
+
+          {% set low = stats.low_stock_count if stats is defined else None %}
+          {% if low is not none and low|int == 0 %}
+            <a class="badgeLink" href="/stock"><span class="badge good">All good</span></a>
+          {% elif low is not none and low|int > 0 %}
+            <a class="badgeLink" href="/stock?pending=1"><span class="badge warn">Needs attention: {{ low }}</span></a>
+          {% else %}
+            <a class="badgeLink" href="/stock"><span class="badge">Stats not loaded</span></a>
+          {% endif %}
+        </div>
+
+        <div class="statsRow">
+          <div class="stat">
+            <div>
+              <div class="k">Products</div>
+              <div class="v">{{ stats.products_count if stats is defined else "—" }}</div>
+            </div>
+            <span class="badge">total</span>
+          </div>
+
+          <a class="statLink" href="/stock?pending=1">
+            <div class="stat">
+              <div>
+                <div class="k">Low stock</div>
+                <div class="v">{{ stats.low_stock_count if stats is defined else "—" }}</div>
+              </div>
+              {% if stats is defined and stats.low_stock_count|int > 0 %}
+                <span class="badge warn">check</span>
+              {% elif stats is defined and stats.low_stock_count|int == 0 %}
+                <span class="badge good">ok</span>
+              {% else %}
+                <span class="badge">—</span>
+              {% endif %}
+            </div>
+          </a>
+
+          <div class="stat">
+            <div>
+              <div class="k">Movements today</div>
+              <div class="v">{{ stats.movements_today if stats is defined else "—" }}</div>
+            </div>
+            <span class="badge">today</span>
+          </div>
+        </div>
+
+        <div class="foot">
+          Tip: “Low stock” is calculated from your targets (Pending &gt; 0). If you prefer a different rule, tell me and we’ll align it.
+        </div>
+      </div>
+
+      <div class="card quick">
+        <div style="font-weight:900;font-size:16px">Quick actions</div>
+        <div class="muted" style="font-size:13px">Fast access to common tasks</div>
+
+        <div class="quickRow">
+          <a class="qbtn" href="/products/new">➕ Add Product <small>(new)</small></a>
+          <a class="qbtn" href="/stock">📦 View Stock <small>(live)</small></a>
+          <a class="qbtn" href="/movements/new">🔄 New Movement <small>(IN/OUT/ADJ)</small></a>
+        </div>
+      </div>
+
+      <div class="card actions">
+        <div style="font-weight:900;font-size:16px">Management</div>
+        <div class="muted" style="font-size:13px">Core screens</div>
+
+        <div class="actionsGrid">
+          
+
+<!-- Consumables module -->
+<a class="action" href="/consumables">
+  <strong>Consumables (WORKSHOP)</strong>
+  <span class="muted">Manage consumables stock / min-desired</span>
+</a>
+<a class="action" href="/suppliers">
+  <strong>Suppliers</strong>
+  <span class="muted">Supplier list & details</span>
+</a>
+<a class="action" href="/purchase-orders">
+  <strong>Consumables POs</strong>
+  <span class="muted">Draft / Pending / Received</span>
+</a>
+<a class="action" href="/products">
+            <strong>Products</strong>
+            <span>Add / edit inventory items</span>
+          </a>
+
+          <a class="action" href="/categories">
+            <strong>Categories</strong>
+            <span>Order / rename / disable categories</span>
+          </a>
+
+          <a class="action" href="/stock">
+            <strong>Current Stock</strong>
+            <span>Live totals (includes zeros)</span>
+          </a>
+
+          <a class="action" href="/movements">
+            <strong>Stock Movements</strong>
+            <span>IN / OUT / ADJ movements</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="card" style="grid-column:span 12;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:900;font-size:16px">Health</div>
+            <div class="muted" style="font-size:13px">Service endpoint</div>
+          </div>
+          <a class="btn" href="/health" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;">/health</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+{% include "_dialog.html" %}
+</body>
+</html>
