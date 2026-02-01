@@ -3,12 +3,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.exceptions import HTTPException as StarletteHTTPException
-import urllib.parse
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
@@ -36,34 +33,6 @@ STATIC_DIR_CANDIDATES = [
 static_dir = next((p for p in STATIC_DIR_CANDIDATES if p.exists()), None)
 
 app = FastAPI()
-
-
-def _url_with_msg(url: str, msg: str, level: str = "error") -> str:
-    sep = "&" if "?" in url else "?"
-    return f"{url}{sep}msg={urllib.parse.quote(msg)}&level={urllib.parse.quote(level)}"
-
-def _wants_html(request: Request) -> bool:
-    accept = (request.headers.get("accept") or "").lower()
-    # Browsers usually send text/html; fetch() for APIs often prefers application/json
-    return "text/html" in accept or "*/*" in accept or accept == ""
-
-@app.exception_handler(StarletteHTTPException)
-async def ui_http_exception_handler(request: Request, exc: StarletteHTTPException):
-    # Convert common UI errors to redirect + modal dialog.
-    # Keep JSON/API behavior intact.
-    if not _wants_html(request):
-        raise exc
-
-    if exc.status_code == 403:
-        msg = exc.detail if isinstance(getattr(exc, "detail", None), str) and exc.detail else "Access denied."
-            return RedirectResponse(url=_url_with_msg("/dashboard", msg, "error"), status_code=303)
-    if exc.status_code == 404:
-        msg = exc.detail if isinstance(getattr(exc, "detail", None), str) and exc.detail else "Not found."
-            return RedirectResponse(url=_url_with_msg("/dashboard", msg, "error"), status_code=303)
-
-    # For other HTTP errors, keep default behavior
-    raise exc
-
 
 
 @app.on_event("startup")

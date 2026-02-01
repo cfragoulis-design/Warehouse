@@ -50,7 +50,7 @@ def require_user(user: User | None = Depends(get_current_user)) -> User:
 def require_role(role: str):
     def _dep(user: User = Depends(require_user)) -> User:
         if user.role != role:
-            raise HTTPException(status_code=403, detail="Access denied.")
+            raise HTTPException(status_code=303, headers={"Location": "/dashboard"})
         return user
 
     return _dep

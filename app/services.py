@@ -67,8 +67,13 @@ def require_admin(user: User = Depends(require_user)) -> User:
 
 
 def admin_only_dialog(request: Request, user: User, next_url: str = "/dashboard") -> HTMLResponse:
-    # Backwards-compatible helper: raise 403 so the global handler can redirect + show modal.
-    raise HTTPException(status_code=403, detail="You don't have permission for this action.")
+    # Friendly access denied page (prevents raw JSON 403 in browser)
+    return templates.TemplateResponse(
+        "access_denied.html",
+        {"request": request, "user": user, "next_url": next_url},
+        status_code=403,
+    )
+
 
 # compatibility alias (you used require_login later)
 require_login = require_user
