@@ -143,7 +143,15 @@
           {% for it in items %}
             <tr data-product-id="{{ it.id }}">
               <td>
-                <div class="prod">{{ it.name }}</div>
+                <div class="prod">
+                  {{ it.name }}
+                  <span
+                    class="pill danger"
+                    data-low-badge
+                    title="Min: {{ it.min_stock|fmtqty(it.unit) }}"
+                    {% if not it.is_low %}style="display:none"{% endif %}
+                  >LOW</span>
+                </div>
                 <div class="sku">{{ it.sku or '' }}</div>
               </td>
               <td class="muted">{{ it.unit_label }}</td>
@@ -264,6 +272,13 @@
         const row = document.querySelector(`tr[data-product-id="${item.product_id}"]`);
         if (!row) continue;
 
+        // LOW badge (min stock)
+        const lowBadge = row.querySelector('[data-low-badge]');
+        if (lowBadge){
+          lowBadge.style.display = item.is_low ? "" : "none";
+          if (item.min_stock_text != null) lowBadge.title = "Min: " + item.min_stock_text;
+        }
+
         setText(row.querySelector('[data-field="central_qty"]'), item.central_qty_text);
         setText(row.querySelector('[data-field="workshop_qty"]'), item.workshop_qty_text);
 
@@ -304,6 +319,13 @@
     if (!data || !data.ok) return;
     const row = document.querySelector(`tr[data-product-id="${data.product_id}"]`);
     if (!row) return;
+
+    // LOW badge (min stock)
+    const lowBadge = row.querySelector('[data-low-badge]');
+    if (lowBadge){
+      lowBadge.style.display = data.is_low ? "" : "none";
+      if (data.min_stock_text != null) lowBadge.title = "Min: " + data.min_stock_text;
+    }
 
     setText(row.querySelector('[data-field="central_qty"]'), data.central_qty_text);
     setText(row.querySelector('[data-field="workshop_qty"]'), data.workshop_qty_text);

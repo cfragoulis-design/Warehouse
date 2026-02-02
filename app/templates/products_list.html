@@ -33,6 +33,9 @@
       <a href="/dashboard">Dashboard</a>
       <a href="/stock">Stock</a>
       <a href="/movements">Movements</a>
+      <a class="btnlink" href="{% if show_all %}/products{% else %}/products?show=all{% endif %}">
+        {% if show_all %}Hide Inactive{% else %}Show Inactive{% endif %}
+      </a>
       <a class="btn" href="/products/new" style="color:white">+ New Product</a>
     </div>
   </div>
@@ -56,7 +59,13 @@
         <td style="font-weight:800">{{ p.name }}</td>
         <td class="mono">{{ p.sku or '' }}</td>
         <td>{{ p.category or '' }}</td>
-        <td>{{ 'Κιβ' if p.unit=='box' else 'Τεμ' }}</td>
+        <td>
+          {% if p.unit=='box' %}Κιβ
+          {% elif p.unit=='pcs' %}Τεμ
+          {% elif p.unit=='kg' %}Kg
+          {% else %}{{ p.unit }}
+          {% endif %}
+        </td>
         <td class="right mono">{{ (p.min_stock or 0) }}</td>
         <td>
           {% if p.is_active %}
@@ -71,6 +80,11 @@
             <form method="post" action="/products/{{ p.id }}/toggle" style="display:inline;margin:0">
               <button class="btnlink" type="submit" style="background:transparent;color:#e7e9ee;cursor:pointer">
                 {{ 'Deactivate' if p.is_active else 'Activate' }}
+              </button>
+            </form>
+            <form method="post" action="/products/{{ p.id }}/delete" style="display:inline;margin:0" onsubmit="return confirm('Delete product? This will also delete its stock movements.');">
+              <button class="btnlink" type="submit" style="background:rgba(255,107,107,.1);border-color:rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer">
+                Delete
               </button>
             </form>
           </div>
