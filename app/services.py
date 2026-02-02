@@ -1360,3 +1360,65 @@ def stock_missing_clear(
     p.missing_qty = Decimal("0")
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
+
+
+@router.post("/stock/missing_send")
+def stock_missing_send(
+    product_id: int = Form(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_login),
+):
+    """Send available WORKSHOP stock to CENTRAL to cover existing Missing.
+
+    This reduces missing_qty without touching Target/Pending.
+    """
+    if user.role not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    p = db.query(Product).filter(Product.id == product_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    missing = Decimal(p.missing_qty or 0)
+    if missing <= 0:
+        return RedirectResponse(url="/stock", status_code=303)
+
+    central = db.query(Location).filter(Location.code == "CENTRAL").first()
+    workshop = db.query(Location).filter(Location.code == "WORKSHOP").first()
+    if not central or not workshop:
+        raise HTTPException(status_code=500, detail="Locations missing")
+
+    ws_qty = get_stock_qty(db, product_id, workshop.id)
+    send_qty = min(ws_qty, missing)
+    if send_qty <= 0:
+        # Nothing to send from workshop right now
+        return RedirectResponse(url="/stock", status_code=303)
+
+    tid = str(uuid4())
+
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=workshop.id,
+            movement_type="OUT",
+            qty=send_qty,
+            user_id=user.id,
+            note="Send missing to central",
+            transfer_id=tid,
+        )
+    )
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=central.id,
+            movement_type="IN",
+            qty=send_qty,
+            user_id=user.id,
+            note="Receive missing from workshop",
+            transfer_id=tid,
+        )
+    )
+
+    p.missing_qty = missing - send_qty
+    db.commit()
+    return RedirectResponse(url="/stock", status_code=303)
