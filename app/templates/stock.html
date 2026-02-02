@@ -52,7 +52,17 @@
     }
     .prod{font-weight:800}
     .prodRow{display:flex;align-items:center;justify-content:space-between;gap:10px}
-    .lowBadge{padding:2px 8px;font-size:11px;letter-spacing:.08em}
+    /* Keep LOW perfectly centered next to the product line */
+    .lowBadge{
+      height:18px;
+      padding:0 8px;
+      font-size:11px;
+      letter-spacing:.08em;
+      line-height:18px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+    }
     .sku{color:var(--muted);font-size:12px;margin-top:2px}
     .muted{color:var(--muted)}
     .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55)}
