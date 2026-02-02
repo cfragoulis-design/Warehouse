@@ -51,6 +51,8 @@
       border-radius:6px;
     }
     .prod{font-weight:800}
+    .prodRow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .lowBadge{padding:2px 8px;font-size:11px;letter-spacing:.08em}
     .sku{color:var(--muted);font-size:12px;margin-top:2px}
     .muted{color:var(--muted)}
     .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55)}
@@ -143,14 +145,9 @@
           {% for it in items %}
             <tr data-product-id="{{ it.id }}">
               <td>
-                <div class="prod">
-                  {{ it.name }}
-                  <span
-                    class="pill danger"
-                    data-low-badge
-                    title="Min: {{ it.min_stock|fmtqty(it.unit) }}"
-                    {% if not it.is_low %}style="display:none"{% endif %}
-                  >LOW</span>
+                <div class="prodRow">
+                  <div class="prod">{{ it.name }}</div>
+                  <span class="pill danger lowBadge" data-low-badge {% if not it.is_low %}style="display:none"{% endif %}>LOW</span>
                 </div>
                 <div class="sku">{{ it.sku or '' }}</div>
               </td>
@@ -250,6 +247,13 @@
     }
   }
 
+  function setLowBadge(row, isLow){
+    if (!row) return;
+    const badge = row.querySelector('[data-low-badge]');
+    if (!badge) return;
+    badge.style.display = isLow ? "inline-flex" : "none";
+  }
+
   async function refreshStockLive(){
     try{
       const params = new URLSearchParams();
@@ -272,15 +276,9 @@
         const row = document.querySelector(`tr[data-product-id="${item.product_id}"]`);
         if (!row) continue;
 
-        // LOW badge (min stock)
-        const lowBadge = row.querySelector('[data-low-badge]');
-        if (lowBadge){
-          lowBadge.style.display = item.is_low ? "" : "none";
-          if (item.min_stock_text != null) lowBadge.title = "Min: " + item.min_stock_text;
-        }
-
         setText(row.querySelector('[data-field="central_qty"]'), item.central_qty_text);
         setText(row.querySelector('[data-field="workshop_qty"]'), item.workshop_qty_text);
+        setLowBadge(row, !!item.is_low);
 
         const pendingTd = row.querySelector('td[data-field="pending"]');
         if (!pendingTd) continue;
@@ -320,15 +318,9 @@
     const row = document.querySelector(`tr[data-product-id="${data.product_id}"]`);
     if (!row) return;
 
-    // LOW badge (min stock)
-    const lowBadge = row.querySelector('[data-low-badge]');
-    if (lowBadge){
-      lowBadge.style.display = data.is_low ? "" : "none";
-      if (data.min_stock_text != null) lowBadge.title = "Min: " + data.min_stock_text;
-    }
-
     setText(row.querySelector('[data-field="central_qty"]'), data.central_qty_text);
     setText(row.querySelector('[data-field="workshop_qty"]'), data.workshop_qty_text);
+    setLowBadge(row, !!data.is_low);
 
     const pendingTd = row.querySelector('td[data-field="pending"]');
     if (!pendingTd) return;
