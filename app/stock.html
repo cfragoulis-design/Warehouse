@@ -51,12 +51,13 @@
       border-radius:6px;
     }
     .prod{font-weight:800}
+    .prodRow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .lowBadge{padding:2px 8px;font-size:11px;letter-spacing:.08em}
     .sku{color:var(--muted);font-size:12px;margin-top:2px}
     .muted{color:var(--muted)}
     .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55)}
     .pill.warn{border-color:rgba(202,162,74,.75);color:#f1d694}
     .pill.danger{border-color:rgba(255,107,107,.6);color:#ffb2b2}
-    .pill.send{border-color:rgba(47,124,246,.65);color:#8ab4ff}
     .pillBtn{
     cursor:pointer;
     border:3px solid rgba(36,48,85,.9);
@@ -79,7 +80,7 @@
     .targetBox{display:flex;gap:8px;align-items:center}
     .targetInput{width:72px;min-width:72px;text-align:center;padding:8px 10px;border-radius:12px}
     .pendingForm{display:inline}
-    .pendingWrap{display:inline-flex;align-items:center;gap:6px}
+    .pendingWrap{display:inline-flex;align-items:center;gap:8px}
   .needForm{display:inline-flex;align-items:center;gap:6px;margin-left:6px}
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
@@ -145,11 +146,9 @@
           {% for it in items %}
             <tr data-product-id="{{ it.id }}">
               <td>
-                <div class="prod">
-                  {{ it.name }}
-                  <span class="pill {% if it.low_level == 'critical' %}danger{% elif it.low_level == 'low' %}warn{% endif %}" data-low-badge {% if not it.low_level %}style="display:none"{% endif %}>
-                    {% if it.low_level == 'critical' %}CRIT{% elif it.low_level == 'low' %}LOW{% endif %}
-                  </span>
+                <div class="prodRow">
+                  <div class="prod">{{ it.name }}</div>
+                  <span class="pill danger lowBadge" data-low-badge {% if not it.is_low %}style="display:none"{% endif %}>LOW</span>
                 </div>
                 <div class="sku">{{ it.sku or '' }}</div>
               </td>
@@ -160,8 +159,7 @@
               <td>
                 {% if can_edit_target %}
                   <form method="post" action="/stock/target" class="targetBox">
-                    <input type="hidden" name="action" value="fulfill_pending" />
-      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
                     <input class="targetInput" name="target" value="{{ it.target_central|fmtqty(it.unit) }}" inputmode="decimal" />
                     <button class="btn btnGhost btnTiny" type="submit">Save</button>
                   </form>
@@ -171,33 +169,15 @@
               </td>
 
               <td data-field="pending">
-  <div class="pendingWrap">
-    <form method="post" action="/stock/fulfill" class="pendingForm" data-pending-form {% if not (it.pending > 0) %}style="display:none"{% endif %}>
-      <input type="hidden" name="product_id" value="{{ it.id }}" />
-      <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
-    </form>
-    <span class="pill" data-pending-zero {% if it.pending > 0 %}style="display:none"{% endif %}>0</span>
-
-    <span class="pill danger" data-missing {% if not (it.missing_qty and it.missing_qty > 0) %}style="display:none"{% endif %} title="Missing from last transfer">+{{ it.missing_qty|fmtqty(it.unit) }}</span>
-
-    {# Workshop action: send Missing without touching Pending/Target #}
-    {% if user and user.role in ['workshop','admin'] %}
-      <form method="post" action="/stock/missing_send" class="pendingForm" data-missing-send {% if not (it.missing_qty and it.missing_qty > 0) %}style="display:none"{% endif %}
-            onsubmit="return confirm('Send available workshop stock to cover Missing?')">
-        <input type="hidden" name="product_id" value="{{ it.id }}" />
-        <button class="pill send pillBtn" type="submit" title="Send Missing">↥</button>
-      </form>
-    {% endif %}
-
-    {% if user and user.role == 'admin' %}
-      <form method="post" action="/stock/missing_clear" class="pendingForm" data-missing-clear {% if not (it.missing_qty and it.missing_qty > 0) %}style="display:none"{% endif %}
-            onsubmit="return confirm('Clear missing for this product?')">
-        <input type="hidden" name="product_id" value="{{ it.id }}" />
-        <button class="pill danger pillBtn" type="submit" title="Clear Missing">×</button>
-      </form>
-    {% endif %}
-  </div>
-</td>
+                <div class="pendingWrap">
+                  <form method="post" action="/stock/fulfill" class="pendingForm" data-pending-form {% if not (it.pending > 0) %}style="display:none"{% endif %}>
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
+                    </form>
+                    <span class="pill" data-pending-zero {% if it.pending > 0 %}style="display:none"{% endif %}>0</span>
+                    <span class="pill danger" data-missing-pill {% if not (it.missing > 0) %}style="display:none"{% endif %}>+{{ it.missing|fmtqty(it.unit) }}</span>
+                </div>
+              </td>
 
               <td>
                 <div class="actions">
@@ -271,6 +251,13 @@
     }
   }
 
+  function setLowBadge(row, isLow){
+    if (!row) return;
+    const badge = row.querySelector('[data-low-badge]');
+    if (!badge) return;
+    badge.style.display = isLow ? "inline-flex" : "none";
+  }
+
   async function refreshStockLive(){
     try{
       const params = new URLSearchParams();
@@ -295,26 +282,14 @@
 
         setText(row.querySelector('[data-field="central_qty"]'), item.central_qty_text);
         setText(row.querySelector('[data-field="workshop_qty"]'), item.workshop_qty_text);
-
-        // LOW / CRIT badge (based on CENTRAL only)
-        const lowEl = row.querySelector('[data-low-badge]');
-        const lvl = (item.low_level || "").toLowerCase();
-        if (lowEl){
-          if (lvl === "critical" || lvl === "low"){
-            lowEl.style.display = "";
-            lowEl.classList.remove("warn","danger");
-            if (lvl === "critical"){ lowEl.classList.add("danger"); lowEl.textContent = "CRIT"; }
-            else { lowEl.classList.add("warn"); lowEl.textContent = "LOW"; }
-          } else {
-            lowEl.style.display = "none";
-          }
-        }
+        setLowBadge(row, !!item.is_low);
 
         const pendingTd = row.querySelector('td[data-field="pending"]');
         if (!pendingTd) continue;
 
         const form = pendingTd.querySelector('[data-pending-form]');
         const zero = pendingTd.querySelector('[data-pending-zero]');
+        const missingPill = pendingTd.querySelector('[data-missing-pill]');
         const btn = form ? form.querySelector('button') : null;
 
         const pVal = Number(item.pending_value || 0);
@@ -328,21 +303,15 @@
           if (zero) setText(zero, "0");
         }
 
-
-const mVal = Number(item.missing_value || 0);
-const miss = pendingTd.querySelector('[data-missing]');
-const clr = pendingTd.querySelector('[data-missing-clear]');
-const snd = pendingTd.querySelector('[data-missing-send]');
-if (mVal > 0){
-  if (miss) miss.style.display = "";
-  if (clr) clr.style.display = "";
-  if (snd) snd.style.display = "";
-  if (miss) setText(miss, "+" + item.missing_text);
-} else {
-  if (miss) miss.style.display = "none";
-  if (clr) clr.style.display = "none";
-  if (snd) snd.style.display = "none";
-}
+        const mVal = Number(item.missing_value || 0);
+        if (missingPill){
+          if (mVal > 0){
+            missingPill.style.display = "inline-flex";
+            setText(missingPill, "+" + item.missing_text);
+          } else {
+            missingPill.style.display = "none";
+          }
+        }
       }
     }catch(e){
       const dot = document.getElementById("liveDot");
@@ -366,25 +335,13 @@ if (mVal > 0){
 
     setText(row.querySelector('[data-field="central_qty"]'), data.central_qty_text);
     setText(row.querySelector('[data-field="workshop_qty"]'), data.workshop_qty_text);
-
-    // LOW / CRIT badge (based on CENTRAL only)
-    const lowEl = row.querySelector('[data-low-badge]');
-    const lvl = (data.low_level || "").toLowerCase();
-    if (lowEl){
-      if (lvl === "critical" || lvl === "low"){
-        lowEl.style.display = "";
-        lowEl.classList.remove("warn","danger");
-        if (lvl === "critical"){ lowEl.classList.add("danger"); lowEl.textContent = "CRIT"; }
-        else { lowEl.classList.add("warn"); lowEl.textContent = "LOW"; }
-      } else {
-        lowEl.style.display = "none";
-      }
-    }
+    setLowBadge(row, !!data.is_low);
 
     const pendingTd = row.querySelector('td[data-field="pending"]');
     if (!pendingTd) return;
     const form = pendingTd.querySelector('[data-pending-form]');
     const zero = pendingTd.querySelector('[data-pending-zero]');
+    const missingPill = pendingTd.querySelector('[data-missing-pill]');
     const btn = form ? form.querySelector('button') : null;
 
     const pVal = Number(data.pending_value || 0);
@@ -398,21 +355,15 @@ if (mVal > 0){
       if (zero) setText(zero, "0");
     }
 
-
-const mVal = Number(data.missing_value || 0);
-const miss = pendingTd.querySelector('[data-missing]');
-const clr = pendingTd.querySelector('[data-missing-clear]');
-const snd = pendingTd.querySelector('[data-missing-send]');
-if (mVal > 0){
-  if (miss) miss.style.display = "";
-  if (clr) clr.style.display = "";
-  if (snd) snd.style.display = "";
-  if (miss) setText(miss, "+" + data.missing_text);
-} else {
-  if (miss) miss.style.display = "none";
-  if (clr) clr.style.display = "none";
-  if (snd) snd.style.display = "none";
-}
+    const mVal = Number(data.missing_value || 0);
+    if (missingPill){
+      if (mVal > 0){
+        missingPill.style.display = "inline-flex";
+        setText(missingPill, "+" + data.missing_text);
+      } else {
+        missingPill.style.display = "none";
+      }
+    }
   }
 
   // Intercept ONLY the adjust forms to avoid full reload.
