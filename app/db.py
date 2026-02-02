@@ -56,3 +56,20 @@ def init_db() -> None:
     except Exception:
         # Do not fail app startup if ALTER is unsupported or permissions are restricted.
         pass
+
+    # Missing/Owed table (safe, idempotent). We also keep a migration file, but this prevents crashes
+    # on deployments where migrations were not run.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS stock_missing (
+                    id SERIAL PRIMARY KEY,
+                    product_id INTEGER NOT NULL UNIQUE REFERENCES products(id) ON DELETE CASCADE,
+                    qty_missing NUMERIC(12,3) NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """
+            )
+    except Exception:
+        pass

@@ -111,6 +111,41 @@ class StockMovement(Base):
 
 
 # -----------------------------
+# Missing / Owed (WORKSHOP -> CENTRAL shortfalls)
+# -----------------------------
+
+
+class StockMissing(Base):
+    """Tracks an owed quantity ("Missing") that remains from past fulfill attempts.
+
+    Rules (implemented in services.py):
+    - Missing is created ONLY when a "fulfill pending" request cannot be fully satisfied.
+    - Missing decreases ONLY when stock is transferred from WORKSHOP to CENTRAL.
+    - Missing is NOT affected by sales or manual stock adjustments.
+    """
+
+    __tablename__ = "stock_missing"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+
+    qty_missing: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+# -----------------------------
 # Consumables module (WORKSHOP-only receiving)
 # -----------------------------
 
