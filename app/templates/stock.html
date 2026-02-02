@@ -131,7 +131,8 @@
       <table>
         <thead>
           <tr>
-            <th style="width:34%">Product</th>
+            <th style="width:30%">Product</th>
+            <th style="width:6%"></th>
             <th style="width:10%">Unit</th>
             <th style="width:10%">Central</th>
             <th style="width:10%">Workshop</th>
@@ -142,15 +143,18 @@
         </thead>
         <tbody>
         {% for cat, items in grouped.items() %}
-          <tr class="catrow"><td colspan="7">{{ cat }}</td></tr>
+          <tr class="catrow"><td colspan="8">{{ cat }}</td></tr>
           {% for it in items %}
             <tr data-product-id="{{ it.id }}">
               <td>
                 <div class="prodRow">
                   <div class="prod">{{ it.name }}</div>
-                  <span class="pill danger lowBadge" data-low-badge {% if not it.is_low %}style="display:none"{% endif %}>LOW</span>
+                  
                 </div>
                 <div class="sku">{{ it.sku or '' }}</div>
+              </td>
+              <td>
+                
               </td>
               <td class="muted">{{ it.unit_label }}</td>
               <td><span data-field="central_qty">{{ it.central_qty|fmtqty(it.unit) }}</span></td>
