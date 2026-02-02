@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from sqlalchemy import text
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 
@@ -45,3 +46,16 @@ def init_db() -> None:
     from . import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+
+    # ---- Safe, idempotent schema patches (no refactor / no risk) ----
+    # Railway doesn't run migrations by default; ensure newer columns exist.
+    with engine.begin() as conn:
+        # Minimum stock threshold used for LOW badge in Stock.
+        conn.execute(
+            text(
+                """
+                ALTER TABLE products
+                ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,3) NOT NULL DEFAULT 0;
+                """
+            )
+        )

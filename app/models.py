@@ -38,6 +38,9 @@ class Product(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Desired stock at CENTRAL. Used to compute Pending (Target - Central)
     target_central: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
+    # Minimum desired total stock (CENTRAL + WORKSHOP).
+    # UI uses this to show a LOW badge when total stock drops below this threshold.
+    min_stock: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

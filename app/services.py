@@ -216,10 +216,13 @@ def products_list(
 ):
     # Keep products list clean: Active first, then by Category.sort_order (when category exists), then by category name, then product name.
     cat_order = func.coalesce(Category.sort_order, 9999)
+    show_all = (request.query_params.get("show") == "all")
+
     products = (
         db.execute(
             select(Product)
             .outerjoin(Category, Category.name == Product.category)
+            .where(True if show_all else (Product.is_active == True))
             .order_by(
                 Product.is_active.desc(),
                 cat_order.asc(),
@@ -233,7 +236,7 @@ def products_list(
 
     return templates.TemplateResponse(
         "products_list.html",
-        {"request": request, "user": user, "products": products},
+        {"request": request, "user": user, "products": products, "show_all": show_all},
     )
 
 
@@ -258,12 +261,15 @@ def product_create(
     sku: str | None = Form(None),
     category: str | None = Form(None),
     unit: str = Form("pcs"),
+    min_stock: str = Form("0"),
 ):
+    ms = parse_qty(min_stock) or Decimal("0")
     p = Product(
         name=name.strip(),
         sku=sku.strip() if sku else None,
         category=category.strip() if category else None,
         unit=unit,
+        min_stock=float(ms),
     )
     db.add(p)
     db.commit()
@@ -297,6 +303,7 @@ def product_update(
     sku: str | None = Form(None),
     category: str | None = Form(None),
     unit: str = Form("pcs"),
+    min_stock: str = Form("0"),
 ):
     product = db.get(Product, pid)
     if not product:
@@ -306,7 +313,22 @@ def product_update(
     product.sku = sku.strip() if sku else None
     product.category = category.strip() if category else None
     product.unit = unit
+    ms = parse_qty(min_stock)
+    product.min_stock = float(ms) if ms is not None else 0
     db.commit()
+    return RedirectResponse(url="/products", status_code=303)
+
+
+@router.post("/products/{pid}/delete")
+def product_delete(
+    pid: int,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    product = db.get(Product, pid)
+    if product:
+        db.delete(product)
+        db.commit()
     return RedirectResponse(url="/products", status_code=303)
 
 
@@ -663,6 +685,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
+            Product.min_stock,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -681,9 +704,13 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
+            Product.min_stock,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     )
+
+    # Stock view should be clean: inactive products are hidden.
+    stmt = stmt.where(Product.is_active == True)
 
     qq = (q or "").strip()
     if qq:
@@ -715,6 +742,10 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
         unit = (r.unit or "").lower()
         unit_label = "Τεμ" if unit == "pcs" else ("Κιβ" if unit == "box" else ("Kg" if unit == "kg" else r.unit))
 
+        ms = Decimal(r.min_stock or 0)
+        total = c + w
+        low = bool(ms > 0 and total < ms)
+
         item = {
             "id": r.id,
             "name": r.name,
@@ -726,8 +757,10 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "central_qty": c,
             "workshop_qty": w,
             "target_central": t,
+            "min_stock": ms,
             "pending": pending,
-            "total_qty": c + w,
+            "total_qty": total,
+            "is_low": low,
         }
         cat = (r.category or "").strip()
         if not cat:
@@ -778,6 +811,8 @@ def api_stock(
                     "workshop_qty_text": fmtqty(w, unit),
                     "pending_text": fmtqty(p, unit),
                     "pending_value": float(p or 0),
+                    "is_low": bool(it.get("is_low")),
+                    "min_stock_text": fmtqty(it.get("min_stock"), unit),
                 }
             )
 
@@ -1204,6 +1239,10 @@ async def stock_adjust(
         if pending < 0:
             pending = Decimal(0)
 
+        total_qty = c_qty + w_qty
+        min_stock = Decimal(getattr(p, "min_stock", 0) or 0)
+        is_low = bool(min_stock > 0 and total_qty < min_stock)
+
         return JSONResponse(
             {
                 "ok": True,
@@ -1212,6 +1251,8 @@ async def stock_adjust(
                 "workshop_qty_text": fmtqty(w_qty, p.unit),
                 "pending_text": fmtqty(pending, p.unit),
                 "pending_value": float(pending or 0),
+                "is_low": is_low,
+                "min_stock_text": fmtqty(min_stock, p.unit),
             }
         )
 
