@@ -145,7 +145,12 @@
           {% for it in items %}
             <tr data-product-id="{{ it.id }}">
               <td>
-                <div class="prod">{{ it.name }}</div>
+                <div class="prod">
+                  {{ it.name }}
+                  <span class="pill {% if it.low_level == 'critical' %}danger{% elif it.low_level == 'low' %}warn{% endif %}" data-low-badge {% if not it.low_level %}style="display:none"{% endif %}>
+                    {% if it.low_level == 'critical' %}CRIT{% elif it.low_level == 'low' %}LOW{% endif %}
+                  </span>
+                </div>
                 <div class="sku">{{ it.sku or '' }}</div>
               </td>
               <td class="muted">{{ it.unit_label }}</td>
@@ -290,6 +295,20 @@
         setText(row.querySelector('[data-field="central_qty"]'), item.central_qty_text);
         setText(row.querySelector('[data-field="workshop_qty"]'), item.workshop_qty_text);
 
+        // LOW / CRIT badge (based on CENTRAL only)
+        const lowEl = row.querySelector('[data-low-badge]');
+        const lvl = (item.low_level || "").toLowerCase();
+        if (lowEl){
+          if (lvl === "critical" || lvl === "low"){
+            lowEl.style.display = "";
+            lowEl.classList.remove("warn","danger");
+            if (lvl === "critical"){ lowEl.classList.add("danger"); lowEl.textContent = "CRIT"; }
+            else { lowEl.classList.add("warn"); lowEl.textContent = "LOW"; }
+          } else {
+            lowEl.style.display = "none";
+          }
+        }
+
         const pendingTd = row.querySelector('td[data-field="pending"]');
         if (!pendingTd) continue;
 
@@ -346,6 +365,20 @@ if (mVal > 0){
 
     setText(row.querySelector('[data-field="central_qty"]'), data.central_qty_text);
     setText(row.querySelector('[data-field="workshop_qty"]'), data.workshop_qty_text);
+
+    // LOW / CRIT badge (based on CENTRAL only)
+    const lowEl = row.querySelector('[data-low-badge]');
+    const lvl = (data.low_level || "").toLowerCase();
+    if (lowEl){
+      if (lvl === "critical" || lvl === "low"){
+        lowEl.style.display = "";
+        lowEl.classList.remove("warn","danger");
+        if (lvl === "critical"){ lowEl.classList.add("danger"); lowEl.textContent = "CRIT"; }
+        else { lowEl.classList.add("warn"); lowEl.textContent = "LOW"; }
+      } else {
+        lowEl.style.display = "none";
+      }
+    }
 
     const pendingTd = row.querySelector('td[data-field="pending"]');
     if (!pendingTd) return;
