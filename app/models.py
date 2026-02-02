@@ -36,10 +36,10 @@ class Product(Base):
     category: Mapped[str | None] = mapped_column(String(128), nullable=True)
     unit: Mapped[str] = mapped_column(String(8), nullable=False, default="pcs")  # pcs / kg / box
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Minimum total stock (CENTRAL + WORKSHOP). If >0 and total falls below it, UI shows LOW.
+    min_stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Desired stock at CENTRAL. Used to compute Pending (Target - Central)
     target_central: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
-    # Missing from last transfer (workshop could not fully cover Pending). Admin clears.
-    missing_qty: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

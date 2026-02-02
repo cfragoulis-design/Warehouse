@@ -216,10 +216,13 @@ def products_list(
 ):
     # Keep products list clean: Active first, then by Category.sort_order (when category exists), then by category name, then product name.
     cat_order = func.coalesce(Category.sort_order, 9999)
+    show_all = (request.query_params.get("show") == "all")
+
     products = (
         db.execute(
             select(Product)
             .outerjoin(Category, Category.name == Product.category)
+            .where(True if show_all else (Product.is_active == True))
             .order_by(
                 Product.is_active.desc(),
                 cat_order.asc(),
@@ -233,7 +236,7 @@ def products_list(
 
     return templates.TemplateResponse(
         "products_list.html",
-        {"request": request, "user": user, "products": products},
+        {"request": request, "user": user, "products": products, "show_all": show_all},
     )
 
 
@@ -258,12 +261,15 @@ def product_create(
     sku: str | None = Form(None),
     category: str | None = Form(None),
     unit: str = Form("pcs"),
+    min_stock: str = Form("0"),
 ):
+    ms = parse_qty(min_stock) or Decimal("0")
     p = Product(
         name=name.strip(),
         sku=sku.strip() if sku else None,
         category=category.strip() if category else None,
         unit=unit,
+        min_stock=float(ms),
     )
     db.add(p)
     db.commit()
@@ -297,6 +303,7 @@ def product_update(
     sku: str | None = Form(None),
     category: str | None = Form(None),
     unit: str = Form("pcs"),
+    min_stock: str = Form("0"),
 ):
     product = db.get(Product, pid)
     if not product:
@@ -306,7 +313,22 @@ def product_update(
     product.sku = sku.strip() if sku else None
     product.category = category.strip() if category else None
     product.unit = unit
+    ms = parse_qty(min_stock)
+    product.min_stock = float(ms) if ms is not None else 0
     db.commit()
+    return RedirectResponse(url="/products", status_code=303)
+
+
+@router.post("/products/{pid}/delete")
+def product_delete(
+    pid: int,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    product = db.get(Product, pid)
+    if product:
+        db.delete(product)
+        db.commit()
     return RedirectResponse(url="/products", status_code=303)
 
 
@@ -663,7 +685,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
-            Product.missing_qty,
+            Product.min_stock,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -682,10 +704,13 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.category,
             Product.is_active,
             Product.target_central,
-            Product.missing_qty,
+            Product.min_stock,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     )
+
+    # Stock view should be clean: inactive products are hidden.
+    stmt = stmt.where(Product.is_active == True)
 
     qq = (q or "").strip()
     if qq:
@@ -717,6 +742,12 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
         unit = (r.unit or "").lower()
         unit_label = "Τεμ" if unit == "pcs" else ("Κιβ" if unit == "box" else ("Kg" if unit == "kg" else r.unit))
 
+        # LOW indicator is based on CENTRAL stock (selling location).
+        # Workshop stock is treated as back stock and should not hide LOW.
+        ms = Decimal(r.min_stock or 0)
+        total = c + w
+        low = bool(ms > 0 and c < ms)
+
         item = {
             "id": r.id,
             "name": r.name,
@@ -728,9 +759,10 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "central_qty": c,
             "workshop_qty": w,
             "target_central": t,
+            "min_stock": ms,
             "pending": pending,
-            "missing_qty": Decimal(getattr(r, "missing_qty", 0) or 0),
-            "total_qty": c + w,
+            "total_qty": total,
+            "is_low": low,
         }
         cat = (r.category or "").strip()
         if not cat:
@@ -781,8 +813,8 @@ def api_stock(
                     "workshop_qty_text": fmtqty(w, unit),
                     "pending_text": fmtqty(p, unit),
                     "pending_value": float(p or 0),
-                    "missing_text": fmtqty(it.get("missing_qty", 0), unit),
-                    "missing_value": float(it.get("missing_qty", 0) or 0),
+                    "is_low": bool(it.get("is_low")),
+                    "min_stock_text": fmtqty(it.get("min_stock"), unit),
                 }
             )
 
@@ -1209,6 +1241,9 @@ async def stock_adjust(
         if pending < 0:
             pending = Decimal(0)
 
+        min_stock = Decimal(getattr(p, "min_stock", 0) or 0)
+        is_low = bool(min_stock > 0 and c_qty < min_stock)
+
         return JSONResponse(
             {
                 "ok": True,
@@ -1217,8 +1252,8 @@ async def stock_adjust(
                 "workshop_qty_text": fmtqty(w_qty, p.unit),
                 "pending_text": fmtqty(pending, p.unit),
                 "pending_value": float(pending or 0),
-                "missing_text": fmtqty(Decimal(p.missing_qty or 0), p.unit),
-                "missing_value": float(Decimal(p.missing_qty or 0) or 0),
+                "is_low": is_low,
+                "min_stock_text": fmtqty(min_stock, p.unit),
             }
         )
 
@@ -1299,64 +1334,41 @@ async def stock_fulfill_pending(
 
     c_qty = get_stock_qty(db, product_id, central.id)
     ws_qty = get_stock_qty(db, product_id, workshop.id)
-    t = Decimal(p.target_central or 0)
+    t = p.target_central or Decimal("0")
     pending = max(Decimal("0"), t - c_qty)
 
     if pending <= 0:
         return RedirectResponse(url="/stock", status_code=303)
 
-    # Partial fulfillment: transfer what exists in WORKSHOP, record the missing remainder
-    sent = min(ws_qty, pending)
-    missing_add = pending - sent
+    if ws_qty < pending:
+        raise HTTPException(status_code=422, detail="Not enough workshop stock to fulfill")
 
-    if missing_add > 0:
-        p.missing_qty = Decimal(p.missing_qty or 0) + missing_add
+    tid = str(uuid4())
 
-    if sent > 0:
-        tid = str(uuid4())
-
-        db.add(
-            StockMovement(
-                product_id=product_id,
-                location_id=workshop.id,
-                movement_type="OUT",
-                qty=sent,
-                user_id=user.id,
-                note="Fulfill pending to central",
-                transfer_id=tid,
-            )
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=workshop.id,
+            movement_type="OUT",
+            qty=pending,
+            user_id=user.id,
+            note="Fulfill pending to central",
+            transfer_id=tid,
         )
-        db.add(
-            StockMovement(
-                product_id=product_id,
-                location_id=central.id,
-                movement_type="IN",
-                qty=sent,
-                user_id=user.id,
-                note="Fulfill from workshop",
-                transfer_id=tid,
-            )
+    )
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=central.id,
+            movement_type="IN",
+            qty=pending,
+            user_id=user.id,
+            note="Fulfill from workshop",
+            transfer_id=tid,
         )
+    )
 
-    # Close the pending request (per your rule) even if it was partially fulfilled
+    # reset target after fulfillment (per your rule)
     p.target_central = Decimal("0")
-    db.commit()
-    return RedirectResponse(url="/stock", status_code=303)
-
-
-@router.post("/stock/missing_clear")
-def stock_missing_clear(
-    product_id: int = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_login),
-):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    p = db.query(Product).filter(Product.id == product_id).first()
-    if not p:
-        raise HTTPException(status_code=404, detail="Product not found")
-
-    p.missing_qty = Decimal("0")
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
