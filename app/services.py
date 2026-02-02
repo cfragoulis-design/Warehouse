@@ -20,11 +20,11 @@ from sqlalchemy.orm import Session
 try:
     from app.auth import require_user
     from app.db import get_db
-    from app.models import User, Product, Category, StockMovement, Location
+    from app.models import User, Product, Category, StockMovement, Location, StockMissing
 except Exception:
     from auth import require_user
     from db import get_db
-    from models import User, Product, Category, StockMovement, Location
+    from models import User, Product, Category, StockMovement, Location, StockMissing
 
 router = APIRouter()
 
@@ -113,6 +113,43 @@ def signed_qty_expr():
     )
 
 
+def _get_missing_map(db: Session) -> dict[int, Decimal]:
+    rows = db.execute(select(StockMissing.product_id, StockMissing.qty_missing)).all()
+    out: dict[int, Decimal] = {}
+    for pid, qty in rows:
+        try:
+            out[int(pid)] = Decimal(qty or 0)
+        except Exception:
+            out[int(pid)] = Decimal("0")
+    return out
+
+
+def _missing_decrease_on_delivery(db: Session, product_id: int, delivered_qty: Decimal) -> None:
+    """Decrease missing only on WORKSHOP -> CENTRAL delivery."""
+    if delivered_qty <= 0:
+        return
+    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+    if not rec:
+        return
+    new_val = Decimal(rec.qty_missing or 0) - delivered_qty
+    if new_val <= 0:
+        db.delete(rec)
+    else:
+        rec.qty_missing = new_val
+
+
+def _missing_add_shortfall(db: Session, product_id: int, shortfall_qty: Decimal) -> None:
+    """Add missing only when a fulfill request could not be fully satisfied."""
+    if shortfall_qty <= 0:
+        return
+    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+    if not rec:
+        rec = StockMissing(product_id=product_id, qty_missing=shortfall_qty)
+        db.add(rec)
+    else:
+        rec.qty_missing = Decimal(rec.qty_missing or 0) + shortfall_qty
+
+
 
 
 
@@ -183,6 +220,62 @@ def get_stock_for_product(db: Session, product_id: int, location_id: int) -> Dec
 # compatibility alias (you used get_stock_qty later)
 def get_stock_qty(db: Session, product_id: int, location_id: int) -> Decimal:
     return get_stock_for_product(db, product_id, location_id)
+
+
+def get_missing_map(db: Session) -> dict[int, Decimal]:
+    """Returns current Missing/Owed per product.
+
+    Missing is a persisted value (not derived from Target/Central).
+    """
+    rows = db.execute(select(StockMissing.product_id, StockMissing.qty_missing)).all()
+    out: dict[int, Decimal] = {}
+    for pid, q in rows:
+        try:
+            out[int(pid)] = Decimal(q or 0)
+        except Exception:
+            out[int(pid)] = Decimal("0")
+    return out
+
+
+def _set_missing(db: Session, product_id: int, new_qty: Decimal) -> None:
+    new_qty = Decimal(new_qty or 0)
+    if new_qty < 0:
+        new_qty = Decimal("0")
+    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+    if not rec:
+        rec = StockMissing(product_id=product_id, qty_missing=new_qty)
+        db.add(rec)
+    else:
+        rec.qty_missing = new_qty
+
+
+def missing_reduce_on_delivery(db: Session, product_id: int, delivered_qty: Decimal) -> Decimal:
+    """Reduce Missing by delivered quantity.
+
+    Returns the amount that was used to cover Missing.
+    """
+    delivered_qty = Decimal(delivered_qty or 0)
+    if delivered_qty <= 0:
+        return Decimal("0")
+    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+    if not rec:
+        return Decimal("0")
+    cur = Decimal(rec.qty_missing or 0)
+    used = min(cur, delivered_qty)
+    rec.qty_missing = cur - used
+    return used
+
+
+def missing_add_shortfall(db: Session, product_id: int, shortfall_qty: Decimal) -> None:
+    shortfall_qty = Decimal(shortfall_qty or 0)
+    if shortfall_qty <= 0:
+        return
+    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+    if not rec:
+        rec = StockMissing(product_id=product_id, qty_missing=shortfall_qty)
+        db.add(rec)
+    else:
+        rec.qty_missing = Decimal(rec.qty_missing or 0) + shortfall_qty
 
 
 # --------------------
@@ -676,6 +769,8 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     signed_qty = signed_qty_expr()
 
+    missing_map = get_missing_map(db)
+
     stmt = (
         select(
             Product.id,
@@ -731,6 +826,10 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
         if pending < 0:
             pending = Decimal(0)
 
+        missing = missing_map.get(int(r.id), Decimal("0"))
+        if missing < 0:
+            missing = Decimal("0")
+
         # basic location filter
         if loc_norm == "central":
             if c == 0 and pending == 0 and t == 0:
@@ -761,6 +860,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "target_central": t,
             "min_stock": ms,
             "pending": pending,
+            "missing": missing,
             "total_qty": total,
             "is_low": low,
         }
@@ -806,6 +906,7 @@ def api_stock(
             c = it.get("central_qty")
             w = it.get("workshop_qty")
             p = it.get("pending")
+            m = it.get("missing")
             items.append(
                 {
                     "product_id": it.get("id"),
@@ -813,6 +914,8 @@ def api_stock(
                     "workshop_qty_text": fmtqty(w, unit),
                     "pending_text": fmtqty(p, unit),
                     "pending_value": float(p or 0),
+                    "missing_text": fmtqty(m, unit),
+                    "missing_value": float(m or 0),
                     "is_low": bool(it.get("is_low")),
                     "min_stock_text": fmtqty(it.get("min_stock"), unit),
                 }
@@ -1244,6 +1347,11 @@ async def stock_adjust(
         min_stock = Decimal(getattr(p, "min_stock", 0) or 0)
         is_low = bool(min_stock > 0 and c_qty < min_stock)
 
+        missing_rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+        missing = Decimal(missing_rec.qty_missing or 0) if missing_rec else Decimal("0")
+        if missing < 0:
+            missing = Decimal("0")
+
         return JSONResponse(
             {
                 "ok": True,
@@ -1252,6 +1360,8 @@ async def stock_adjust(
                 "workshop_qty_text": fmtqty(w_qty, p.unit),
                 "pending_text": fmtqty(pending, p.unit),
                 "pending_value": float(pending or 0),
+                "missing_text": fmtqty(missing, p.unit),
+                "missing_value": float(missing or 0),
                 "is_low": is_low,
                 "min_stock_text": fmtqty(min_stock, p.unit),
             }
@@ -1310,6 +1420,9 @@ async def stock_transfer_workshop_to_central_ui(
             transfer_id=tid,
         )
     )
+
+    # Any delivery from WORKSHOP -> CENTRAL should reduce Missing (owed) first.
+    missing_reduce_on_delivery(db, product_id, q)
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
 
@@ -1340,11 +1453,14 @@ async def stock_fulfill_pending(
     if pending <= 0:
         return RedirectResponse(url="/stock", status_code=303)
 
-    # Allow partial fulfillment: move as much as WORKSHOP has (up to pending).
-    # Pending remains target-based (Target - Central) and is not manually reset here.
-    qty_to_send = pending if ws_qty >= pending else ws_qty
-    if qty_to_send <= 0:
-        return RedirectResponse(url="/stock", status_code=303)
+    # Allow partial fulfillment.
+    # Pending always means (Target - Central). If WORKSHOP can't cover it, we transfer what exists
+    # and record the remainder as Missing (owed).
+    deliver = min(ws_qty, pending)
+    shortfall = pending - deliver
+
+    if deliver <= 0:
+        raise HTTPException(status_code=422, detail="Not enough workshop stock to fulfill")
 
     tid = str(uuid4())
 
@@ -1353,7 +1469,7 @@ async def stock_fulfill_pending(
             product_id=product_id,
             location_id=workshop.id,
             movement_type="OUT",
-            qty=qty_to_send,
+            qty=deliver,
             user_id=user.id,
             note="Fulfill pending to central",
             transfer_id=tid,
@@ -1364,12 +1480,15 @@ async def stock_fulfill_pending(
             product_id=product_id,
             location_id=central.id,
             movement_type="IN",
-            qty=qty_to_send,
+            qty=deliver,
             user_id=user.id,
             note="Fulfill from workshop",
             transfer_id=tid,
         )
     )
 
+    # Reduce existing Missing with any delivery, then add any new shortfall.
+    missing_reduce_on_delivery(db, product_id, deliver)
+    missing_add_shortfall(db, product_id, shortfall)
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
