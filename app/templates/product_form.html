@@ -46,7 +46,7 @@
           <select name="unit">
             <option value="box" {% if product and product.unit=='box' %}selected{% endif %}>Κιβώτια</option>
             <option value="pcs" {% if product and product.unit=='pcs' %}selected{% endif %}>Τεμάχια</option>
-            <option value="pcs" {% if product and product.unit=='pcs' %}selected{% endif %}>Δίσκος</option>
+            <option value="tray" {% if product and product.unit=='tray' %}selected{% endif %}>Δίσκος</option>
           </select>
         </div>
       </div>
@@ -90,9 +90,9 @@
       {# What backend reads #}
       <input type="hidden" name="category" id="category_hidden" value="{{ cat }}">
 
-      <label>Ελάχιστο Απόθεμα (Min Stock) — σε Κιβώτια</label>
+      <label>Ελάχιστο Απόθεμα (Min Stock) — στο Κεντρικό</label>
       <input name="min_stock" type="number" min="0" step="1" value="{{ product.min_stock if product and product.min_stock is not none else 0 }}">
-      <div class="muted">Αν είναι &gt; 0 και το Σύνολο πέσει κάτω, θα εμφανίζει ένδειξη LOW.</div>
+      <div class="muted">Αν είναι &gt; 0 και το Κεντρικό πέσει κάτω, θα εμφανίζει ένδειξη LOW.</div>
 
       <div class="actions">
         <button class="btn" type="submit">Αποθήκευση</button>
