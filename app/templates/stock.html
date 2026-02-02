@@ -51,22 +51,8 @@
       border-radius:6px;
     }
     .prod{font-weight:800}
-    .prodRow{
-  display:flex;
-  align-items:center;
-  justify-content:flex-start; /* αντί για space-between */
-  gap:10px;}
-    /* Keep LOW perfectly centered next to the product line */
-    .lowBadge{
-      height:18px;
-      padding:0 8px;
-      font-size:11px;
-      letter-spacing:.08em;
-      line-height:18px;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-    }
+    .prodRow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .lowBadge{padding:2px 8px;font-size:11px;letter-spacing:.08em}
     .sku{color:var(--muted);font-size:12px;margin-top:2px}
     .muted{color:var(--muted)}
     .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55)}
@@ -94,6 +80,7 @@
     .targetBox{display:flex;gap:8px;align-items:center}
     .targetInput{width:72px;min-width:72px;text-align:center;padding:8px 10px;border-radius:12px}
     .pendingForm{display:inline}
+    .pendingWrap{display:inline-flex;align-items:center;gap:8px}
   .needForm{display:inline-flex;align-items:center;gap:6px;margin-left:6px}
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
@@ -182,11 +169,14 @@
               </td>
 
               <td data-field="pending">
-                <form method="post" action="/stock/fulfill" class="pendingForm" data-pending-form {% if not (it.pending > 0) %}style="display:none"{% endif %}>
-                    <input type="hidden" name="product_id" value="{{ it.id }}" />
-                    <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
-                  </form>
-                  <span class="pill" data-pending-zero {% if it.pending > 0 %}style="display:none"{% endif %}>0</span>
+                <div class="pendingWrap">
+                  <form method="post" action="/stock/fulfill" class="pendingForm" data-pending-form {% if not (it.pending > 0) %}style="display:none"{% endif %}>
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
+                    </form>
+                    <span class="pill" data-pending-zero {% if it.pending > 0 %}style="display:none"{% endif %}>0</span>
+                    <span class="pill danger" data-missing-pill {% if not (it.missing > 0) %}style="display:none"{% endif %}>+{{ it.missing|fmtqty(it.unit) }}</span>
+                </div>
               </td>
 
               <td>
@@ -299,6 +289,7 @@
 
         const form = pendingTd.querySelector('[data-pending-form]');
         const zero = pendingTd.querySelector('[data-pending-zero]');
+        const missingPill = pendingTd.querySelector('[data-missing-pill]');
         const btn = form ? form.querySelector('button') : null;
 
         const pVal = Number(item.pending_value || 0);
@@ -310,6 +301,16 @@
           if (form) form.style.display = "none";
           if (zero) zero.style.display = "";
           if (zero) setText(zero, "0");
+        }
+
+        const mVal = Number(item.missing_value || 0);
+        if (missingPill){
+          if (mVal > 0){
+            missingPill.style.display = "inline-flex";
+            setText(missingPill, "+" + item.missing_text);
+          } else {
+            missingPill.style.display = "none";
+          }
         }
       }
     }catch(e){
@@ -340,6 +341,7 @@
     if (!pendingTd) return;
     const form = pendingTd.querySelector('[data-pending-form]');
     const zero = pendingTd.querySelector('[data-pending-zero]');
+    const missingPill = pendingTd.querySelector('[data-missing-pill]');
     const btn = form ? form.querySelector('button') : null;
 
     const pVal = Number(data.pending_value || 0);
@@ -351,6 +353,16 @@
       if (form) form.style.display = "none";
       if (zero) zero.style.display = "";
       if (zero) setText(zero, "0");
+    }
+
+    const mVal = Number(data.missing_value || 0);
+    if (missingPill){
+      if (mVal > 0){
+        missingPill.style.display = "inline-flex";
+        setText(missingPill, "+" + data.missing_text);
+      } else {
+        missingPill.style.display = "none";
+      }
     }
   }
 
