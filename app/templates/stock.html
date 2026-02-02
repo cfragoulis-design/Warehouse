@@ -144,7 +144,8 @@
       <table>
         <thead>
           <tr>
-            <th style="width:34%">Product</th>
+            <th style="width:30%">Product</th>
+            <th style="width:6%">Status</th>
             <th style="width:10%">Unit</th>
             <th style="width:10%">Central</th>
             <th style="width:10%">Workshop</th>
@@ -161,8 +162,12 @@
               <td>
                 <div class="prodRow">
                   <div class="prod">{{ it.name }}</div>
+                  
                 </div>
                 <div class="sku">{{ it.sku or '' }}</div>
+              </td>
+              <td>
+                <span class="pill danger lowBadge" data-low-badge {% if not it.is_low %}style="display:none"{% endif %}>LOW</span>
               </td>
               <td class="muted">{{ it.unit_label }}</td>
               <td><span data-field="central_qty">{{ it.central_qty|fmtqty(it.unit) }}</span></td>
@@ -190,7 +195,6 @@
 
               <td>
                 <div class="actions">
-                  <span class="pill danger lowBadge" data-low-badge {% if not it.is_low %}style="display:none"{% endif %}>LOW</span>
                   {% if can_adjust_central %}
                     <span class="tag">C</span>
                     <form method="post" action="/stock/adjust" class="pm">
