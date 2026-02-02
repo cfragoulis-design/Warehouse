@@ -296,87 +296,8 @@
 
   refreshStockLive();
   setInterval(refreshStockLive, POLL_MS);
-
-  // ----
-  // AJAX stock adjust (+/-) so the page doesn't jump to the top.
-  // ----
-  function updateRowFromAdjust(data){
-    if (!data || !data.ok) return;
-    const row = document.querySelector(`tr[data-product-id="${data.product_id}"]`);
-    if (!row) return;
-
-    setText(row.querySelector('[data-field="central_qty"]'), data.central_qty_text);
-    setText(row.querySelector('[data-field="workshop_qty"]'), data.workshop_qty_text);
-
-    const pendingTd = row.querySelector('td[data-field="pending"]');
-    if (!pendingTd) return;
-    const form = pendingTd.querySelector('[data-pending-form]');
-    const zero = pendingTd.querySelector('[data-pending-zero]');
-    const btn = form ? form.querySelector('button') : null;
-
-    const pVal = Number(data.pending_value || 0);
-    if (pVal > 0){
-      if (form) form.style.display = "";
-      if (zero) zero.style.display = "none";
-      if (btn) setText(btn, "+" + data.pending_text);
-    } else {
-      if (form) form.style.display = "none";
-      if (zero) zero.style.display = "";
-      if (zero) setText(zero, "0");
-    }
-  }
-
-  // Intercept ONLY the adjust forms to avoid full reload.
-  document.querySelectorAll('form.pm[action="/stock/adjust"]').forEach((form) => {
-    form.addEventListener("click", async (ev) => {
-      const btn = ev.target && ev.target.closest('button[type="submit"]');
-      if (!btn) return;
-      // Only handle +/- buttons
-      if (!btn.name || btn.name !== "qty") return;
-
-      ev.preventDefault();
-
-      // Disable both buttons briefly to avoid double clicks
-      const buttons = Array.from(form.querySelectorAll('button[type="submit"]'));
-      buttons.forEach(b => b.disabled = true);
-
-      try{
-        // Ensure the clicked button's value is included (FormData uses successful controls)
-        // We add it explicitly to be safe.
-        const fd = new FormData(form);
-        fd.set(btn.name, btn.value);
-
-        const res = await fetch(form.action, {
-          method: "POST",
-          body: fd,
-          headers: {
-            "Accept": "application/json",
-            "X-Requested-With": "fetch"
-          },
-          cache: "no-store"
-        });
-
-        const ct = (res.headers.get("content-type") || "").toLowerCase();
-        if (!ct.includes("application/json")){
-          // fallback to normal navigation
-          if (res.redirected) window.location.href = res.url;
-          else window.location.reload();
-          return;
-        }
-
-        const data = await res.json();
-        updateRowFromAdjust(data);
-      }catch(e){
-        // Fallback: keep behavior safe
-        window.location.reload();
-      }finally{
-        buttons.forEach(b => b.disabled = false);
-      }
-    });
-  });
 })();
 </script>
 
-{% include "_dialog.html" %}
 </body>
 </html>
