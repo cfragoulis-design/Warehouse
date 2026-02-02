@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from sqlalchemy import text
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 
@@ -47,15 +46,13 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
 
-    # ---- Safe, idempotent schema patches (no refactor / no risk) ----
-    # Railway doesn't run migrations by default; ensure newer columns exist.
-    with engine.begin() as conn:
-        # Minimum stock threshold used for LOW badge in Stock.
-        conn.execute(
-            text(
-                """
-                ALTER TABLE products
-                ADD COLUMN IF NOT EXISTS min_stock NUMERIC(12,3) NOT NULL DEFAULT 0;
-                """
+    # Idempotent lightweight migration(s) for older deployments.
+    # We keep these minimal to avoid refactors and prevent runtime crashes.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock INTEGER NOT NULL DEFAULT 0"
             )
-        )
+    except Exception:
+        # Do not fail app startup if ALTER is unsupported or permissions are restricted.
+        pass
