@@ -51,6 +51,8 @@
       border-radius:6px;
     }
     .prod{font-weight:800}
+    .prodRow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .lowBadge{padding:2px 8px;font-size:11px;letter-spacing:.08em}
     .sku{color:var(--muted);font-size:12px;margin-top:2px}
     .muted{color:var(--muted)}
     .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55)}
@@ -143,9 +145,10 @@
           {% for it in items %}
             <tr data-product-id="{{ it.id }}">
               <td>
-                <div class="prod">{{ it.name }}
-  {% if it.low_level == "critical" %}<span class="pill danger" data-low-badge>CRIT</span>{% elif it.low_level == "low" %}<span class="pill warn" data-low-badge>LOW</span>{% else %}<span class="pill" data-low-badge style="display:none">LOW</span>{% endif %}
-</div>
+                <div class="prodRow">
+                  <div class="prod">{{ it.name }}</div>
+                  <span class="pill danger lowBadge" data-low-badge {% if not it.is_low %}style="display:none"{% endif %}>LOW</span>
+                </div>
                 <div class="sku">{{ it.sku or '' }}</div>
               </td>
               <td class="muted">{{ it.unit_label }}</td>
@@ -165,24 +168,12 @@
               </td>
 
               <td data-field="pending">
-  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-    <form method="post" action="/stock/fulfill" class="pendingForm" data-pending-form {% if not (it.pending > 0) %}style="display:none"{% endif %}>
-      <input type="hidden" name="product_id" value="{{ it.id }}" />
-      <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
-    </form>
-    <span class="pill" data-pending-zero {% if it.pending > 0 %}style="display:none"{% endif %}>0</span>
-
-    {# Missing (shortfall) #}
-    <span class="pill danger" data-missing-badge {% if not (it.missing_qty and it.missing_qty > 0) %}style="display:none"{% endif %}>+{{ it.missing_qty|fmtqty(it.unit) }}</span>
-
-    {% if user and user.role in ('admin','workshop') %}
-    <form method="post" action="/stock/missing_send" class="missingSendForm" data-missing-send {% if not (it.missing_qty and it.missing_qty > 0) %}style="display:none"{% endif %}>
-      <input type="hidden" name="product_id" value="{{ it.id }}" />
-      <button class="transferBtn" type="submit" title="Send Missing από Workshop σε Central">↥</button>
-    </form>
-    {% endif %}
-  </div>
-</td></td>
+                <form method="post" action="/stock/fulfill" class="pendingForm" data-pending-form {% if not (it.pending > 0) %}style="display:none"{% endif %}>
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
+                    <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
+                  </form>
+                  <span class="pill" data-pending-zero {% if it.pending > 0 %}style="display:none"{% endif %}>0</span>
+              </td>
 
               <td>
                 <div class="actions">
@@ -256,6 +247,13 @@
     }
   }
 
+  function setLowBadge(row, isLow){
+    if (!row) return;
+    const badge = row.querySelector('[data-low-badge]');
+    if (!badge) return;
+    badge.style.display = isLow ? "inline-flex" : "none";
+  }
+
   async function refreshStockLive(){
     try{
       const params = new URLSearchParams();
@@ -280,6 +278,7 @@
 
         setText(row.querySelector('[data-field="central_qty"]'), item.central_qty_text);
         setText(row.querySelector('[data-field="workshop_qty"]'), item.workshop_qty_text);
+        setLowBadge(row, !!item.is_low);
 
         const pendingTd = row.querySelector('td[data-field="pending"]');
         if (!pendingTd) continue;
@@ -298,40 +297,6 @@
           if (zero) zero.style.display = "";
           if (zero) setText(zero, "0");
         }
-
-// Missing badge + send button
-const missingBadge = pendingTd.querySelector('[data-missing-badge]');
-const missingSend = pendingTd.querySelector('[data-missing-send]');
-const mVal = Number(item.missing_value || 0);
-if (mVal > 0){
-  if (missingBadge){
-    missingBadge.style.display = "";
-    setText(missingBadge, "+" + item.missing_text);
-  }
-  if (missingSend) missingSend.style.display = "";
-} else {
-  if (missingBadge) missingBadge.style.display = "none";
-  if (missingSend) missingSend.style.display = "none";
-}
-
-// Low badge (per CENTRAL only)
-const lowBadge = row.querySelector('[data-low-badge]');
-const lvl = (item.low_level || "").toLowerCase();
-if (lowBadge){
-  if (lvl === "critical"){
-    lowBadge.style.display = "";
-    lowBadge.classList.remove("warn");
-    lowBadge.classList.add("danger");
-    setText(lowBadge, "CRIT");
-  } else if (lvl === "low"){
-    lowBadge.style.display = "";
-    lowBadge.classList.remove("danger");
-    lowBadge.classList.add("warn");
-    setText(lowBadge, "LOW");
-  } else {
-    lowBadge.style.display = "none";
-  }
-}
       }
     }catch(e){
       const dot = document.getElementById("liveDot");
@@ -355,6 +320,7 @@ if (lowBadge){
 
     setText(row.querySelector('[data-field="central_qty"]'), data.central_qty_text);
     setText(row.querySelector('[data-field="workshop_qty"]'), data.workshop_qty_text);
+    setLowBadge(row, !!data.is_low);
 
     const pendingTd = row.querySelector('td[data-field="pending"]');
     if (!pendingTd) return;
@@ -372,40 +338,6 @@ if (lowBadge){
       if (zero) zero.style.display = "";
       if (zero) setText(zero, "0");
     }
-
-// Missing badge + send button
-const missingBadge = pendingTd.querySelector('[data-missing-badge]');
-const missingSend = pendingTd.querySelector('[data-missing-send]');
-const mVal = Number(data.missing_value || 0);
-if (mVal > 0){
-  if (missingBadge){
-    missingBadge.style.display = "";
-    setText(missingBadge, "+" + data.missing_text);
-  }
-  if (missingSend) missingSend.style.display = "";
-} else {
-  if (missingBadge) missingBadge.style.display = "none";
-  if (missingSend) missingSend.style.display = "none";
-}
-
-// Low badge
-const lowBadge = row.querySelector('[data-low-badge]');
-const lvl = (data.low_level || "").toLowerCase();
-if (lowBadge){
-  if (lvl === "critical"){
-    lowBadge.style.display = "";
-    lowBadge.classList.remove("warn");
-    lowBadge.classList.add("danger");
-    setText(lowBadge, "CRIT");
-  } else if (lvl === "low"){
-    lowBadge.style.display = "";
-    lowBadge.classList.remove("danger");
-    lowBadge.classList.add("warn");
-    setText(lowBadge, "LOW");
-  } else {
-    lowBadge.style.display = "none";
-  }
-}
   }
 
   // Intercept ONLY the adjust forms to avoid full reload.
