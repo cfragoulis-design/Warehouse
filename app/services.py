@@ -13,7 +13,7 @@ import urllib.request
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, literal
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
@@ -654,25 +654,37 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     signed_qty = signed_qty_expr()
 
+    # LOW/CRITICAL depends on a per-product minimum stock threshold.
+    # Prefer Product.min_stock if present; keep the app working even if the column is missing.
+    try:
+        min_stock_sel = Product.min_stock.label("min_stock")
+        has_min_stock = True
+    except Exception:
+        min_stock_sel = literal(0).label("min_stock")
+        has_min_stock = False
+
+    cols = [
+        Product.id,
+        Product.name,
+        Product.sku,
+        Product.unit,
+        Product.category,
+        Product.is_active,
+        Product.target_central,
+        Product.missing_qty,
+        min_stock_sel,
+        func.coalesce(
+            func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
+            0,
+        ).label("central_qty"),
+        func.coalesce(
+            func.sum(case((StockMovement.location_id == workshop.id, signed_qty), else_=0)),
+            0,
+        ).label("workshop_qty"),
+    ]
+
     stmt = (
-        select(
-            Product.id,
-            Product.name,
-            Product.sku,
-            Product.unit,
-            Product.category,
-            Product.is_active,
-            Product.target_central,
-            Product.missing_qty,
-            func.coalesce(
-                func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
-                0,
-            ).label("central_qty"),
-            func.coalesce(
-                func.sum(case((StockMovement.location_id == workshop.id, signed_qty), else_=0)),
-                0,
-            ).label("workshop_qty"),
-        )
+        select(*cols)
         .outerjoin(StockMovement, StockMovement.product_id == Product.id)
         .group_by(
             Product.id,
@@ -683,6 +695,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.is_active,
             Product.target_central,
             Product.missing_qty,
+            *( [Product.min_stock] if has_min_stock else [] ),
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     )
@@ -702,9 +715,18 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
         c = Decimal(r.central_qty)
         w = Decimal(r.workshop_qty)
         t = Decimal(r.target_central or 0)
+        min_s = Decimal(getattr(r, "min_stock", 0) or 0)
         pending = t - c
         if pending < 0:
             pending = Decimal(0)
+
+        # LOW/CRITICAL: based on CENTRAL only
+        low_level = None
+        if min_s > 0:
+            if c == 0:
+                low_level = "critical"
+            elif c < min_s:
+                low_level = "low"
 
         # basic location filter
         if loc_norm == "central":
@@ -730,6 +752,8 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "target_central": t,
             "pending": pending,
             "missing_qty": Decimal(getattr(r, "missing_qty", 0) or 0),
+            "min_stock": min_s,
+            "low_level": low_level,
             "total_qty": c + w,
         }
         cat = (r.category or "").strip()
@@ -783,6 +807,7 @@ def api_stock(
                     "pending_value": float(p or 0),
                     "missing_text": fmtqty(it.get("missing_qty", 0), unit),
                     "missing_value": float(it.get("missing_qty", 0) or 0),
+                    "low_level": it.get("low_level"),
                 }
             )
 
@@ -1209,6 +1234,18 @@ async def stock_adjust(
         if pending < 0:
             pending = Decimal(0)
 
+        # LOW/CRITICAL is based on CENTRAL only
+        try:
+            min_s = Decimal(getattr(p, "min_stock", 0) or 0)
+        except Exception:
+            min_s = Decimal(0)
+        low_level = None
+        if min_s > 0:
+            if c_qty == 0:
+                low_level = "critical"
+            elif c_qty < min_s:
+                low_level = "low"
+
         return JSONResponse(
             {
                 "ok": True,
@@ -1219,6 +1256,7 @@ async def stock_adjust(
                 "pending_value": float(pending or 0),
                 "missing_text": fmtqty(Decimal(p.missing_qty or 0), p.unit),
                 "missing_value": float(Decimal(p.missing_qty or 0) or 0),
+                "low_level": low_level,
             }
         )
 
@@ -1234,6 +1272,12 @@ async def stock_transfer_workshop_to_central_ui(
 ):
     if user.role not in ("admin", "workshop"):
         raise HTTPException(status_code=403, detail="Forbidden")
+
+    # Safety: only proceed if the request is explicitly a "fulfill" action.
+    # Prevents accidental target reset if another button posts here.
+    if action != "fulfill_pending":
+        return RedirectResponse(url="/stock", status_code=303)
+
 
     try:
         q = Decimal(qty)
@@ -1281,12 +1325,19 @@ async def stock_transfer_workshop_to_central_ui(
 
 @router.post("/stock/fulfill")
 async def stock_fulfill_pending(
+    action: str | None = Form(None),
     product_id: int = Form(...),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
     if user.role not in ("admin", "workshop"):
         raise HTTPException(status_code=403, detail="Forbidden")
+
+    # Safety: only proceed if the request is explicitly a "fulfill" action.
+    # Prevents accidental target reset if another button posts here.
+    if action != "fulfill_pending":
+        return RedirectResponse(url="/stock", status_code=303)
+
 
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
@@ -1358,5 +1409,73 @@ def stock_missing_clear(
         raise HTTPException(status_code=404, detail="Product not found")
 
     p.missing_qty = Decimal("0")
+    db.commit()
+    return RedirectResponse(url="/stock", status_code=303)
+
+
+@router.post("/stock/missing_send")
+def stock_missing_send(
+    product_id: int = Form(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_login),
+):
+    """Send available WORKSHOP stock to CENTRAL to cover existing Missing.
+
+    This reduces missing_qty without touching Target/Pending.
+    """
+    if user.role not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # Safety: only proceed if the request is explicitly a "fulfill" action.
+    # Prevents accidental target reset if another button posts here.
+    if action != "fulfill_pending":
+        return RedirectResponse(url="/stock", status_code=303)
+
+
+    p = db.query(Product).filter(Product.id == product_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    missing = Decimal(p.missing_qty or 0)
+    if missing <= 0:
+        return RedirectResponse(url="/stock", status_code=303)
+
+    central = db.query(Location).filter(Location.code == "CENTRAL").first()
+    workshop = db.query(Location).filter(Location.code == "WORKSHOP").first()
+    if not central or not workshop:
+        raise HTTPException(status_code=500, detail="Locations missing")
+
+    ws_qty = get_stock_qty(db, product_id, workshop.id)
+    send_qty = min(ws_qty, missing)
+    if send_qty <= 0:
+        # Nothing to send from workshop right now
+        return RedirectResponse(url="/stock", status_code=303)
+
+    tid = str(uuid4())
+
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=workshop.id,
+            movement_type="OUT",
+            qty=send_qty,
+            user_id=user.id,
+            note="Send missing to central",
+            transfer_id=tid,
+        )
+    )
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=central.id,
+            movement_type="IN",
+            qty=send_qty,
+            user_id=user.id,
+            note="Receive missing from workshop",
+            transfer_id=tid,
+        )
+    )
+
+    p.missing_qty = missing - send_qty
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
