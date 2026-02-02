@@ -1368,7 +1368,5 @@ async def stock_fulfill_pending(
         )
     )
 
-    # reset target after fulfillment (per your rule)
-    p.target_central = Decimal("0")
     db.commit()
     return RedirectResponse(url="/stock", status_code=303)
