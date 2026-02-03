@@ -406,8 +406,93 @@
       }
     });
   });
-})();
-</script>
+  // ----
+  // AJAX pending fulfill (+Pending) so the page doesn't jump to the top.
+  // ----
+  document.querySelectorAll('form.pendingForm[action="/stock/fulfill"]').forEach((form) => {
+    form.addEventListener("click", async (ev) => {
+      const btn = ev.target && ev.target.closest('button[type="submit"]');
+      if (!btn) return;
+
+      ev.preventDefault();
+
+      const buttons = Array.from(form.querySelectorAll('button[type="submit"]'));
+      buttons.forEach(b => b.disabled = true);
+
+      try{
+        const fd = new FormData(form);
+
+        const res = await fetch(form.action, {
+          method: "POST",
+          body: fd,
+          headers: {
+            "Accept": "application/json",
+            "X-Requested-With": "fetch"
+          },
+          cache: "no-store"
+        });
+
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        if (!ct.includes("application/json")){
+          if (res.redirected) window.location.href = res.url;
+          else window.location.reload();
+          return;
+        }
+
+        const data = await res.json();
+        updateRowFromAdjust(data);
+      }catch(e){
+        window.location.reload();
+      }finally{
+        buttons.forEach(b => b.disabled = false);
+      }
+    });
+  });
+
+  // ----
+  // AJAX workshop->central transfer arrow (→) so the page doesn't jump to the top.
+  // ----
+  document.querySelectorAll('form[action="/stock/transfer_wc"]').forEach((form) => {
+    form.addEventListener("click", async (ev) => {
+      const btn = ev.target && ev.target.closest('button[type="submit"]');
+      if (!btn) return;
+
+      ev.preventDefault();
+
+      const buttons = Array.from(form.querySelectorAll('button[type="submit"]'));
+      buttons.forEach(b => b.disabled = true);
+
+      try{
+        const fd = new FormData(form);
+
+        const res = await fetch(form.action, {
+          method: "POST",
+          body: fd,
+          headers: {
+            "Accept": "application/json",
+            "X-Requested-With": "fetch"
+          },
+          cache: "no-store"
+        });
+
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        if (!ct.includes("application/json")){
+          if (res.redirected) window.location.href = res.url;
+          else window.location.reload();
+          return;
+        }
+
+        const data = await res.json();
+        updateRowFromAdjust(data);
+      }catch(e){
+        window.location.reload();
+      }finally{
+        buttons.forEach(b => b.disabled = false);
+      }
+    });
+  });
+
+})();</script>
 
 {% include "_dialog.html" %}
 </body>
