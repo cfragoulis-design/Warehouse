@@ -21,6 +21,10 @@
     .actions{display:flex;gap:8px;flex-wrap:wrap}
     .right{text-align:right}
     .mono{font-variant-numeric:tabular-nums}
+    .filters{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:10px 0 14px}
+    .select{background:#0b1020;color:#e7e9ee;border:1px solid #243055;border-radius:10px;padding:8px 10px;font-weight:800}
+    .catrow td{background:linear-gradient(180deg,#14214a,#0f1836);color:#eaf0ff;font-weight:900;letter-spacing:.4px;text-transform:none;padding:10px 10px;border-bottom:1px solid #243055}
+    .catrow td:before{content:"";display:inline-block;width:6px;height:18px;background:#2f7cf6;border-radius:6px;margin-right:10px;vertical-align:middle}
   </style>
 </head>
 <body>
@@ -44,6 +48,16 @@
     <h2 style="margin-top:0">Products</h2>
     <p class="muted">Διαχείριση προϊόντων (μονάδες: Κιβ / Τεμ). Min Stock είναι σε Κιβώτια.</p>
 
+    {% if user and user.role == 'admin' %}
+      <div class="filters">
+        <label class="muted" for="catFilter" style="font-weight:800">Category</label>
+        <select id="catFilter" class="select">
+          <option value="">All</option>
+        </select>
+        <span class="muted" id="catHint" style="display:none">No products in this category.</span>
+      </div>
+    {% endif %}
+
     <table>
       <tr>
         <th>Name</th>
@@ -54,8 +68,18 @@
         <th>Status</th>
         <th>Actions</th>
       </tr>
+
+      {% set ns = namespace(cur_cat=None) %}
       {% for p in products %}
-      <tr>
+      {% set cat = (p.category or 'Uncategorized') %}
+      {% if cat != ns.cur_cat %}
+      <tr class="catrow" data-cat-header="{{ cat|e }}">
+        <td colspan="7">{{ cat }}</td>
+      </tr>
+      {% set ns.cur_cat = cat %}
+      {% endif %}
+
+      <tr class="prodrow" data-cat="{{ cat|e }}">
         <td style="font-weight:800">{{ p.name }}</td>
         <td class="mono">{{ p.sku or '' }}</td>
         <td>{{ p.category or '' }}</td>
@@ -93,5 +117,51 @@
       {% endfor %}
     </table>
   </div>
+
+  {% if user and user.role == 'admin' %}
+  <script>
+    (function(){
+      const sel = document.getElementById('catFilter');
+      if(!sel) return;
+      const rows = Array.from(document.querySelectorAll('tr.prodrow'));
+      const headers = Array.from(document.querySelectorAll('tr.catrow'));
+      const hint = document.getElementById('catHint');
+
+      // Build unique categories from existing rows
+      const cats = Array.from(new Set(rows.map(r => (r.dataset.cat || '').trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'el'));
+      for(const c of cats){
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        sel.appendChild(opt);
+      }
+
+      function apply(){
+        const chosen = (sel.value || '').trim();
+        let visibleCount = 0;
+
+        for(const r of rows){
+          const ok = !chosen || (r.dataset.cat === chosen);
+          r.style.display = ok ? '' : 'none';
+          if(ok) visibleCount++;
+        }
+
+        // Hide category headers that have no visible product rows under them
+        for(const h of headers){
+          const cat = h.dataset.catHeader;
+          const hasVisible = rows.some(r => r.dataset.cat === cat && r.style.display !== 'none');
+          h.style.display = hasVisible ? '' : 'none';
+        }
+
+        if(hint){
+          hint.style.display = (chosen && visibleCount === 0) ? '' : 'none';
+        }
+      }
+
+      sel.addEventListener('change', apply);
+      apply();
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>
