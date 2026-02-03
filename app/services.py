@@ -1372,6 +1372,7 @@ async def stock_adjust(
 
 @router.post("/stock/transfer_wc")
 async def stock_transfer_workshop_to_central_ui(
+    request: Request,
     product_id: int = Form(...),
     qty: str = Form("1"),
     db: Session = Depends(get_db),
@@ -1424,17 +1425,64 @@ async def stock_transfer_workshop_to_central_ui(
     # Any delivery from WORKSHOP -> CENTRAL should reduce Missing (owed) first.
     missing_reduce_on_delivery(db, product_id, q)
     db.commit()
+
+    # If requested via fetch/AJAX, return JSON so the page does not reload.
+    accept = (request.headers.get("accept") or "").lower()
+    xrw = (request.headers.get("x-requested-with") or "").lower()
+    wants_json = ("application/json" in accept) or (xrw in ("fetch", "xmlhttprequest"))
+    if wants_json:
+        p = db.query(Product).filter(Product.id == product_id).first()
+        if not p:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        c_qty = get_stock_qty(db, product_id, central.id)
+        w_qty = get_stock_qty(db, product_id, workshop.id)
+        target = Decimal(p.target_central or 0)
+        pending = target - c_qty
+        if pending < 0:
+            pending = Decimal(0)
+
+        min_stock = Decimal(getattr(p, "min_stock", 0) or 0)
+        is_low = bool(min_stock > 0 and c_qty < min_stock)
+
+        missing_rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+        missing = Decimal(missing_rec.qty_missing or 0) if missing_rec else Decimal("0")
+        if missing < 0:
+            missing = Decimal("0")
+
+        return JSONResponse(
+            {
+                "ok": True,
+                "product_id": product_id,
+                "central_qty_text": fmtqty(c_qty, p.unit),
+                "workshop_qty_text": fmtqty(w_qty, p.unit),
+                "pending_text": fmtqty(pending, p.unit),
+                "pending_value": float(pending or 0),
+                "missing_text": fmtqty(missing, p.unit),
+                "missing_value": float(missing or 0),
+                "is_low": is_low,
+                "min_stock_text": fmtqty(min_stock, p.unit),
+            }
+        )
+
     return RedirectResponse(url="/stock", status_code=303)
 
 
 @router.post("/stock/fulfill")
 async def stock_fulfill_pending(
+    request: Request,
     product_id: int = Form(...),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
     if user.role not in ("admin", "workshop"):
         raise HTTPException(status_code=403, detail="Forbidden")
+
+
+    # If requested via fetch/AJAX, return JSON so the page does not reload.
+    accept = (request.headers.get("accept") or "").lower()
+    xrw = (request.headers.get("x-requested-with") or "").lower()
+    wants_json = ("application/json" in accept) or (xrw in ("fetch", "xmlhttprequest"))
 
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
@@ -1451,6 +1499,29 @@ async def stock_fulfill_pending(
     pending = max(Decimal("0"), t - c_qty)
 
     if pending <= 0:
+        if wants_json:
+            min_stock = Decimal(getattr(p, "min_stock", 0) or 0)
+            is_low = bool(min_stock > 0 and c_qty < min_stock)
+
+            missing_rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+            missing = Decimal(missing_rec.qty_missing or 0) if missing_rec else Decimal("0")
+            if missing < 0:
+                missing = Decimal("0")
+
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "product_id": product_id,
+                    "central_qty_text": fmtqty(c_qty, p.unit),
+                    "workshop_qty_text": fmtqty(ws_qty, p.unit),
+                    "pending_text": fmtqty(Decimal("0"), p.unit),
+                    "pending_value": 0.0,
+                    "missing_text": fmtqty(missing, p.unit),
+                    "missing_value": float(missing or 0),
+                    "is_low": is_low,
+                    "min_stock_text": fmtqty(min_stock, p.unit),
+                }
+            )
         return RedirectResponse(url="/stock", status_code=303)
 
     # Allow partial fulfillment.
@@ -1491,4 +1562,37 @@ async def stock_fulfill_pending(
     missing_reduce_on_delivery(db, product_id, deliver)
     missing_add_shortfall(db, product_id, shortfall)
     db.commit()
+
+    if wants_json:
+        # Refresh quantities after movements
+        c2 = get_stock_qty(db, product_id, central.id)
+        w2 = get_stock_qty(db, product_id, workshop.id)
+        target2 = Decimal(p.target_central or 0)
+        pending2 = target2 - c2
+        if pending2 < 0:
+            pending2 = Decimal(0)
+
+        min_stock2 = Decimal(getattr(p, "min_stock", 0) or 0)
+        is_low2 = bool(min_stock2 > 0 and c2 < min_stock2)
+
+        missing_rec2 = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+        missing2 = Decimal(missing_rec2.qty_missing or 0) if missing_rec2 else Decimal("0")
+        if missing2 < 0:
+            missing2 = Decimal("0")
+
+        return JSONResponse(
+            {
+                "ok": True,
+                "product_id": product_id,
+                "central_qty_text": fmtqty(c2, p.unit),
+                "workshop_qty_text": fmtqty(w2, p.unit),
+                "pending_text": fmtqty(pending2, p.unit),
+                "pending_value": float(pending2 or 0),
+                "missing_text": fmtqty(missing2, p.unit),
+                "missing_value": float(missing2 or 0),
+                "is_low": is_low2,
+                "min_stock_text": fmtqty(min_stock2, p.unit),
+            }
+        )
+
     return RedirectResponse(url="/stock", status_code=303)
