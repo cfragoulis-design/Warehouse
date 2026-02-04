@@ -872,278 +872,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
     return sort_grouped_categories(grouped, db)
 
 
-def build_freezer_grouped(db: Session, q: str = "", show: str = "nonzero") -> dict[str, list[dict]]:
-    """Grouped structure for FREEZER stock screen.
-
-    show:
-      - nonzero (default): only products with freezer_qty > 0
-      - all: show all active products
-    """
-    locs = get_locations(db)
-    central = locs.get("CENTRAL")
-    freezer = locs.get("FREEZER")
-    if not central or not freezer:
-        raise RuntimeError("Locations CENTRAL/FREEZER not found – ensure seed_locations created them")
-
-    signed_qty = signed_qty_expr()
-
-    stmt = (
-        select(
-            Product.id,
-            Product.name,
-            Product.sku,
-            Product.unit,
-            Product.category,
-            Product.is_active,
-            func.coalesce(
-                func.sum(case((StockMovement.location_id == freezer.id, signed_qty), else_=0)),
-                0,
-            ).label("freezer_qty"),
-            # central qty is useful for transfer validation hints (optional)
-            func.coalesce(
-                func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
-                0,
-            ).label("central_qty"),
-        )
-        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .group_by(
-            Product.id,
-            Product.name,
-            Product.sku,
-            Product.unit,
-            Product.category,
-            Product.is_active,
-        )
-        .order_by(Product.is_active.desc(), Product.name.asc())
-    )
-
-    stmt = stmt.where(Product.is_active == True)
-
-    qq = (q or "").strip()
-    if qq:
-        like = f"%{qq}%"
-        stmt = stmt.where((Product.name.ilike(like)) | (Product.sku.ilike(like)))
-
-    rows = db.execute(stmt).all()
-    grouped = defaultdict(list)
-
-    show_norm = (show or "nonzero").strip().lower()
-
-    for r in rows:
-        fz = Decimal(r.freezer_qty)
-        c = Decimal(r.central_qty)
-
-        if show_norm != "all" and fz == 0:
-            continue
-
-        unit = (r.unit or "").lower()
-        unit_label = "Τεμ" if unit == "pcs" else ("Κιβ" if unit == "box" else ("Kg" if unit == "kg" else r.unit))
-
-        item = {
-            "id": r.id,
-            "name": r.name,
-            "sku": r.sku,
-            "unit": r.unit,
-            "unit_label": unit_label,
-            "category": r.category,
-            "freezer_qty": fz,
-            "central_qty": c,
-        }
-
-        cat = (r.category or "").strip() or "Διάφορα"
-        grouped[cat].append(item)
-
-    return sort_grouped_categories(grouped, db)
-
-
-@router.get("/freezer", response_class=HTMLResponse)
-def freezer_view(
-    request: Request,
-    show: str = "nonzero",
-    q: str = "",
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    if user.role != "admin":
-        return admin_only_dialog(request, user, next_url="/dashboard")
-
-    grouped = build_freezer_grouped(db, q=q, show=show)
-
-    return templates.TemplateResponse(
-        "freezer.html",
-        {
-            "request": request,
-            "user": user,
-            "grouped": grouped,
-            "show": (show or "nonzero"),
-            "q": (q or ""),
-        },
-    )
-
-
-@router.post("/freezer/adjust")
-async def freezer_adjust(
-    request: Request,
-    product_id: int = Form(...),
-    qty: str = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-):
-    try:
-        q = Decimal(qty.replace(",", ".").strip())
-    except Exception:
-        raise HTTPException(status_code=422, detail="Invalid qty")
-    if q == 0:
-        return RedirectResponse(url="/freezer", status_code=303)
-
-    locs = get_locations(db)
-    freezer = locs.get("FREEZER")
-    if not freezer:
-        raise HTTPException(status_code=500, detail="Location FREEZER missing")
-
-    mt = "ADJ+" if q > 0 else "ADJ-"
-    q_abs = abs(q)
-
-    mv = StockMovement(
-        product_id=product_id,
-        location_id=freezer.id,
-        movement_type=mt,
-        qty=q_abs,
-        user_id=user.id,
-        note="UI freezer adjust",
-    )
-    db.add(mv)
-    db.commit()
-
-    # Keep same filters after action
-    show = (request.query_params.get("show") or "nonzero").strip()
-    qqq = (request.query_params.get("q") or "").strip()
-    qs = []
-    if show:
-        qs.append(f"show={urllib.parse.quote(show)}")
-    if qqq:
-        qs.append(f"q={urllib.parse.quote(qqq)}")
-    suffix = ("?" + "&".join(qs)) if qs else ""
-    return RedirectResponse(url=f"/freezer{suffix}", status_code=303)
-
-
-@router.post("/freezer/transfer_fc")
-async def freezer_transfer_to_central(
-    request: Request,
-    product_id: int = Form(...),
-    qty: str = Form("1"),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-):
-    q = parse_qty(qty)
-    if not q:
-        return RedirectResponse(url="/freezer", status_code=303)
-
-    locs = get_locations(db)
-    freezer = locs.get("FREEZER")
-    central = locs.get("CENTRAL")
-    if not freezer or not central:
-        raise HTTPException(status_code=500, detail="Locations missing")
-
-    fz_qty = get_stock_qty(db, product_id, freezer.id)
-    if fz_qty < q:
-        raise HTTPException(status_code=422, detail="Not enough freezer stock")
-
-    tid = str(uuid4())
-
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=freezer.id,
-            movement_type="OUT",
-            qty=q,
-            user_id=user.id,
-            note="Transfer to central (freezer)",
-            transfer_id=tid,
-        )
-    )
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=central.id,
-            movement_type="IN",
-            qty=q,
-            user_id=user.id,
-            note="Transfer from freezer",
-            transfer_id=tid,
-        )
-    )
-    db.commit()
-
-    show = (request.query_params.get("show") or "nonzero").strip()
-    qqq = (request.query_params.get("q") or "").strip()
-    qs = []
-    if show:
-        qs.append(f"show={urllib.parse.quote(show)}")
-    if qqq:
-        qs.append(f"q={urllib.parse.quote(qqq)}")
-    suffix = ("?" + "&".join(qs)) if qs else ""
-    return RedirectResponse(url=f"/freezer{suffix}", status_code=303)
-
-
-@router.post("/freezer/transfer_cf")
-async def central_transfer_to_freezer(
-    request: Request,
-    product_id: int = Form(...),
-    qty: str = Form("1"),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-):
-    q = parse_qty(qty)
-    if not q:
-        return RedirectResponse(url="/freezer", status_code=303)
-
-    locs = get_locations(db)
-    freezer = locs.get("FREEZER")
-    central = locs.get("CENTRAL")
-    if not freezer or not central:
-        raise HTTPException(status_code=500, detail="Locations missing")
-
-    c_qty = get_stock_qty(db, product_id, central.id)
-    if c_qty < q:
-        raise HTTPException(status_code=422, detail="Not enough central stock")
-
-    tid = str(uuid4())
-
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=central.id,
-            movement_type="OUT",
-            qty=q,
-            user_id=user.id,
-            note="Transfer to freezer",
-            transfer_id=tid,
-        )
-    )
-    db.add(
-        StockMovement(
-            product_id=product_id,
-            location_id=freezer.id,
-            movement_type="IN",
-            qty=q,
-            user_id=user.id,
-            note="Transfer from central",
-            transfer_id=tid,
-        )
-    )
-    db.commit()
-
-    show = (request.query_params.get("show") or "nonzero").strip()
-    qqq = (request.query_params.get("q") or "").strip()
-    qs = []
-    if show:
-        qs.append(f"show={urllib.parse.quote(show)}")
-    if qqq:
-        qs.append(f"q={urllib.parse.quote(qqq)}")
-    suffix = ("?" + "&".join(qs)) if qs else ""
-    return RedirectResponse(url=f"/freezer{suffix}", status_code=303)
-
 def _group_from_category(cat: str | None, name: str | None) -> str:
     c = f"{(cat or '').strip()} {(name or '').strip()}".lower()
     if "κοτό" in c or "chick" in c or "poul" in c:
@@ -1524,6 +1252,7 @@ def transfer_central_to_workshop(
 # ------------------------
 @router.post("/stock/target")
 async def stock_set_target(
+    request: Request,
     product_id: int = Form(...),
     target: str = Form(...),
     db: Session = Depends(get_db),
@@ -1544,6 +1273,46 @@ async def stock_set_target(
 
     p.target_central = target_dec
     db.commit()
+
+    # If requested via fetch/AJAX, return JSON so the page does not reload.
+    accept = (request.headers.get("accept") or "").lower()
+    xrw = (request.headers.get("x-requested-with") or "").lower()
+    wants_json = ("application/json" in accept) or (xrw in ("fetch", "xmlhttprequest"))
+    if wants_json:
+        central_loc = db.query(Location).filter(Location.code == "CENTRAL").first()
+        workshop_loc = db.query(Location).filter(Location.code == "WORKSHOP").first()
+        if not central_loc or not workshop_loc:
+            raise HTTPException(status_code=500, detail="Location missing")
+
+        c_qty = get_stock_qty(db, product_id, central_loc.id)
+        w_qty = get_stock_qty(db, product_id, workshop_loc.id)
+        pending = target_dec - c_qty
+        if pending < 0:
+            pending = Decimal(0)
+
+        min_stock = Decimal(getattr(p, "min_stock", 0) or 0)
+        is_low = bool(min_stock > 0 and c_qty < min_stock)
+
+        missing_rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+        missing = Decimal(missing_rec.qty_missing or 0) if missing_rec else Decimal("0")
+        if missing < 0:
+            missing = Decimal("0")
+
+        return JSONResponse(
+            {
+                "ok": True,
+                "product_id": product_id,
+                "central_qty_text": fmtqty(c_qty, p.unit),
+                "workshop_qty_text": fmtqty(w_qty, p.unit),
+                "pending_text": fmtqty(pending, p.unit),
+                "pending_value": float(pending or 0),
+                "missing_text": fmtqty(missing, p.unit),
+                "missing_value": float(missing or 0),
+                "is_low": is_low,
+                "min_stock_text": fmtqty(min_stock, p.unit),
+            }
+        )
+
     return RedirectResponse(url="/stock", status_code=303)
 
 
