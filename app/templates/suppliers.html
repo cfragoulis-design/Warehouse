@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Προμηθευτές</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
   
 <style>
   :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;}
@@ -37,6 +39,7 @@
 <body>
   <div class="top">
     <div class="nav">
+      <span id="app-datetime" class="app-datetime"></span>
       <a class="pill" href="/dashboard">Dashboard</a>
       <a class="pill" href="/stock">Stock</a>
       <a class="pill" href="/movements">Movements</a>

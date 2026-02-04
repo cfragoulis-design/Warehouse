@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ 'New Category' if not category else 'Edit Category' }}</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
   <style>
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
     .top{padding:16px 20px;background:#111936;border-bottom:1px solid #243055}
@@ -19,8 +21,9 @@
   </style>
 </head>
 <body>
-  <div class="top">
+  <div class="top" style="display:flex;justify-content:space-between;align-items:center">
     <strong>EasyProInv</strong>
+    <span id="app-datetime" class="app-datetime"></span>
   </div>
 
   <div class="card">

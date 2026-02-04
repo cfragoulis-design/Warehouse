@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>New Stock Movement</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
   <style>
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b1020;color:#e7e9ee;margin:0;}
     .top{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:#111936;border-bottom:1px solid #243055;}
@@ -26,6 +28,7 @@
       <div class="muted">New stock movement</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center">
+      <span id="app-datetime" class="app-datetime"></span>
       <a href="/movements">← Movements</a>
       <a href="/products">Products</a>
       <a href="/dashboard">Dashboard</a>

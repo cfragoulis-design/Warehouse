@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sklavounos Stock</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
   <style>
     :root{
       --bg:#0b1020;
@@ -146,9 +148,12 @@
       </div>
     </div>
 
-    <form method="post" action="/logout">
-      <button class="btn" type="submit">Logout</button>
-    </form>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span id="app-datetime" class="app-datetime"></span>
+      <form method="post" action="/logout">
+        <button class="btn" type="submit">Logout</button>
+      </form>
+    </div>
   </div>
 
   <div class="page">

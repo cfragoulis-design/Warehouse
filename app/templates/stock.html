@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stock</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
  <style>
     :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--warn:#caa24a;--danger:#ff6b6b;}
     *{box-sizing:border-box}
@@ -107,6 +109,7 @@
       <div class="sub">CENTRAL / WORKSHOP • Target Central • Pending</div>
     </div>
     <div class="nav">
+      <span id="app-datetime" class="app-datetime"></span>
       <div class="live" id="liveBadge" title="Live updates">
         <span class="dot bad" id="liveDot" aria-hidden="true"></span>
         <span id="liveText">Offline</span>
