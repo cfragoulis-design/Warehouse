@@ -28,9 +28,6 @@ except Exception:
 
 router = APIRouter()
 
-# one-time data fix: older rows may have NULL only_in_freezer
-_ONLY_IN_FREEZER_NULLS_FIXED = False
-
 
 # --------------------
 # templates + filters
@@ -811,14 +808,12 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
     stmt = stmt.where(Product.is_active == True)
 
     # Hide products that are marked as 'Only in Freezer' (standalone freezer items)
-    global _ONLY_IN_FREEZER_NULLS_FIXED
-    if not _ONLY_IN_FREEZER_NULLS_FIXED:
-        try:
-            db.execute(text("UPDATE products SET only_in_freezer = false WHERE only_in_freezer IS NULL"))
-            db.commit()
-        except Exception:
-            db.rollback()
-        _ONLY_IN_FREEZER_NULLS_FIXED = True
+    # Ensure legacy rows don't stay NULL (one-time cleanup)
+    try:
+        db.execute(text("UPDATE products SET only_in_freezer = false WHERE only_in_freezer IS NULL"))
+        db.commit()
+    except Exception:
+        db.rollback()
 
     only_freezer_col = getattr(Product, 'only_in_freezer', None)
     if only_freezer_col is not None:
