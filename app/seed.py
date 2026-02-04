@@ -25,24 +25,35 @@ DEFAULT_CATEGORIES = [
 
 
 def seed_locations(db: Session | None = None) -> None:
+    """Ensure required Locations exist (non-destructive).
+
+    Required codes:
+      - CENTRAL
+      - WORKSHOP
+      - FREEZER
+    """
     close = False
     if db is None:
         db = SessionLocal()
         close = True
 
     try:
-        if db.query(Location).count() == 0:
-            db.add_all(
-                [
-                    Location(code="CENTRAL", name="Κεντρικό"),
-                    Location(code="WORKSHOP", name="Υποκατάστημα"),
-                ]
-            )
+        existing = {l.code: l for l in db.query(Location).all()}
+
+        to_add = []
+        if "CENTRAL" not in existing:
+            to_add.append(Location(code="CENTRAL", name="Κεντρικό"))
+        if "WORKSHOP" not in existing:
+            to_add.append(Location(code="WORKSHOP", name="Υποκατάστημα"))
+        if "FREEZER" not in existing:
+            to_add.append(Location(code="FREEZER", name="Κατάψυξη"))
+
+        if to_add:
+            db.add_all(to_add)
             db.commit()
     finally:
         if close:
             db.close()
-
 
 def seed_categories(db: Session) -> None:
     """Create default categories + sync unique product.category strings.
