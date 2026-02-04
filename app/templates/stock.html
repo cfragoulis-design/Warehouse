@@ -117,7 +117,6 @@
       <a href="/dashboard">Dashboard</a>
       <a href="/products">Products</a>
       <a href="/movements">Movements</a>
-      <a href="/freezer">Freezer</a>
     </div>
   </div>
 
@@ -365,6 +364,47 @@
       if (zero) setText(zero, "0");
     }
   }
+
+  // ----
+  // AJAX target save (Target Central) so the page doesn't jump to the top.
+  // ----
+  document.querySelectorAll('form.targetBox[action="/stock/target"]').forEach((form) => {
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+
+      const btn = form.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+
+      try{
+        const fd = new FormData(form);
+        const res = await fetch(form.action, {
+          method: "POST",
+          body: fd,
+          headers: {
+            "Accept": "application/json",
+            "X-Requested-With": "fetch"
+          },
+          cache: "no-store"
+        });
+
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        if (!ct.includes("application/json")){
+          // Safe fallback
+          if (res.redirected) window.location.href = res.url;
+          else window.location.reload();
+          return;
+        }
+
+        const data = await res.json();
+        updateRowFromAdjust(data);
+      }catch(e){
+        // Safe fallback
+        window.location.reload();
+      }finally{
+        if (btn) btn.disabled = false;
+      }
+    });
+  });
 
   // Intercept ONLY the adjust forms to avoid full reload.
   document.querySelectorAll('form.pm[action="/stock/adjust"]').forEach((form) => {
