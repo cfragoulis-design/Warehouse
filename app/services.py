@@ -13,7 +13,7 @@ import urllib.request
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, text
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
@@ -87,7 +87,25 @@ def get_locations(db: Session) -> dict[str, Location]:
     return {l.code: l for l in locs}
 
 
+# one-time safety migration: some deployments may carry an ORM field on Category
+# while the database schema lags behind (e.g. categories.only_in_freezer).
+_CATEGORIES_SCHEMA_OK = False
+
+
 def get_categories(db: Session, include_inactive: bool = False) -> list[Category]:
+    global _CATEGORIES_SCHEMA_OK
+    if not _CATEGORIES_SCHEMA_OK:
+        try:
+            # Safe no-op if the column already exists. Keeps older DBs compatible with newer code.
+            db.execute(text("ALTER TABLE categories ADD COLUMN IF NOT EXISTS only_in_freezer BOOLEAN DEFAULT FALSE"))
+            db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        _CATEGORIES_SCHEMA_OK = True
+
     stmt = select(Category)
     if not include_inactive:
         stmt = stmt.where(Category.is_active == True)
@@ -806,8 +824,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     # Stock view should be clean: inactive products are hidden.
     stmt = stmt.where(Product.is_active == True)
-    # Hide freezer-only items from the main stock screen.
-    stmt = stmt.where(Product.only_in_freezer == False)
 
     qq = (q or "").strip()
     if qq:
@@ -1254,6 +1270,7 @@ def transfer_central_to_workshop(
 # ------------------------
 @router.post("/stock/target")
 async def stock_set_target(
+    request: Request,
     product_id: int = Form(...),
     target: str = Form(...),
     db: Session = Depends(get_db),
@@ -1274,6 +1291,46 @@ async def stock_set_target(
 
     p.target_central = target_dec
     db.commit()
+
+    # If requested via fetch/AJAX, return JSON so the page does not reload.
+    accept = (request.headers.get("accept") or "").lower()
+    xrw = (request.headers.get("x-requested-with") or "").lower()
+    wants_json = ("application/json" in accept) or (xrw in ("fetch", "xmlhttprequest"))
+    if wants_json:
+        central_loc = db.query(Location).filter(Location.code == "CENTRAL").first()
+        workshop_loc = db.query(Location).filter(Location.code == "WORKSHOP").first()
+        if not central_loc or not workshop_loc:
+            raise HTTPException(status_code=500, detail="Location missing")
+
+        c_qty = get_stock_qty(db, product_id, central_loc.id)
+        w_qty = get_stock_qty(db, product_id, workshop_loc.id)
+        pending = target_dec - c_qty
+        if pending < 0:
+            pending = Decimal(0)
+
+        min_stock = Decimal(getattr(p, "min_stock", 0) or 0)
+        is_low = bool(min_stock > 0 and c_qty < min_stock)
+
+        missing_rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+        missing = Decimal(missing_rec.qty_missing or 0) if missing_rec else Decimal("0")
+        if missing < 0:
+            missing = Decimal("0")
+
+        return JSONResponse(
+            {
+                "ok": True,
+                "product_id": product_id,
+                "central_qty_text": fmtqty(c_qty, p.unit),
+                "workshop_qty_text": fmtqty(w_qty, p.unit),
+                "pending_text": fmtqty(pending, p.unit),
+                "pending_value": float(pending or 0),
+                "missing_text": fmtqty(missing, p.unit),
+                "missing_value": float(missing or 0),
+                "is_low": is_low,
+                "min_stock_text": fmtqty(min_stock, p.unit),
+            }
+        )
+
     return RedirectResponse(url="/stock", status_code=303)
 
 
