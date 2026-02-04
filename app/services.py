@@ -947,6 +947,272 @@ def stock_view(
     )
 
 
+
+@router.get("/freezer", response_class=HTMLResponse)
+def freezer_view(
+    request: Request,
+    show: str = "nonzero",
+    q: str = "",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    grouped = build_freezer_grouped(db, show=show, q=q)
+
+    return templates.TemplateResponse(
+        "freezer.html",
+        {
+            "request": request,
+            "user": user,
+            "grouped": grouped,
+            "show": (show or "nonzero"),
+            "q": (q or ""),
+            "can_adjust_freezer": (user.role == "admin"),
+            "can_transfer_freezer": (user.role in ("admin", "workshop")),
+        },
+    )
+
+
+def build_freezer_grouped(db: Session, show: str = "nonzero", q: str = "") -> dict[str, list[dict]]:
+    """Grouped freezer stock.
+
+    show:
+      - nonzero: only products with freezer_qty != 0
+      - all: all active products (even if freezer_qty == 0)
+    q: search term applied to Product.name and Product.sku
+    """
+    locs = get_locations(db)
+    central = locs.get("CENTRAL")
+    freezer = locs.get("FREEZER")
+    if not central or not freezer:
+        raise RuntimeError("Locations CENTRAL/FREEZER not found – run seed and ensure tables exist")
+
+    signed_qty = signed_qty_expr()
+
+    stmt = (
+        select(
+            Product.id,
+            Product.name,
+            Product.sku,
+            Product.unit,
+            Product.category,
+            Product.is_active,
+            func.coalesce(
+                func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
+                0,
+            ).label("central_qty"),
+            func.coalesce(
+                func.sum(case((StockMovement.location_id == freezer.id, signed_qty), else_=0)),
+                0,
+            ).label("freezer_qty"),
+        )
+        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
+        .group_by(
+            Product.id,
+            Product.name,
+            Product.sku,
+            Product.unit,
+            Product.category,
+            Product.is_active,
+        )
+        .order_by(Product.is_active.desc(), Product.name.asc())
+    )
+
+    q = (q or "").strip()
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where((Product.name.ilike(like)) | (Product.sku.ilike(like)))
+
+    # Freezer screen is operational: keep it clean (active products only)
+    stmt = stmt.where(Product.is_active == True)  # noqa: E712
+
+    rows = db.execute(stmt).all()
+    grouped: dict[str, list[dict]] = defaultdict(list)
+
+    show_norm = (show or "nonzero").strip().lower()
+
+    for r in rows:
+        c = Decimal(r.central_qty or 0)
+        fz = Decimal(r.freezer_qty or 0)
+
+        if show_norm == "nonzero" and fz == 0:
+            continue
+
+        unit = (r.unit or "").lower()
+        unit_label = "Τεμ" if unit == "pcs" else ("Κιβ" if unit == "box" else ("Kg" if unit == "kg" else r.unit))
+
+        item = {
+            "id": r.id,
+            "name": r.name,
+            "sku": r.sku,
+            "unit": r.unit,
+            "unit_label": unit_label,
+            "category": r.category,
+            "central_qty": c,
+            "freezer_qty": fz,
+            "is_active": r.is_active,
+        }
+        cat = (r.category or "").strip() or "Διάφορα"
+        grouped[cat].append(item)
+
+    return sort_grouped_categories(grouped, db)
+
+
+@router.post("/freezer/adjust")
+async def freezer_adjust_ui(
+    request: Request,
+    product_id: int = Form(...),
+    qty: str = Form("1"),
+    show: str = "nonzero",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_login),
+):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        qd = Decimal(qty)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid qty")
+
+    freezer = db.query(Location).filter(Location.code == "FREEZER").first()
+    if not freezer:
+        raise HTTPException(status_code=500, detail="FREEZER location missing")
+
+    # Adjustment directly on freezer stock
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=freezer.id,
+            movement_type="ADJ",
+            qty=qd,
+            note="Freezer adjustment",
+        )
+    )
+    db.commit()
+
+    return RedirectResponse(
+        url=f"/freezer?show={urllib.parse.quote(show)}&q={urllib.parse.quote(q)}",
+        status_code=303,
+    )
+
+
+@router.post("/freezer/transfer_fc")
+async def freezer_transfer_freezer_to_central_ui(
+    request: Request,
+    product_id: int = Form(...),
+    qty: str = Form("1"),
+    show: str = "nonzero",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_login),
+):
+    if user.role not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        qd = Decimal(qty)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid qty")
+    if qd <= 0:
+        raise HTTPException(status_code=422, detail="Invalid qty")
+
+    central = db.query(Location).filter(Location.code == "CENTRAL").first()
+    freezer = db.query(Location).filter(Location.code == "FREEZER").first()
+    if not central or not freezer:
+        raise HTTPException(status_code=500, detail="Locations missing")
+
+    fz_qty = get_stock_qty(db, product_id, freezer.id)
+    if fz_qty < qd:
+        raise HTTPException(status_code=422, detail="Not enough freezer stock")
+
+    tid = str(uuid4())
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=freezer.id,
+            movement_type="TRANSFER",
+            qty=-qd,
+            transfer_id=tid,
+            note="Freezer → Central",
+        )
+    )
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=central.id,
+            movement_type="TRANSFER",
+            qty=qd,
+            transfer_id=tid,
+            note="Freezer → Central",
+        )
+    )
+    db.commit()
+
+    return RedirectResponse(
+        url=f"/freezer?show={urllib.parse.quote(show)}&q={urllib.parse.quote(q)}",
+        status_code=303,
+    )
+
+
+@router.post("/freezer/transfer_cf")
+async def freezer_transfer_central_to_freezer_ui(
+    request: Request,
+    product_id: int = Form(...),
+    qty: str = Form("1"),
+    show: str = "nonzero",
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_login),
+):
+    if user.role not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        qd = Decimal(qty)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid qty")
+    if qd <= 0:
+        raise HTTPException(status_code=422, detail="Invalid qty")
+
+    central = db.query(Location).filter(Location.code == "CENTRAL").first()
+    freezer = db.query(Location).filter(Location.code == "FREEZER").first()
+    if not central or not freezer:
+        raise HTTPException(status_code=500, detail="Locations missing")
+
+    c_qty = get_stock_qty(db, product_id, central.id)
+    if c_qty < qd:
+        raise HTTPException(status_code=422, detail="Not enough central stock")
+
+    tid = str(uuid4())
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=central.id,
+            movement_type="TRANSFER",
+            qty=-qd,
+            transfer_id=tid,
+            note="Central → Freezer",
+        )
+    )
+    db.add(
+        StockMovement(
+            product_id=product_id,
+            location_id=freezer.id,
+            movement_type="TRANSFER",
+            qty=qd,
+            transfer_id=tid,
+            note="Central → Freezer",
+        )
+    )
+    db.commit()
+
+    return RedirectResponse(
+        url=f"/freezer?show={urllib.parse.quote(show)}&q={urllib.parse.quote(q)}",
+        status_code=303,
+    )
+
+
 def _telegram_send(text: str) -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
@@ -975,7 +1241,6 @@ def _telegram_send(text: str) -> None:
 
 @router.post("/stock/need")
 def stock_need_telegram(
-    request: Request,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
     product_id: int = Form(...),
@@ -1023,11 +1288,6 @@ def stock_need_telegram(
     )
 
     _telegram_send(text)
-
-    # If called via fetch (AJAX), return JSON to avoid full page reload.
-    if (request.headers.get("x-requested-with") or "").lower() == "fetch":
-        return JSONResponse({"ok": True})
-
     return RedirectResponse(url=f"/stock?loc={loc_norm}", status_code=303)
 
 
