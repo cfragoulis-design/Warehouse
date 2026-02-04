@@ -1,0 +1,8 @@
+/* Discreet global date/time badge (top-right header) */
+.app-datetime {
+  font-size: 12px;
+  color: #9aa0a6;
+  white-space: nowrap;
+  line-height: 1;
+  letter-spacing: 0.2px;
+}
