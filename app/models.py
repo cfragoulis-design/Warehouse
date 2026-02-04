@@ -36,8 +36,7 @@ class Product(Base):
     category: Mapped[str | None] = mapped_column(String(128), nullable=True)
     unit: Mapped[str] = mapped_column(String(8), nullable=False, default="pcs")  # pcs / kg / box
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    # If true, this product is hidden from /stock and meant only for the Freezer module.
-    only_in_freezer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # If true, product is hidden from /stock and intended for freezer-only use
     # Minimum total stock (CENTRAL + WORKSHOP). If >0 and total falls below it, UI shows LOW.
     min_stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Desired stock at CENTRAL. Used to compute Pending (Target - Central)
@@ -56,8 +55,7 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    # If true, this product is hidden from /stock and meant only for the Freezer module.
-    only_in_freezer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # If true, product is hidden from /stock and intended for freezer-only use
 
 
 class Location(Base):
