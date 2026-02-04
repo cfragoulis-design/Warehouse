@@ -13,7 +13,7 @@ import urllib.request
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case, text
+from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
@@ -808,16 +808,10 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
     stmt = stmt.where(Product.is_active == True)
 
     # Hide products that are marked as 'Only in Freezer' (standalone freezer items)
-    # Ensure legacy rows don't stay NULL (one-time cleanup)
-    try:
-        db.execute(text("UPDATE products SET only_in_freezer = false WHERE only_in_freezer IS NULL"))
-        db.commit()
-    except Exception:
-        db.rollback()
-
-    only_freezer_col = getattr(Product, 'only_in_freezer', None)
+    only_freezer_col = getattr(Product, "only_in_freezer", None)
     if only_freezer_col is not None:
-        stmt = stmt.where(only_freezer_col == False)
+        # Be strict and NULL-safe: only show items explicitly not freezer-only
+        stmt = stmt.where(func.coalesce(only_freezer_col, False) == False)
 
     qq = (q or "").strip()
     if qq:
@@ -830,7 +824,10 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     loc_norm = (loc or "all").strip().lower()
 
-    for r in rows:
+        for r in rows:
+        # Extra safety: if the row carries freezer-only flag, do not include it in Stock.
+        if getattr(r, 'only_in_freezer', False):
+            continue
         c = Decimal(r.central_qty)
         w = Decimal(r.workshop_qty)
         t = Decimal(r.target_central or 0)
@@ -1096,6 +1093,30 @@ def workshop_in(
             movement_type="IN",
             user_id=user.id,
         )
+
+
+@router.get("/freezer", response_class=HTMLResponse)
+def freezer_view(
+    request: Request,
+    q: str = "",
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Freezer page: shows products flagged as Only in Freezer."""
+    qq = (q or "").strip()
+    stmt = select(Product).where(Product.is_active == True)
+    only_freezer_col = getattr(Product, "only_in_freezer", None)
+    if only_freezer_col is not None:
+        stmt = stmt.where(func.coalesce(only_freezer_col, False) == True)
+    if qq:
+        like = f"%{qq}%"
+        stmt = stmt.where((Product.name.ilike(like)) | (Product.sku.ilike(like)))
+    items = db.execute(stmt.order_by(Product.name.asc())).scalars().all()
+
+    return templates.TemplateResponse(
+        "freezer.html",
+        {"request": request, "user": user, "items": items, "q": qq},
+    )
     )
     db.commit()
     return RedirectResponse("/stock", 303)
