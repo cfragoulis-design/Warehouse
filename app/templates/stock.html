@@ -161,7 +161,11 @@
             <tr data-product-id="{{ it.id }}">
               <td>
                 <div class="prodRow">
-                  <div class="prod">{{ it.name }}</div>
+                  {% if user and user.role == 'admin' %}
+                    <div class="prod"><a href="/products/{{ it.id }}/edit" style="color:inherit;text-decoration:none">{{ it.name }}</a></div>
+                  {% else %}
+                    <div class="prod">{{ it.name }}</div>
+                  {% endif %}
                   
                 </div>
                 <div class="sku">{{ it.sku or '' }}</div>
