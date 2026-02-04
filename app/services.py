@@ -872,165 +872,6 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
     return sort_grouped_categories(grouped, db)
 
 
-def build_freezer_grouped(db: Session, mode: str = "all", q: str = "") -> dict[str, list[dict]]:
-    """Grouped freezer stock.
-
-    mode: all | in_freezer
-    q: search term applied to Product.name and Product.sku
-    """
-    locs = get_locations(db)
-    freezer = locs.get("FREEZER")
-    if not freezer:
-        raise RuntimeError("Location FREEZER not found – run seed and ensure tables exist")
-
-    signed_qty = signed_qty_expr()
-
-    stmt = (
-        select(
-            Product.id,
-            Product.name,
-            Product.sku,
-            Product.unit,
-            Product.category,
-            Product.is_active,
-            func.coalesce(
-                func.sum(case((StockMovement.location_id == freezer.id, signed_qty), else_=0)),
-                0,
-            ).label("freezer_qty"),
-        )
-        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .group_by(
-            Product.id,
-            Product.name,
-            Product.sku,
-            Product.unit,
-            Product.category,
-            Product.is_active,
-        )
-        .order_by(Product.is_active.desc(), Product.name.asc())
-    )
-
-    # keep view clean: only active products
-    stmt = stmt.where(Product.is_active == True)
-
-    qq = (q or "").strip()
-    if qq:
-        like = f"%{qq}%"
-        stmt = stmt.where((Product.name.ilike(like)) | (Product.sku.ilike(like)))
-
-    rows = db.execute(stmt).all()
-    grouped = defaultdict(list)
-
-    mode_norm = (mode or "all").strip().lower()
-    for r in rows:
-        f = Decimal(r.freezer_qty)
-
-        if mode_norm in ("in_freezer", "only", "in") and f == 0:
-            continue
-
-        unit = (r.unit or "").lower()
-        unit_label = "Τεμ" if unit == "pcs" else ("Κιβ" if unit == "box" else ("Kg" if unit == "kg" else r.unit))
-
-        item = {
-            "id": r.id,
-            "name": r.name,
-            "sku": r.sku,
-            "unit": r.unit,
-            "unit_label": unit_label,
-            "category": r.category,
-            "freezer_qty": f,
-            "freezer_qty_text": fmtqty(f, r.unit),
-        }
-        cat = (r.category or "").strip() or "Διάφορα"
-        grouped[cat].append(item)
-
-    return sort_grouped_categories(grouped, db)
-
-
-@router.get("/freezer", response_class=HTMLResponse)
-def freezer_view(
-    request: Request,
-    mode: str = "all",
-    q: str = "",
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    # admin-only to avoid confusion / accidental edits
-    if user.role != "admin":
-        return templates.TemplateResponse("access_denied.html", {"request": request, "user": user}, status_code=403)
-
-    grouped = build_freezer_grouped(db, mode=mode, q=q)
-
-    return templates.TemplateResponse(
-        "freezer.html",
-        {
-            "request": request,
-            "user": user,
-            "grouped": grouped,
-            "mode": (mode or "all"),
-            "q": (q or ""),
-        },
-    )
-
-
-@router.post("/freezer/adjust")
-async def freezer_adjust(
-    request: Request,
-    product_id: int = Form(...),
-    qty: str = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_login),
-):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    try:
-        q = Decimal(qty)
-    except Exception:
-        raise HTTPException(status_code=422, detail="Invalid qty")
-    if q == 0:
-        return RedirectResponse(url="/freezer", status_code=303)
-
-    mt = "ADJ+" if q > 0 else "ADJ-"
-    q_abs = abs(q)
-
-    loc_row = db.query(Location).filter(Location.code == "FREEZER").first()
-    if not loc_row:
-        raise HTTPException(status_code=500, detail="Location FREEZER missing")
-
-    mv = StockMovement(
-        product_id=product_id,
-        location_id=loc_row.id,
-        movement_type=mt,
-        qty=q_abs,
-        user_id=user.id,
-        note="Freezer adjust",
-    )
-    db.add(mv)
-    db.commit()
-
-    # Support AJAX to keep scroll stable (same pattern as stock_adjust)
-    wants_json = request.headers.get("x-requested-with") == "fetch" or "application/json" in (request.headers.get("accept") or "")
-    if wants_json:
-        # compute updated freezer qty for this product
-        signed_qty = signed_qty_expr()
-        new_qty = db.execute(
-            select(func.coalesce(func.sum(signed_qty), 0))
-            .select_from(StockMovement)
-            .where(StockMovement.product_id == product_id, StockMovement.location_id == loc_row.id)
-        ).scalar_one()
-        p = db.get(Product, product_id)
-        unit = (p.unit if p else None)
-        return JSONResponse({"ok": True, "qty_text": fmtqty(Decimal(new_qty), unit), "qty_value": float(new_qty or 0)})
-
-    # redirect back preserving query params (mode/q)
-    mode = (await request.form()).get("mode", "all")
-    qterm = (await request.form()).get("q", "")
-    url = f"/freezer?mode={urllib.parse.quote(str(mode))}&q={urllib.parse.quote(str(qterm))}"
-    return RedirectResponse(url=url, status_code=303)
-
-
-
 def _group_from_category(cat: str | None, name: str | None) -> str:
     c = f"{(cat or '').strip()} {(name or '').strip()}".lower()
     if "κοτό" in c or "chick" in c or "poul" in c:
@@ -1411,6 +1252,7 @@ def transfer_central_to_workshop(
 # ------------------------
 @router.post("/stock/target")
 async def stock_set_target(
+    request: Request,
     product_id: int = Form(...),
     target: str = Form(...),
     db: Session = Depends(get_db),
@@ -1431,6 +1273,46 @@ async def stock_set_target(
 
     p.target_central = target_dec
     db.commit()
+
+    # If requested via fetch/AJAX, return JSON so the page does not reload.
+    accept = (request.headers.get("accept") or "").lower()
+    xrw = (request.headers.get("x-requested-with") or "").lower()
+    wants_json = ("application/json" in accept) or (xrw in ("fetch", "xmlhttprequest"))
+    if wants_json:
+        central_loc = db.query(Location).filter(Location.code == "CENTRAL").first()
+        workshop_loc = db.query(Location).filter(Location.code == "WORKSHOP").first()
+        if not central_loc or not workshop_loc:
+            raise HTTPException(status_code=500, detail="Location missing")
+
+        c_qty = get_stock_qty(db, product_id, central_loc.id)
+        w_qty = get_stock_qty(db, product_id, workshop_loc.id)
+        pending = target_dec - c_qty
+        if pending < 0:
+            pending = Decimal(0)
+
+        min_stock = Decimal(getattr(p, "min_stock", 0) or 0)
+        is_low = bool(min_stock > 0 and c_qty < min_stock)
+
+        missing_rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+        missing = Decimal(missing_rec.qty_missing or 0) if missing_rec else Decimal("0")
+        if missing < 0:
+            missing = Decimal("0")
+
+        return JSONResponse(
+            {
+                "ok": True,
+                "product_id": product_id,
+                "central_qty_text": fmtqty(c_qty, p.unit),
+                "workshop_qty_text": fmtqty(w_qty, p.unit),
+                "pending_text": fmtqty(pending, p.unit),
+                "pending_value": float(pending or 0),
+                "missing_text": fmtqty(missing, p.unit),
+                "missing_value": float(missing or 0),
+                "is_low": is_low,
+                "min_stock_text": fmtqty(min_stock, p.unit),
+            }
+        )
+
     return RedirectResponse(url="/stock", status_code=303)
 
 
