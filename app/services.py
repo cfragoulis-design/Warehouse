@@ -13,7 +13,7 @@ import urllib.request
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, text
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
@@ -27,6 +27,9 @@ except Exception:
     from models import User, Product, Category, StockMovement, Location, StockMissing
 
 router = APIRouter()
+
+# one-time data fix: older rows may have NULL only_in_freezer
+_ONLY_IN_FREEZER_NULLS_FIXED = False
 
 
 # --------------------
@@ -355,7 +358,6 @@ def product_create(
     category: str | None = Form(None),
     unit: str = Form("pcs"),
     min_stock: str = Form("0"),
-    only_in_freezer: str = Form("0"),
 ):
     ms = parse_qty(min_stock) or Decimal("0")
     p = Product(
@@ -364,7 +366,6 @@ def product_create(
         category=category.strip() if category else None,
         unit=unit,
         min_stock=float(ms),
-        only_in_freezer=(only_in_freezer == "1"),
     )
     db.add(p)
     db.commit()
@@ -399,7 +400,6 @@ def product_update(
     category: str | None = Form(None),
     unit: str = Form("pcs"),
     min_stock: str = Form("0"),
-    only_in_freezer: str = Form("0"),
 ):
     product = db.get(Product, pid)
     if not product:
@@ -411,7 +411,6 @@ def product_update(
     product.unit = unit
     ms = parse_qty(min_stock)
     product.min_stock = float(ms) if ms is not None else 0
-    product.only_in_freezer = (only_in_freezer == "1")
     db.commit()
     return RedirectResponse(url="/products", status_code=303)
 
@@ -812,9 +811,18 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
     stmt = stmt.where(Product.is_active == True)
 
     # Hide products that are marked as 'Only in Freezer' (standalone freezer items)
+    global _ONLY_IN_FREEZER_NULLS_FIXED
+    if not _ONLY_IN_FREEZER_NULLS_FIXED:
+        try:
+            db.execute(text("UPDATE products SET only_in_freezer = false WHERE only_in_freezer IS NULL"))
+            db.commit()
+        except Exception:
+            db.rollback()
+        _ONLY_IN_FREEZER_NULLS_FIXED = True
+
     only_freezer_col = getattr(Product, 'only_in_freezer', None)
     if only_freezer_col is not None:
-        stmt = stmt.where((only_freezer_col == False) | (only_freezer_col.is_(None)))
+        stmt = stmt.where(only_freezer_col == False)
 
     qq = (q or "").strip()
     if qq:
