@@ -355,6 +355,7 @@ def product_create(
     category: str | None = Form(None),
     unit: str = Form("pcs"),
     min_stock: str = Form("0"),
+    only_in_freezer: str = Form("0"),
 ):
     ms = parse_qty(min_stock) or Decimal("0")
     p = Product(
@@ -363,6 +364,7 @@ def product_create(
         category=category.strip() if category else None,
         unit=unit,
         min_stock=float(ms),
+        only_in_freezer=(only_in_freezer == "1"),
     )
     db.add(p)
     db.commit()
@@ -397,6 +399,7 @@ def product_update(
     category: str | None = Form(None),
     unit: str = Form("pcs"),
     min_stock: str = Form("0"),
+    only_in_freezer: str = Form("0"),
 ):
     product = db.get(Product, pid)
     if not product:
@@ -408,6 +411,7 @@ def product_update(
     product.unit = unit
     ms = parse_qty(min_stock)
     product.min_stock = float(ms) if ms is not None else 0
+    product.only_in_freezer = (only_in_freezer == "1")
     db.commit()
     return RedirectResponse(url="/products", status_code=303)
 
