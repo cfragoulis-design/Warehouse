@@ -355,16 +355,18 @@ def product_create(
     category: str | None = Form(None),
     unit: str = Form("pcs"),
     min_stock: str = Form("0"),
-    only_in_freezer: str | None = Form(None),
 ):
+    only_in_freezer: str | None = Form(None),
+
     ms = parse_qty(min_stock) or Decimal("0")
+    only_freezer = (only_in_freezer == 'on')
     p = Product(
         name=name.strip(),
         sku=sku.strip() if sku else None,
         category=category.strip() if category else None,
         unit=unit,
         min_stock=float(ms),
-        only_in_freezer=bool(only_in_freezer),
+        only_in_freezer=only_freezer,
     )
     db.add(p)
     db.commit()
@@ -399,8 +401,9 @@ def product_update(
     category: str | None = Form(None),
     unit: str = Form("pcs"),
     min_stock: str = Form("0"),
-    only_in_freezer: str | None = Form(None),
 ):
+    only_in_freezer: str | None = Form(None),
+
     product = db.get(Product, pid)
     if not product:
         return RedirectResponse(url="/products", status_code=303)
@@ -409,9 +412,9 @@ def product_update(
     product.sku = sku.strip() if sku else None
     product.category = category.strip() if category else None
     product.unit = unit
+    product.only_in_freezer = (only_in_freezer == 'on')
     ms = parse_qty(min_stock)
     product.min_stock = float(ms) if ms is not None else 0
-    product.only_in_freezer = bool(only_in_freezer)
     db.commit()
     return RedirectResponse(url="/products", status_code=303)
 
@@ -810,6 +813,7 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     # Stock view should be clean: inactive products are hidden.
     stmt = stmt.where(Product.is_active == True)
+    # Hide freezer-only items from the main stock screen.
     stmt = stmt.where(Product.only_in_freezer == False)
 
     qq = (q or "").strip()
