@@ -97,8 +97,10 @@
         <td>
           {% if p.is_active %}
             <span class="pill">Active</span>
+            {% if p.only_in_freezer %}<span class="pill" style="margin-left:6px;background:#1b3b2a;border-color:#2d7a4b;">Only in Freezer</span>{% endif %}
           {% else %}
             <span class="pill off">Inactive</span>
+            {% if p.only_in_freezer %}<span class="pill" style="margin-left:6px;background:#1b3b2a;border-color:#2d7a4b;">Only in Freezer</span>{% endif %}
           {% endif %}
         </td>
         <td>
