@@ -1,4 +1,4 @@
-# EasyProInv (Railway + Postgres)
+# Sklavounos Warehouse (Railway + Postgres)
 
 ## What this repo contains
 - FastAPI app with session-based login (admin PIN)
