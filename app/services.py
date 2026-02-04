@@ -977,7 +977,6 @@ def _telegram_send(text: str) -> None:
 def stock_need_telegram(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
-    request: Request,
     product_id: int = Form(...),
     qty: str = Form("1"),
     loc: str = Form("all"),
@@ -993,9 +992,6 @@ def stock_need_telegram(
 
     q = parse_qty(qty)
     if not q:
-        # For XHR/fetch calls, return JSON to avoid page refresh
-        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-            return {"ok": False, "error": "invalid_qty"}
         return RedirectResponse("/stock", 303)
 
     p = db.get(Product, product_id)
@@ -1026,10 +1022,6 @@ def stock_need_telegram(
     )
 
     _telegram_send(text)
-
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return {"ok": True}
-
     return RedirectResponse(url=f"/stock?loc={loc_norm}", status_code=303)
 
 
@@ -1260,6 +1252,7 @@ def transfer_central_to_workshop(
 # ------------------------
 @router.post("/stock/target")
 async def stock_set_target(
+    request: Request,
     product_id: int = Form(...),
     target: str = Form(...),
     db: Session = Depends(get_db),
@@ -1280,6 +1273,46 @@ async def stock_set_target(
 
     p.target_central = target_dec
     db.commit()
+
+    # If requested via fetch/AJAX, return JSON so the page does not reload.
+    accept = (request.headers.get("accept") or "").lower()
+    xrw = (request.headers.get("x-requested-with") or "").lower()
+    wants_json = ("application/json" in accept) or (xrw in ("fetch", "xmlhttprequest"))
+    if wants_json:
+        central_loc = db.query(Location).filter(Location.code == "CENTRAL").first()
+        workshop_loc = db.query(Location).filter(Location.code == "WORKSHOP").first()
+        if not central_loc or not workshop_loc:
+            raise HTTPException(status_code=500, detail="Location missing")
+
+        c_qty = get_stock_qty(db, product_id, central_loc.id)
+        w_qty = get_stock_qty(db, product_id, workshop_loc.id)
+        pending = target_dec - c_qty
+        if pending < 0:
+            pending = Decimal(0)
+
+        min_stock = Decimal(getattr(p, "min_stock", 0) or 0)
+        is_low = bool(min_stock > 0 and c_qty < min_stock)
+
+        missing_rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+        missing = Decimal(missing_rec.qty_missing or 0) if missing_rec else Decimal("0")
+        if missing < 0:
+            missing = Decimal("0")
+
+        return JSONResponse(
+            {
+                "ok": True,
+                "product_id": product_id,
+                "central_qty_text": fmtqty(c_qty, p.unit),
+                "workshop_qty_text": fmtqty(w_qty, p.unit),
+                "pending_text": fmtqty(pending, p.unit),
+                "pending_value": float(pending or 0),
+                "missing_text": fmtqty(missing, p.unit),
+                "missing_value": float(missing or 0),
+                "is_low": is_low,
+                "min_stock_text": fmtqty(min_stock, p.unit),
+            }
+        )
+
     return RedirectResponse(url="/stock", status_code=303)
 
 
