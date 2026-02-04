@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Freezer</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--danger:#ff6b6b;}
+    *{box-sizing:border-box}
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;}
+    a{color:#8ab4ff;text-decoration:none}
+    .top{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;background:linear-gradient(180deg,#0b1020 0%, #0b1020 20%, rgba(11,16,32,0) 100%);} 
+    .brand{font-weight:900;font-size:26px;letter-spacing:.2px}
+    .sub{color:var(--muted);font-size:12px;margin-top:2px}
+    .nav{display:flex;gap:16px;align-items:center}
+    .wrap{max-width:1080px;margin:0 auto;padding:0 16px 24px}
+    .card{background:rgba(17,25,54,.75);border:1px solid rgba(36,48,85,.75);border-radius:16px;box-shadow:0 12px 45px rgba(0,0,0,.35);overflow:hidden}
+    .cardHead{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:14px 14px;border-bottom:1px solid rgba(36,48,85,.75);background:rgba(15,22,45,.55)}
+    .filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    select,input{background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:10px 12px;border-radius:12px;outline:none}
+    select{min-width:200px}
+    input[type=text]{min-width:260px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px 10px;border-bottom:1px solid rgba(36,48,85,.65);text-align:left;vertical-align:middle}
+    th{font-size:12px;color:#c9d1ea;letter-spacing:.6px}
+    .catrow td{
+      padding:14px 12px 14px 18px;
+      font-weight:990;
+      font-size:20px;
+      letter-spacing:.08em;
+      color:#dfe6ff;
+      background:linear-gradient(180deg, rgba(47,124,246,.22) 0%, rgba(15,22,45,.70) 68%, rgba(15,22,45,.55) 100%);
+      border-top:1px solid rgba(255,255,255,.10);
+      border-bottom:1px solid rgba(255,255,255,.06);
+      position:relative;
+    }
+    .catrow td::before{
+      content:"";
+      position:absolute;
+      left:0;top:0;bottom:0;width:4px;
+      background:rgba(47,124,246,.85);
+      border-radius:6px;
+    }
+    .prod{font-weight:800}
+    .sku{color:var(--muted);font-size:12px;margin-top:2px}
+    .muted{color:var(--muted)}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55)}
+    .btnTiny{padding:6px 8px;border-radius:10px;font-size:12px}
+    .pm{display:inline-flex;gap:6px;align-items:center}
+    .pm button{width:34px;height:34px;border-radius:10px;font-weight:900;cursor:pointer}
+    .pm .minus{background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2}
+    .pm .plus{background:rgba(255,255,255,.04);border:1px solid rgba(36,48,85,.9);color:#dfe6ff}
+    .transferBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(47,124,246,.15); border:1px solid rgba(47,124,246,.45);color:#8ab4ff;cursor:pointer;}
+    .transferBtn:hover{filter:brightness(1.1)}
+    .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .qtyInput{width:58px;min-width:58px;text-align:center;padding:6px 8px;border-radius:10px}
+    @media (max-width:820px){
+      input[type=text]{min-width:160px}
+      select{min-width:160px}
+    }
+  </style>
+</head>
+<body>
+  <div class="top wrap" style="padding-bottom:10px">
+    <div>
+      <div class="brand">Freezer</div>
+      <div class="sub">FREEZER • Frozen stock view (admin)</div>
+    </div>
+    <div class="nav">
+      <span id="app-datetime" class="app-datetime"></span>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/stock">Stock</a>
+      <a href="/products">Products</a>
+      <a href="/movements">Movements</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="cardHead">
+        <div style="font-weight:900">Freezer Stock</div>
+
+        <form method="get" action="/freezer" class="filters">
+          <select name="show">
+            <option value="nonzero" {% if (show or '') == 'nonzero' %}selected{% endif %}>Only items in freezer</option>
+            <option value="all" {% if (show or '') == 'all' %}selected{% endif %}>All active products</option>
+          </select>
+          <input type="text" name="q" value="{{ q }}" placeholder="Search name or SKU" />
+          <button class="transferBtn" style="width:auto;padding:0 12px" type="submit">Search</button>
+        </form>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:44%">Product</th>
+            <th style="width:10%">Unit</th>
+            <th style="width:12%">Freezer</th>
+            <th style="width:34%">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cat, items in grouped.items() %}
+            <tr class="catrow"><td colspan="4">{{ cat }}</td></tr>
+            {% for it in items %}
+              <tr>
+                <td>
+                  <div class="prod">{{ it.name }}</div>
+                  {% if it.sku %}<div class="sku">{{ it.sku }}</div>{% endif %}
+                </td>
+                <td class="muted">{{ it.unit_label }}</td>
+                <td><span class="pill">{{ it.freezer_qty|fmtqty(it.unit) }}</span></td>
+                <td>
+                  <div class="actions">
+                    <!-- Adjust +/- -->
+                    <form method="post" action="/freezer/adjust?show={{ show }}&q={{ q }}" class="pm">
+                      <input type="hidden" name="product_id" value="{{ it.id }}">
+                      <input type="hidden" name="qty" value="-1">
+                      <button class="minus" type="submit" title="Freezer -1">−</button>
+                    </form>
+                    <form method="post" action="/freezer/adjust?show={{ show }}&q={{ q }}" class="pm">
+                      <input type="hidden" name="product_id" value="{{ it.id }}">
+                      <input type="hidden" name="qty" value="1">
+                      <button class="plus" type="submit" title="Freezer +1">+</button>
+                    </form>
+
+                    <!-- Transfers -->
+                    <form method="post" action="/freezer/transfer_fc?show={{ show }}&q={{ q }}" class="pm" style="gap:8px">
+                      <input type="hidden" name="product_id" value="{{ it.id }}">
+                      <input class="qtyInput" type="text" name="qty" value="1" />
+                      <button class="transferBtn" type="submit" title="Transfer Freezer → Central">↩</button>
+                    </form>
+
+                    <form method="post" action="/freezer/transfer_cf?show={{ show }}&q={{ q }}" class="pm" style="gap:8px">
+                      <input type="hidden" name="product_id" value="{{ it.id }}">
+                      <input class="qtyInput" type="text" name="qty" value="1" />
+                      <button class="transferBtn" type="submit" title="Transfer Central → Freezer">🧊</button>
+                    </form>
+
+                    <span class="muted" style="font-size:12px">C: {{ it.central_qty|fmtqty(it.unit) }}</span>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          {% endfor %}
+
+          {% if grouped|length == 0 %}
+            <tr><td colspan="4" class="muted" style="padding:16px">No items found.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>
