@@ -54,6 +54,13 @@
         </div>
       </div>
 
+      <label style="margin-top:12px;display:flex;align-items:center;gap:10px;font-weight:800">
+        <input type="checkbox" name="only_in_freezer" style="width:auto;transform:scale(1.15)"
+               {% if product and product.only_in_freezer %}checked{% endif %}>
+        Only in Freezer
+      </label>
+      <div class="muted">Αν είναι ενεργό, το προϊόν δεν εμφανίζεται στο Stock και χρησιμοποιείται μόνο στην Κατάψυξη.</div>
+
       {# ---- Category: dropdown + optional custom ---- #}
       {% set cat = (product.category if product else '') %}
       {% set ns = namespace(found=false) %}
@@ -96,13 +103,6 @@
       <label>Ελάχιστο Απόθεμα (Min Stock) — στο Κεντρικό</label>
       <input name="min_stock" type="number" min="0" step="1" value="{{ product.min_stock if product and product.min_stock is not none else 0 }}">
       <div class="muted">Αν είναι &gt; 0 και το Κεντρικό πέσει κάτω, θα εμφανίζει ένδειξη LOW.</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px;border:1px solid #2a3356;border-radius:10px;background:#0f1733;">
-        <input id="only_in_freezer" type="checkbox" name="only_in_freezer" value="1"
-          {% if product and product.only_in_freezer %}checked{% endif %}>
-        <label for="only_in_freezer" style="margin:0;font-weight:700;">Only in Freezer</label>
-        <span class="muted" style="margin-left:auto;">Δεν θα εμφανίζεται στο /stock.</span>
-      </div>
-
 
       <div class="actions">
         <button class="btn" type="submit">Αποθήκευση</button>
