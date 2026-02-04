@@ -36,6 +36,8 @@ class Product(Base):
     category: Mapped[str | None] = mapped_column(String(128), nullable=True)
     unit: Mapped[str] = mapped_column(String(8), nullable=False, default="pcs")  # pcs / kg / box
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # If true, product is hidden from /stock and meant to be used only in /freezer.
+    only_in_freezer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Minimum total stock (CENTRAL + WORKSHOP). If >0 and total falls below it, UI shows LOW.
     min_stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Desired stock at CENTRAL. Used to compute Pending (Target - Central)
@@ -54,6 +56,8 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # If true, product is hidden from /stock and meant to be used only in /freezer.
+    only_in_freezer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class Location(Base):
@@ -215,35 +219,3 @@ class PurchaseOrderItem(Base):
     pack_size_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
     min_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
     desired_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
-
-
-# -----------------------------
-# Freezer (standalone stock)
-# -----------------------------
-
-class FreezerItem(Base):
-    __tablename__ = "freezer_items"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    product_id: Mapped[int] = mapped_column(
-        ForeignKey("products.id", ondelete="CASCADE"),
-        unique=True,
-        index=True,
-        nullable=False,
-    )
-
-    qty: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-    )
-
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
