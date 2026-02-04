@@ -53,9 +53,6 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock INTEGER NOT NULL DEFAULT 0"
             )
-            conn.exec_driver_sql(
-                "ALTER TABLE products ADD COLUMN IF NOT EXISTS only_in_freezer BOOLEAN NOT NULL DEFAULT FALSE"
-            )
     except Exception:
         # Do not fail app startup if ALTER is unsupported or permissions are restricted.
         pass
@@ -70,6 +67,24 @@ def init_db() -> None:
                     id SERIAL PRIMARY KEY,
                     product_id INTEGER NOT NULL UNIQUE REFERENCES products(id) ON DELETE CASCADE,
                     qty_missing NUMERIC(12,3) NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """
+            )
+    except Exception:
+        pass
+
+
+    # Freezer items (standalone stock). Safe, idempotent.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS freezer_items (
+                    id SERIAL PRIMARY KEY,
+                    product_id INTEGER NOT NULL UNIQUE REFERENCES products(id) ON DELETE CASCADE,
+                    qty NUMERIC(12,3) NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
                 """
