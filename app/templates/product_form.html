@@ -54,8 +54,10 @@
         </div>
       </div>
 
+      <input type="hidden" name="only_in_freezer" value="0">
+
       <label style="margin-top:12px;display:flex;align-items:center;gap:10px;font-weight:800">
-        <input type="checkbox" name="only_in_freezer" style="width:auto;transform:scale(1.15)"
+        <input type="checkbox" name="only_in_freezer" value="1" style="width:auto;transform:scale(1.15)"
                {% if product and product.only_in_freezer %}checked{% endif %}>
         Only in Freezer
       </label>
