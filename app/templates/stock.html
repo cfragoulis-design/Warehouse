@@ -540,6 +540,50 @@
     });
   });
 
+  // ----
+  // AJAX Telegram NEED (🆘) so the page doesn't jump to the top.
+  // ----
+  document.querySelectorAll('form.needForm[action="/stock/need"]').forEach((form) => {
+    form.addEventListener("click", async (ev) => {
+      const btn = ev.target && ev.target.closest('button[type="submit"]');
+      if (!btn) return;
+
+      ev.preventDefault();
+
+      btn.disabled = true;
+
+      try{
+        const fd = new FormData(form);
+
+        const res = await fetch(form.action, {
+          method: "POST",
+          body: fd,
+          headers: {
+            "Accept": "application/json",
+            "X-Requested-With": "fetch"
+          },
+          cache: "no-store"
+        });
+
+        if (!res.ok){
+          alert("Telegram send failed.");
+          return;
+        }
+
+        // Small non-intrusive confirmation
+        const old = btn.textContent;
+        btn.textContent = "✓";
+        setTimeout(() => { btn.textContent = old; }, 900);
+
+      }catch(err){
+        console.error(err);
+        alert("Telegram send failed.");
+      }finally{
+        btn.disabled = false;
+      }
+    });
+  });
+
 })();</script>
 
 {% include "_dialog.html" %}
