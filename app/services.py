@@ -975,6 +975,7 @@ def _telegram_send(text: str) -> None:
 
 @router.post("/stock/need")
 def stock_need_telegram(
+    request: Request,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
     product_id: int = Form(...),
@@ -1022,6 +1023,11 @@ def stock_need_telegram(
     )
 
     _telegram_send(text)
+
+    # If called via fetch (AJAX), return JSON to avoid full page reload.
+    if (request.headers.get("x-requested-with") or "").lower() == "fetch":
+        return JSONResponse({"ok": True})
+
     return RedirectResponse(url=f"/stock?loc={loc_norm}", status_code=303)
 
 
