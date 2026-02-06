@@ -100,7 +100,28 @@
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
-  </style>
+  
+    .readyWrap{padding:10px 0 0 0;}
+    .readyBanner{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:10px;
+      padding:10px 12px;
+      margin:8px 18px 0 18px;
+      border:1px solid #2a3a66;
+      background:rgba(202,162,74,0.12);
+      border-radius:12px;
+      color:var(--text);
+      font-weight:700;
+    }
+    .readyBanner .msg{display:flex; align-items:center; gap:10px;}
+    .readyBanner .msg .icon{font-size:16px}
+    .readyBanner .actions{display:flex; gap:8px; align-items:center;}
+    .btnReady{border:1px solid rgba(202,162,74,.55); background:rgba(202,162,74,.15); color:var(--text);}
+    .btnReady:hover{background:rgba(202,162,74,.25);}
+    .btnOk{border:1px solid rgba(47,124,246,.55); background:rgba(47,124,246,.15); color:var(--text);}
+    .btnOk:hover{background:rgba(47,124,246,.25);}
+
+ </style>
 </head>
 <body>
   <div class="top wrap" style="padding-bottom:10px">
@@ -142,28 +163,29 @@
           <span class="pill">0 = OK</span>
           <span class="pill warn">Pending</span>
           </div>
+
       </div>
 
-      {% if central_ready and loc == "workshop" %}
-      <div class="centralReadyBanner">
-        <div class="left">
-          🚚 <strong>ΤΟ ΚΕΝΤΡΙΚΟ ΕΙΝΑΙ ΕΤΟΙΜΟ ΓΙΑ ΦΟΡΤΩΜΑ</strong>
-          {% if central_ready_at %}<span class="muted">({{ central_ready_at }})</span>{% endif %}
+      <div class="readyWrap">
+        {% if user.role == 'admin' %}
+        <div style="margin:8px 18px 0 18px; display:flex; gap:10px; align-items:center;">
+          <button id="btnCentralReadyToggle" class="btn btnGhost btnTiny btnReady" type="button">🚚 Ready to Load (Workshop)</button>
+          <span id="centralReadyState" class="pill" style="display:none;">Sent</span>
         </div>
-        <form method="post" action="/central/ready/clear">
-          <input type="hidden" name="loc" value="{{ loc }}" />
-          <button class="btn btnGhost btnTiny" type="submit">Acknowledged</button>
-        </form>
+        {% endif %}
+
+        <div id="centralReadyBanner" class="readyBanner" style="display:none;">
+          <div class="msg">
+            <span class="icon">🚚</span>
+            <span>Central is ready to load now.</span>
+          </div>
+          <div class="actions">
+            {% if user.role in ['workshop','admin'] %}
+              <button id="btnCentralReadyAck" class="btn btnGhost btnTiny btnOk" type="button">OK</button>
+            {% endif %}
+          </div>
+        </div>
       </div>
-      {% endif %}
-
-      {% if user and user.role == "admin" and loc == "central" %}
-      <form method="post" action="/central/ready" style="margin: 0 0 10px 0;">
-        <input type="hidden" name="loc" value="{{ loc }}" />
-        <button class="btn btnTiny" type="submit">🚚 Ready to Load (Workshop)</button>
-      </form>
-      {% endif %}
-
 
       <table>
         <thead>
@@ -300,6 +322,53 @@
     badge.style.display = isLow ? "inline-flex" : "none";
   }
 
+
+  function updateCentralReadyUI(flag){
+    const banner = document.getElementById("centralReadyBanner");
+    const toggleBtn = document.getElementById("btnCentralReadyToggle");
+    const statePill = document.getElementById("centralReadyState");
+    if (banner){
+      banner.style.display = flag ? "flex" : "none";
+    }
+    if (statePill){
+      statePill.style.display = flag ? "inline-flex" : "none";
+    }
+    if (toggleBtn){
+      toggleBtn.textContent = flag ? "🚚 Ready Sent (Clear)" : "🚚 Ready to Load (Workshop)";
+    }
+  }
+
+  async function postCentralReady(path){
+    const res = await fetch(path, { method: "POST" });
+    try{ return await res.json(); }catch(e){ return null; }
+  }
+
+  document.addEventListener("DOMContentLoaded", function(){
+    // initial server state
+    updateCentralReadyUI({{ 'true' if central_ready else 'false' }});
+
+    const toggleBtn = document.getElementById("btnCentralReadyToggle");
+    if (toggleBtn){
+      toggleBtn.addEventListener("click", async () => {
+        const isOn = document.getElementById("centralReadyBanner")?.style.display !== "none";
+        const data = await postCentralReady(isOn ? "/api/central_ready/clear" : "/api/central_ready/set");
+        if (data && data.ok){
+          updateCentralReadyUI(!!data.central_ready);
+        }
+      });
+    }
+
+    const ackBtn = document.getElementById("btnCentralReadyAck");
+    if (ackBtn){
+      ackBtn.addEventListener("click", async () => {
+        const data = await postCentralReady("/api/central_ready/clear");
+        if (data && data.ok){
+          updateCentralReadyUI(false);
+        }
+      });
+    }
+  });
+
   async function refreshStockLive(){
     try{
       const params = new URLSearchParams();
@@ -317,6 +386,9 @@
       if (dot) { dot.classList.add("ok"); dot.classList.remove("bad"); }
       if (txt) txt.textContent = "Live";
 
+      if (typeof data.central_ready !== "undefined"){
+        updateCentralReadyUI(!!data.central_ready);
+      }
 
       for (const item of data.items){
         const row = document.querySelector(`tr[data-product-id="${item.product_id}"]`);
