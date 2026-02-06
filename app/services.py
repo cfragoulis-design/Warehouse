@@ -13,9 +13,8 @@ import urllib.request
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, text
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
@@ -135,6 +134,40 @@ def _get_missing_map(db: Session) -> dict[int, Decimal]:
         except Exception:
             out[int(pid)] = Decimal("0")
     return out
+
+
+
+
+def _get_app_state(db: Session, key: str) -> str | None:
+    try:
+        row = db.execute(text("SELECT value FROM app_state WHERE key = :k"), {"k": key}).first()
+        return (row[0] if row else None)
+    except Exception:
+        return None
+
+
+def _set_app_state(db: Session, key: str, value: str) -> None:
+    # Postgres UPSERT (Railway Postgres). Safe if table exists; no-op on errors.
+    try:
+        db.execute(
+            text(
+                "INSERT INTO app_state(key, value, updated_at) VALUES (:k, :v, NOW()) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"
+            ),
+            {"k": key, "v": value},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _get_central_ready(db: Session) -> bool:
+    v = _get_app_state(db, "central_ready")
+    return (v or "").strip() == "1"
+
+
+def _set_central_ready(db: Session, flag: bool) -> None:
+    _set_app_state(db, "central_ready", "1" if flag else "0")
 
 
 def _missing_decrease_on_delivery(db: Session, product_id: int, delivered_qty: Decimal) -> None:
@@ -934,26 +967,7 @@ def api_stock(
                 }
             )
 
-    return JSONResponse({"ok": True, "items": items})
-# --- CENTRAL READY (global flag shown on Workshop stock) ---
-def _get_app_state_row(db: Session):
-    row = db.execute(text("SELECT id, central_ready, central_ready_at FROM app_state WHERE id=1")).fetchone()
-    return row
-
-def get_central_ready(db: Session) -> dict:
-    row = _get_app_state_row(db)
-    if not row:
-        return {"central_ready": False, "central_ready_at": None}
-    return {"central_ready": bool(row[1]), "central_ready_at": row[2]}
-
-def set_central_ready(db: Session) -> None:
-    db.execute(text("UPDATE app_state SET central_ready=TRUE, central_ready_at=NOW() WHERE id=1"))
-    db.commit()
-
-def clear_central_ready(db: Session) -> None:
-    db.execute(text("UPDATE app_state SET central_ready=FALSE WHERE id=1"))
-    db.commit()
-
+    return JSONResponse({"ok": True, "items": items, "central_ready": _get_central_ready(db)})
 @router.get("/stock", response_class=HTMLResponse)
 def stock_view(
     request: Request,
@@ -975,6 +989,7 @@ def stock_view(
             "can_edit_target": (user.role == "admin"),
             "can_adjust_central": (user.role == "admin"),
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
+            "central_ready": _get_central_ready(db),
         },
     )
 
@@ -1003,6 +1018,40 @@ def _telegram_send(text: str) -> None:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Telegram send error: {e}")
+
+
+
+@router.get("/api/central_ready")
+def api_central_ready(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    # Any logged-in user can read the flag
+    return JSONResponse({"ok": True, "central_ready": _get_central_ready(db)})
+
+
+@router.post("/api/central_ready/set")
+def api_central_ready_set(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    _set_central_ready(db, True)
+    return JSONResponse({"ok": True, "central_ready": True})
+
+
+@router.post("/api/central_ready/clear")
+def api_central_ready_clear(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    # Workshop acknowledges (clears). Admin can also clear.
+    if user.role not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Not allowed")
+    _set_central_ready(db, False)
+    return JSONResponse({"ok": True, "central_ready": False})
+
 
 
 @router.post("/stock/need")
