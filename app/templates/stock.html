@@ -144,6 +144,27 @@
           </div>
       </div>
 
+      {% if central_ready and loc == "workshop" %}
+      <div class="centralReadyBanner">
+        <div class="left">
+          🚚 <strong>ΤΟ ΚΕΝΤΡΙΚΟ ΕΙΝΑΙ ΕΤΟΙΜΟ ΓΙΑ ΦΟΡΤΩΜΑ</strong>
+          {% if central_ready_at %}<span class="muted">({{ central_ready_at }})</span>{% endif %}
+        </div>
+        <form method="post" action="/central/ready/clear">
+          <input type="hidden" name="loc" value="{{ loc }}" />
+          <button class="btn btnGhost btnTiny" type="submit">Acknowledged</button>
+        </form>
+      </div>
+      {% endif %}
+
+      {% if user and user.role == "admin" and loc == "central" %}
+      <form method="post" action="/central/ready" style="margin: 0 0 10px 0;">
+        <input type="hidden" name="loc" value="{{ loc }}" />
+        <button class="btn btnTiny" type="submit">🚚 Ready to Load (Workshop)</button>
+      </form>
+      {% endif %}
+
+
       <table>
         <thead>
           <tr>
