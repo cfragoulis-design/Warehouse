@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
@@ -934,6 +935,25 @@ def api_stock(
             )
 
     return JSONResponse({"ok": True, "items": items})
+# --- CENTRAL READY (global flag shown on Workshop stock) ---
+def _get_app_state_row(db: Session):
+    row = db.execute(text("SELECT id, central_ready, central_ready_at FROM app_state WHERE id=1")).fetchone()
+    return row
+
+def get_central_ready(db: Session) -> dict:
+    row = _get_app_state_row(db)
+    if not row:
+        return {"central_ready": False, "central_ready_at": None}
+    return {"central_ready": bool(row[1]), "central_ready_at": row[2]}
+
+def set_central_ready(db: Session) -> None:
+    db.execute(text("UPDATE app_state SET central_ready=TRUE, central_ready_at=NOW() WHERE id=1"))
+    db.commit()
+
+def clear_central_ready(db: Session) -> None:
+    db.execute(text("UPDATE app_state SET central_ready=FALSE WHERE id=1"))
+    db.commit()
+
 @router.get("/stock", response_class=HTMLResponse)
 def stock_view(
     request: Request,
