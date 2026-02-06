@@ -100,22 +100,7 @@
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
-  
-.readyBanner{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  padding:12px 14px;
-  border:1px solid rgba(202,162,74,.55);
-  background:rgba(202,162,74,.18);
-  border-radius:14px;
-  margin:12px 0 0 0;
-}
-.readyBanner strong{letter-spacing:.02em}
-.readyBanner .muted2{color:var(--muted);font-size:12px}
-.readyBanner form{margin:0}
- </style>
+  </style>
 </head>
 <body>
   <div class="top wrap" style="padding-bottom:10px">
@@ -154,31 +139,10 @@
           <a class="btn btnGhost btnTiny" href="/stock/print?scope=pending" target="_blank">🖨️ Εκτύπωση (Εργαστήριο)</a>
           <a class="btn btnGhost btnTiny" href="/stock/print?scope=all" target="_blank">🖨️ Εκτύπωση (Όλα)</a>
 
-{% if user.role == 'admin' and (loc == 'central' or loc == 'all') %}
-<form method="post" action="/central/ready" style="display:inline">
-  <button class="btn btnGhost btnTiny" type="submit">🚚 Ready to Load (Workshop)</button>
-</form>
-{% endif %}
-
           <span class="pill">0 = OK</span>
           <span class="pill warn">Pending</span>
           </div>
       </div>
-
-
-{% if loc == 'workshop' and central_ready %}
-<div class="readyBanner">
-  <div>
-    🚚 <strong>CENTRAL IS READY TO LOAD</strong>
-    {% if central_ready_at %}
-      <span class="muted2">({{ central_ready_at }})</span>
-    {% endif %}
-  </div>
-  <form method="post" action="/central/ready/clear">
-    <button class="btn btnGhost btnTiny" type="submit">Acknowledged</button>
-  </form>
-</div>
-{% endif %}
 
       <table>
         <thead>
