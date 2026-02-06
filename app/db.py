@@ -92,17 +92,21 @@ def init_db() -> None:
     except Exception:
         pass
 
-    # App state (small key/value flags e.g. CENTRAL ready-to-load). Safe, idempotent.
-    try:
-        with engine.begin() as conn:
-            conn.exec_driver_sql(
-                """
-                CREATE TABLE IF NOT EXISTS app_state (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
-                """
-            )
-    except Exception:
-        pass
+
+# App state flags (safe, idempotent) - used for CENTRAL "Ready to Load" banner.
+try:
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS app_state (
+                id INTEGER PRIMARY KEY,
+                central_ready BOOLEAN NOT NULL DEFAULT FALSE,
+                central_ready_at TIMESTAMPTZ NULL
+            );
+            """
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO app_state (id, central_ready) VALUES (1, FALSE) ON CONFLICT (id) DO NOTHING"
+        )
+except Exception:
+    pass
