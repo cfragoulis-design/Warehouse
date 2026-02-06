@@ -1,6 +1,6 @@
 # === Central Ready routes ===
 # Add imports near the top of app.py
-from services import get_central_ready, set_central_ready, clear_central_ready
+from app.services import get_central_ready, set_central_ready, clear_central_ready
 from starlette.responses import RedirectResponse
 
 # === Add these routes anywhere after app is defined ===
