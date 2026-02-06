@@ -91,3 +91,22 @@ def init_db() -> None:
             )
     except Exception:
         pass
+
+
+# App-level flags/state (safe, idempotent). Used for CENTRAL "Ready to Load" banner in WORKSHOP stock.
+try:
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS app_state (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                central_ready BOOLEAN DEFAULT FALSE,
+                central_ready_at TIMESTAMPTZ
+            );
+            """
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO app_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;"
+        )
+except Exception:
+    pass
