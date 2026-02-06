@@ -13,7 +13,7 @@ import urllib.request
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case, text as sa_text
+from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
@@ -27,25 +27,6 @@ except Exception:
     from models import User, Product, Category, StockMovement, Location, StockMissing, FreezerItem
 
 router = APIRouter()
-
-
-# --------------------
-# CENTRAL READY (app_state flag)
-# --------------------
-def get_central_ready_state(db: Session) -> dict:
-    row = db.execute(sa_text("SELECT central_ready, central_ready_at FROM app_state WHERE id=1")).fetchone()
-    return {
-        "central_ready": bool(row[0]) if row else False,
-        "central_ready_at": (row[1] if row else None),
-    }
-
-
-def set_central_ready_state(db: Session) -> None:
-    db.execute(sa_text("UPDATE app_state SET central_ready = TRUE, central_ready_at = NOW() WHERE id=1"))
-
-
-def clear_central_ready_state(db: Session) -> None:
-    db.execute(sa_text("UPDATE app_state SET central_ready = FALSE WHERE id=1"))
 
 
 # --------------------
@@ -974,36 +955,8 @@ def stock_view(
             "can_edit_target": (user.role == "admin"),
             "can_adjust_central": (user.role == "admin"),
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
-            **get_central_ready_state(db),
         },
     )
-
-
-
-@router.post("/central/ready")
-def central_ready(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-    set_central_ready_state(db)
-    db.commit()
-    return RedirectResponse(url="/stock?loc=central", status_code=303)
-
-
-@router.post("/central/ready/clear")
-def central_ready_clear(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    if user.role not in ("admin", "workshop"):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    clear_central_ready_state(db)
-    db.commit()
-    return RedirectResponse(url="/stock?loc=workshop", status_code=303)
 
 
 def _telegram_send(text: str) -> None:
