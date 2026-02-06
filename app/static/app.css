@@ -258,3 +258,17 @@ body.show-workshop-only .col-actions { display: none; }
   .toolbar .left{ width: 100%; }
   .input{ width: 100%; }
 }
+
+/* Central Ready banner (Workshop) */
+.centralReadyBanner{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  padding:10px 12px;
+  border-radius:10px;
+  background: rgba(255, 193, 7, 0.18);
+  border: 1px solid rgba(255, 193, 7, 0.35);
+  margin: 10px 0 12px 0;
+}
+.centralReadyBanner .muted{ opacity: .75; margin-left: 8px; font-size: 12px; }
