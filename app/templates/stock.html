@@ -347,6 +347,21 @@
     // initial server state
     updateCentralReadyUI({{ 'true' if central_ready else 'false' }});
 
+    // Poll central_ready so Workshop sees it without refreshing
+    async function pollCentralReady(){
+      try{
+        const res = await fetch("/api/central_ready", { cache: "no-store" });
+        const data = await res.json();
+        if (data && data.ok){
+          updateCentralReadyUI(!!data.central_ready);
+        }
+      }catch(e){}
+    }
+    // initial poll + interval
+    pollCentralReady();
+    setInterval(pollCentralReady, 8000);
+
+
     const toggleBtn = document.getElementById("btnCentralReadyToggle");
     if (toggleBtn){
       toggleBtn.addEventListener("click", async () => {
