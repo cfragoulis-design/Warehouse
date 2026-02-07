@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 
 
@@ -45,6 +45,10 @@ def init_db() -> None:
     from . import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    # Safe migration: products.only_in_freezer (hide freezer-only products from /stock)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS only_in_freezer BOOLEAN NOT NULL DEFAULT FALSE"))
+
 
     # Idempotent lightweight migration(s) for older deployments.
     # We keep these minimal to avoid refactors and prevent runtime crashes.
@@ -87,18 +91,7 @@ def init_db() -> None:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
-                
-                -- Central Ready flag (notify workshop when central is ready to load)
-                CREATE TABLE IF NOT EXISTS central_ready_state (
-                    id INTEGER PRIMARY KEY,
-                    is_ready BOOLEAN NOT NULL DEFAULT FALSE,
-                    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-                );
-
-                INSERT INTO central_ready_state (id, is_ready)
-                VALUES (1, FALSE)
-                ON CONFLICT (id) DO NOTHING;
-"""
+                """
             )
     except Exception:
         pass
