@@ -100,48 +100,7 @@
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
-  
-
-  /* Central Ready banner */
-  .readyBanner {
-    margin-top: 10px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.12);
-    background: rgba(255, 176, 0, 0.12);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .readyBanner .readyText { font-weight: 700; }
-  .readyBanner .readyClear {
-    padding: 6px 10px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.18);
-    background: rgba(255,255,255,0.06);
-    color: #fff;
-    cursor: pointer;
-  }
-  .readyAdminRow {
-    margin-top: 10px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .readyAdminRow .readySet {
-    padding: 6px 10px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.18);
-    background: rgba(255,255,255,0.06);
-    color: #fff;
-    cursor: pointer;
-  }
-  .readyStatus {
-    opacity: 0.85;
-    font-size: 13px;
-  }
-</style>
+  </style>
 </head>
 <body>
   <div class="top wrap" style="padding-bottom:10px">
@@ -183,17 +142,6 @@
           <span class="pill">0 = OK</span>
           <span class="pill warn">Pending</span>
           </div>
-      </div>
-
-
-      <div id="central-ready-admin" class="readyAdminRow" style="display:none">
-        <button type="button" id="btn-ready-set" class="readySet">🚚 Ready to Load (Send to Workshop)</button>
-        <span id="ready-status" class="readyStatus"></span>
-      </div>
-
-      <div id="central-ready-banner" class="readyBanner" style="display:none">
-        <span class="readyText">🚚 Ready to Load (Workshop)</span>
-        <button type="button" id="btn-ready-clear" class="readyClear">OK</button>
       </div>
 
       <table>
@@ -636,90 +584,6 @@
     });
   });
 
-
-
-  // ---------------------------
-  // Central Ready (notify workshop)
-  // ---------------------------
-  const role = "{{ user.role }}";
-  const adminRow = document.getElementById("central-ready-admin");
-  const banner = document.getElementById("central-ready-banner");
-  const btnSet = document.getElementById("btn-ready-set");
-  const btnClear = document.getElementById("btn-ready-clear");
-  const statusEl = document.getElementById("ready-status");
-
-  let centralReady = {{ 'true' if central_ready else 'false' }};
-
-  function renderCentralReady(state){
-    centralReady = !!state;
-
-    if (role === "admin") {
-      if (adminRow) adminRow.style.display = "flex";
-      if (btnSet) btnSet.disabled = centralReady;
-      if (statusEl) statusEl.textContent = centralReady ? "Sent" : "";
-    } else {
-      if (adminRow) adminRow.style.display = "none";
-    }
-
-    if (role === "workshop") {
-      if (banner) banner.style.display = centralReady ? "flex" : "none";
-    } else {
-      if (banner) banner.style.display = "none";
-    }
-  }
-
-  async function fetchCentralReady(){
-    try{
-      const res = await fetch("/api/central_ready", { method: "GET" });
-      if(!res.ok) return;
-      const data = await res.json();
-      if(data && data.ok){
-        renderCentralReady(!!data.central_ready);
-      }
-    }catch(_e){}
-  }
-
-  if (btnSet) {
-    btnSet.addEventListener("click", async () => {
-      btnSet.disabled = true;
-      try{
-        const res = await fetch("/api/central_ready/set", { method: "POST" });
-        if(!res.ok){
-          alert("Server error");
-          return;
-        }
-        const data = await res.json();
-        renderCentralReady(!!(data && data.central_ready));
-      }catch(err){
-        console.error(err);
-        alert("Server error");
-      }
-    });
-  }
-
-  if (btnClear) {
-    btnClear.addEventListener("click", async () => {
-      btnClear.disabled = true;
-      try{
-        const res = await fetch("/api/central_ready/clear", { method: "POST" });
-        if(!res.ok){
-          alert("Server error");
-          return;
-        }
-        const data = await res.json();
-        renderCentralReady(!!(data && data.central_ready));
-      }catch(err){
-        console.error(err);
-        alert("Server error");
-      }finally{
-        btnClear.disabled = false;
-      }
-    });
-  }
-
-  // Initial render + poll
-  renderCentralReady(centralReady);
-  setInterval(fetchCentralReady, 4000);
 })();</script>
 
 {% include "_dialog.html" %}
