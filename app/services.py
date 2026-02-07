@@ -324,21 +324,21 @@ def products_list(
     show_all = (request.query_params.get("show") == "all")
 
     products = (
-        db.execute(
-            select(Product)
-            .outerjoin(Category, Category.name == Product.category)
-            .where(True if show_all else (Product.is_active == True))
-            .order_by(
-                Product.is_active.desc(),
-                cat_order.asc(),
-                func.coalesce(Product.category, "").asc(),
-                Product.name.asc(),
-            )
+    db.execute(
+        select(Product)
+        .outerjoin(Category, Category.name == Product.category)
+        .where(func.coalesce(Product.only_in_freezer, False).is_(False))
+        .where(True if show_all else (Product.is_active == True))
+        .order_by(
+            Product.is_active.desc(),
+            cat_order.asc(),
+            func.coalesce(Product.category, "").asc(),
+            Product.name.asc(),
         )
-        .scalars()
-        .all()
     )
-
+    .scalars()
+    .all()
+)
     return templates.TemplateResponse(
         "products_list.html",
         {"request": request, "user": user, "products": products, "show_all": show_all},
