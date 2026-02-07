@@ -33,6 +33,40 @@
   .row{display:flex;gap:10px;flex-wrap:wrap}
   .grow{flex:1}
   .right{display:flex;gap:8px;align-items:center}
+
+/* --- Table UI polish --- */
+.tableWrap{
+  margin-top:12px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  overflow:auto;
+  background: rgba(255,255,255,.02);
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
+table.tbl{width:100%; border-collapse:separate; border-spacing:0; min-width:900px;}
+table.tbl thead th{
+  position: sticky; top:0; z-index:2;
+  background: rgba(17,25,54,.95);
+  border-bottom:1px solid var(--line);
+  padding:12px 12px;
+  font-weight:700;
+  font-size:12px;
+  white-space: nowrap;
+}
+table.tbl tbody td{
+  padding:12px 12px;
+  border-bottom:1px solid rgba(36,48,85,.65);
+  vertical-align: top;
+}
+table.tbl tbody tr:last-child td{border-bottom:none;}
+table.tbl tbody tr:hover td{background: rgba(47,124,246,.06);}
+td.num, th.num{text-align:right; font-variant-numeric: tabular-nums;}
+@media (max-width: 980px){
+  .header{flex-wrap: wrap; gap:10px;}
+  .controls{flex-wrap: wrap;}
+  .footer{flex-wrap: wrap; gap:10px;}
+}
+
 </style>
 
 </head>
@@ -66,7 +100,7 @@
     </div>
 
     <div class="card">
-      <table>
+      <div class="tableWrap"><table class="tbl">
         <thead><tr><th>ID</th><th>Όνομα</th><th>Τηλέφωνο</th><th>Email</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
           {% for s in suppliers %}
@@ -92,7 +126,7 @@
           {% endfor %}
           {% if suppliers|length == 0 %}<tr><td colspan="6" class="muted">Δεν υπάρχουν προμηθευτές ακόμα.</td></tr>{% endif %}
         </tbody>
-      </table>
+      </table></div>
     </div>
   </div>
 </body>

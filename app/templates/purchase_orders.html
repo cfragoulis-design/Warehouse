@@ -53,7 +53,7 @@
     </div>
 
     <div class="card">
-      <table>
+      <div class="tableWrap"><table class="tbl">
         <thead><tr><th>ID</th><th>Supplier</th><th>Status</th><th>Created</th><th></th></tr></thead>
         <tbody>
         {% for po, sname in orders %}
@@ -67,7 +67,7 @@
         {% endfor %}
         {% if orders|length == 0 %}<tr><td colspan="5" class="muted">No purchase orders yet.</td></tr>{% endif %}
         </tbody>
-      </table>
+      </table></div>
     </div>
   </div>
 </body>

@@ -66,6 +66,89 @@
   .empty h3{margin:0 0 6px 0;font-size:15px}
   .empty p{margin:0;color:var(--muted);font-size:13px;line-height:1.4}
   .footer{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+/* --- Consumables UI polish --- */
+.tableWrap{
+  margin-top:12px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  overflow:auto;
+  background: rgba(255,255,255,.02);
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
+table.tbl{width:100%; border-collapse:separate; border-spacing:0; min-width:1180px;}
+table.tbl thead th{
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: linear-gradient(180deg, rgba(17,25,54,0.98), rgba(17,25,54,0.92));
+  border-bottom:1px solid var(--line);
+  padding:12px 12px;
+  font-weight:700;
+  font-size:12px;
+  letter-spacing:.2px;
+  text-transform: none;
+  white-space: nowrap;
+}
+table.tbl tbody td{
+  padding:12px 12px;
+  border-bottom:1px solid rgba(36,48,85,.65);
+  vertical-align: top;
+}
+table.tbl tbody tr:last-child td{border-bottom:none;}
+table.tbl tbody tr:hover td{background: rgba(47,124,246,.06);}
+td.num, th.num{text-align:right; font-variant-numeric: tabular-nums;}
+.pill{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:4px 10px; border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  font-size:12px;
+  white-space: nowrap;
+}
+.pill.low{border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.10);}
+.pill.ok{border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.10);}
+.actions{
+  display:flex;
+  flex-wrap: wrap;
+  gap:8px;
+  align-items:center;
+  justify-content:flex-start;
+}
+.actions form{margin:0;}
+.mini{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap: nowrap;
+}
+.mini input[type="number"]{
+  width:84px;
+  height:34px;
+  padding:0 10px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.18);
+  color: var(--text);
+  outline:none;
+}
+.btn2{
+  height:34px;
+  padding:0 12px;
+  border-radius:10px;
+  font-weight:600;
+  font-size:12px;
+  white-space: nowrap;
+}
+.btnIcon{width:44px; padding:0; text-align:center;}
+/* Make numeric columns visually consistent */
+.kpi{font-variant-numeric: tabular-nums; white-space: nowrap;}
+@media (max-width: 980px){
+  .header{flex-wrap: wrap; gap:10px;}
+  .controls{flex-wrap: wrap;}
+  .footer{flex-wrap: wrap; gap:10px;}
+}
+
 </style>
 
 </head>
@@ -178,7 +261,7 @@
         <p>Add your first consumable above to start tracking workshop supplies and suggested orders.</p>
       </div>
       {% else %}
-      <table>
+      <div class="tableWrap"><table class="tbl">
         <thead>
           <tr>
             <th style="min-width:240px">Name</th>
@@ -255,7 +338,7 @@
           </tr>
           {% endfor %}
         </tbody>
-      </table>
+      </table></div>
       {% endif %}
     </div>
 
