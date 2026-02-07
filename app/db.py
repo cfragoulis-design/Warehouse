@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 
 
@@ -45,10 +45,6 @@ def init_db() -> None:
     from . import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
-    # Safe migration: products.only_in_freezer (hide freezer-only products from /stock)
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS only_in_freezer BOOLEAN NOT NULL DEFAULT FALSE"))
-
 
     # Idempotent lightweight migration(s) for older deployments.
     # We keep these minimal to avoid refactors and prevent runtime crashes.

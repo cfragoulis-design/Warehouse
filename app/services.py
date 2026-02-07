@@ -328,7 +328,6 @@ def products_list(
             select(Product)
             .outerjoin(Category, Category.name == Product.category)
             .where(True if show_all else (Product.is_active == True))
-            .where(or_(Product.only_in_freezer == False, Product.only_in_freezer.is_(None)))
             .order_by(
                 Product.is_active.desc(),
                 cat_order.asc(),
