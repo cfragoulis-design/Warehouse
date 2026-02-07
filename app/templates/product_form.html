@@ -20,6 +20,9 @@
     .muted{color:#a7b0c7;font-size:12px;margin-top:6px}
     .hide{display:none}
     .warn{margin-bottom:12px;color:#ff8a8a;font-weight:800}
+    .checkrow{display:flex;align-items:center;gap:10px;margin-top:14px}
+    .checkrow input[type="checkbox"]{width:auto;transform:scale(1.15)}
+    .checkrow .label{font-weight:900}
   </style>
 </head>
 <body>
@@ -97,12 +100,17 @@
       <input name="min_stock" type="number" min="0" step="1" value="{{ product.min_stock if product and product.min_stock is not none else 0 }}">
       <div class="muted">Αν είναι &gt; 0 και το Κεντρικό πέσει κάτω, θα εμφανίζει ένδειξη LOW.</div>
 
-      
-      <label style="margin-top:10px; display:flex; align-items:center; gap:10px;">
-        <input type="checkbox" name="only_in_freezer" value="1" {% if product and product.only_in_freezer %}checked{% endif %}>
-        <span><b>Only in Freezer</b> (δεν εμφανίζεται στο Stock)</span>
-      </label>
-      <div class="muted">Για προϊόντα που υπάρχουν αποκλειστικά στην Κατάψυξη.</div>
+      <div class="checkrow">
+        <input
+          id="only_in_freezer"
+          name="only_in_freezer"
+          type="checkbox"
+          value="1"
+          {% if product and product.only_in_freezer %}checked{% endif %}
+        />
+        <label class="label" for="only_in_freezer">Only in Freezer</label>
+      </div>
+      <div class="muted">Αν είναι ενεργό, το προϊόν ΔΕΝ θα εμφανίζεται στο Stock (/stock) και θα διαχειρίζεται μόνο από το Freezer (/freezer).</div>
 
       <div class="actions">
         <button class="btn" type="submit">Αποθήκευση</button>
