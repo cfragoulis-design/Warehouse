@@ -1,0 +1,14 @@
+Telegram Digest (twice daily via Railway Cron)
+--------------------------------------------
+
+1) Set env vars in Railway:
+   - TELEGRAM_BOT_TOKEN
+   - TELEGRAM_CHAT_ID
+   - DIGEST_TOKEN  (choose a random secret string)
+
+2) Add two Railway cron jobs (HTTP GET):
+   - /internal/telegram-digest-cron?token=<DIGEST_TOKEN> at 07:00 Europe/Athens
+   - /internal/telegram-digest-cron?token=<DIGEST_TOKEN> at 14:20 Europe/Athens
+
+Manual test (admin only):
+   POST /internal/telegram-digest
