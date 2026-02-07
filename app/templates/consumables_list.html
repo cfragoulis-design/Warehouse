@@ -116,16 +116,21 @@
               <input id="pack_size" name="pack_size" type="number" min="1" step="1" value="1" />
             </div>
             <div>
-              <label for="min_qty">Min</label>
+              <label for="min_qty" title="When stock drops below this (and Min > 0) the item is marked LOW">Reorder point (Min units)</label>
               <input id="min_qty" name="min_qty" type="number" min="0" step="1" value="0" />
             </div>
             <div>
-              <label for="desired_qty">Desired</label>
+              <label for="desired_qty" title="Target stock level in units. Suggested = max(0, Target - (On hand + On order)), rounded up to a pack.">Target stock (units)</label>
               <input id="desired_qty" name="desired_qty" type="number" min="0" step="1" value="0" />
             </div>
             <div>
-              <label for="supplier_id">Supplier ID</label>
-              <input id="supplier_id" name="supplier_id" placeholder="Find it in Suppliers" inputmode="numeric" />
+              <label for="supplier_id">Supplier</label>
+              <select id="supplier_id" name="supplier_id">
+                <option value="">—</option>
+                {% for s in suppliers %}
+                  <option value="{{ s.id }}">{{ s.name }}{% if not s.is_active %} (inactive){% endif %}</option>
+                {% endfor %}
+              </select>
             </div>
             <div style="display:flex;justify-content:flex-end">
               <button id="addBtn" class="btn" type="submit">Add</button>
@@ -133,7 +138,7 @@
           </div>
 
           <div class="hint">
-            Tip: Open <a href="/suppliers" target="_blank" rel="noopener">Suppliers</a> to see each Supplier ID.
+            Units logic: <b>Pack size</b> defines how many units are in 1 pack. <b>Target stock</b> and <b>Reorder point</b> are in <b>units</b>.
           </div>
         </form>
       </div>
@@ -143,7 +148,7 @@
       <div class="card-h">
         <div>
           <h2>Consumables (Workshop)</h2>
-          <div class="sub">Stock is tracked in <b>units</b>. Suggested ordering is shown in <b>packs</b> (rounded up).</div>
+          <div class="sub">Stock is tracked in <b>units</b>. Suggested ordering is shown in <b>packs</b> (rounded up to full packs).</div>
         </div>
         <div class="filters">
           <input id="q" placeholder="Search by name…" />
@@ -172,8 +177,8 @@
             <th>Supplier</th>
             <th>Stock (units)</th>
             <th>On‑order (units)</th>
-            <th>Min</th>
-            <th>Desired</th>
+            <th>Reorder point</th>
+            <th>Target stock</th>
             <th>Suggested (packs)</th>
             <th style="min-width:220px">Actions</th>
           </tr>
@@ -203,8 +208,8 @@
               <span class="badge">{{ r.on_hand }}</span>
             </td>
             <td class="num muted">{{ r.on_order }}</td>
-            <td class="num muted">{{ r.min_qty }}</td>
-            <td class="num muted">{{ r.desired_qty }}</td>
+            <td class="num muted" title="Reorder point (Min units)">{{ r.min_qty }}</td>
+            <td class="num muted" title="Target stock in units">{{ r.desired_qty }}</td>
             <td class="num">
               {% if has_suggested %}
                 <div class="kpi">
