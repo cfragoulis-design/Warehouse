@@ -40,6 +40,9 @@ class Product(Base):
     min_stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Desired stock at CENTRAL. Used to compute Pending (Target - Central)
     target_central: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
+
+    # If true, product is managed ONLY in /freezer and should NOT appear in /stock.
+    only_in_freezer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

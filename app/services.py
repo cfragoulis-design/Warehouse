@@ -117,6 +117,13 @@ def parse_qty_any(qty: str) -> Decimal | None:
         return None
 
 
+def _truthy_flag(val: str | None) -> bool:
+    if val is None:
+        return False
+    v = str(val).strip().lower()
+    return v in {"1", "true", "yes", "on", "y"}
+
+
 def signed_qty_expr():
     # OUT & ADJ- negative, everything else positive
     return case(
@@ -367,6 +374,7 @@ def product_create(
     category: str | None = Form(None),
     unit: str = Form("pcs"),
     min_stock: str = Form("0"),
+    only_in_freezer: str | None = Form(None),
 ):
     ms = parse_qty(min_stock) or Decimal("0")
     p = Product(
@@ -375,6 +383,7 @@ def product_create(
         category=category.strip() if category else None,
         unit=unit,
         min_stock=float(ms),
+        only_in_freezer=_truthy_flag(only_in_freezer),
     )
     db.add(p)
     db.commit()
@@ -409,6 +418,7 @@ def product_update(
     category: str | None = Form(None),
     unit: str = Form("pcs"),
     min_stock: str = Form("0"),
+    only_in_freezer: str | None = Form(None),
 ):
     product = db.get(Product, pid)
     if not product:
@@ -418,6 +428,7 @@ def product_update(
     product.sku = sku.strip() if sku else None
     product.category = category.strip() if category else None
     product.unit = unit
+    product.only_in_freezer = _truthy_flag(only_in_freezer)
     ms = parse_qty(min_stock)
     product.min_stock = float(ms) if ms is not None else 0
     db.commit()
@@ -817,7 +828,9 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
     )
 
     # Stock view should be clean: inactive products are hidden.
+    # Also hide products that are managed ONLY in /freezer.
     stmt = stmt.where(Product.is_active == True)
+    stmt = stmt.where(Product.only_in_freezer == False)
 
     qq = (q or "").strip()
     if qq:

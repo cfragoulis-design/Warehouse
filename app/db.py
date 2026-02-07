@@ -57,6 +57,16 @@ def init_db() -> None:
         # Do not fail app startup if ALTER is unsupported or permissions are restricted.
         pass
 
+    # Only-in-freezer flag (safe, idempotent).
+    # Products with only_in_freezer=TRUE should not appear in /stock.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS only_in_freezer BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+    except Exception:
+        pass
+
     # Missing/Owed table (safe, idempotent). We also keep a migration file, but this prevents crashes
     # on deployments where migrations were not run.
     try:
