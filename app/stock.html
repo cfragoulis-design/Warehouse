@@ -101,27 +101,13 @@
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
   
-    .readyWrap{padding:10px 0 0 0;}
-    .readyBanner{
-      display:flex; align-items:center; justify-content:space-between;
-      gap:10px;
-      padding:10px 12px;
-      margin:8px 18px 0 18px;
-      border:1px solid #2a3a66;
-      background:rgba(202,162,74,0.12);
-      border-radius:12px;
-      color:var(--text);
-      font-weight:700;
-    }
-    .readyBanner .msg{display:flex; align-items:center; gap:10px;}
-    .readyBanner .msg .icon{font-size:16px}
-    .readyBanner .actions{display:flex; gap:8px; align-items:center;}
-    .btnReady{border:1px solid rgba(202,162,74,.55); background:rgba(202,162,74,.15); color:var(--text);}
-    .btnReady:hover{background:rgba(202,162,74,.25);}
-    .btnOk{border:1px solid rgba(47,124,246,.55); background:rgba(47,124,246,.15); color:var(--text);}
-    .btnOk:hover{background:rgba(47,124,246,.25);}
+.readyBanner{display:flex;align-items:center;gap:10px;margin:10px 14px 0 14px;padding:10px 12px;border-radius:12px;border:1px solid rgba(36,48,85,.75);background:rgba(255,196,0,.12)}
+.readyBanner strong{font-weight:900}
+.readyBanner .btn{margin-left:auto}
+.readyBanner .btn, .readyBanner button{background:rgba(255,196,0,.18);border:1px solid rgba(255,196,0,.55);color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer;font-weight:800}
+.readyBanner .btn:hover, .readyBanner button:hover{background:rgba(255,196,0,.25)}
 
- </style>
+</style>
 </head>
 <body>
   <div class="top wrap" style="padding-bottom:10px">
@@ -162,29 +148,21 @@
 
           <span class="pill">0 = OK</span>
           <span class="pill warn">Pending</span>
+          {% if user.role == "admin" %}
+          <button id="send-ready-btn" type="button" class="pill" style="cursor:pointer">🚚 Ready</button>
+          {% endif %}
           </div>
-
       </div>
 
-      <div class="readyWrap">
-        {% if user.role == 'admin' %}
-        <div style="margin:8px 18px 0 18px; display:flex; gap:10px; align-items:center;">
-          <button id="btnCentralReadyToggle" class="btn btnGhost btnTiny btnReady" type="button">🚚 Ready to Load (Workshop)</button>
-          <span id="centralReadyState" class="pill" style="display:none;">Sent</span>
-        </div>
-        {% endif %}
+<div id="ready-banner" class="readyBanner" style="display:none">
+  <span>🚚</span>
+  <strong>Ready to Load</strong>
+  <span style="opacity:.9">Το CENTRAL είναι έτοιμο για φόρτωση.</span>
+  {% if is_workshop_user %}
+    <button id="ready-ok-btn" type="button">OK (Ελήφθη)</button>
+  {% endif %}
+</div>
 
-        <div id="centralReadyBanner" class="readyBanner" style="display:none;">
-          <div class="msg">
-            <span class="icon">🚚</span>
-            <span>Central is ready to load now.</span>
-          </div>
-          <div class="actions">
-              <button id="btnCentralReadyAck" class="btn btnGhost btnTiny btnOk" type="button">OK</button>
-            
-          </div>
-        </div>
-      </div>
 
       <table>
         <thead>
@@ -321,68 +299,6 @@
     badge.style.display = isLow ? "inline-flex" : "none";
   }
 
-
-  function updateCentralReadyUI(flag){
-    const banner = document.getElementById("centralReadyBanner");
-    const toggleBtn = document.getElementById("btnCentralReadyToggle");
-    const statePill = document.getElementById("centralReadyState");
-    if (banner){
-      banner.style.display = flag ? "flex" : "none";
-    }
-    if (statePill){
-      statePill.style.display = flag ? "inline-flex" : "none";
-    }
-    if (toggleBtn){
-      toggleBtn.textContent = flag ? "🚚 Ready Sent (Clear)" : "🚚 Ready to Load (Workshop)";
-    }
-  }
-
-  async function postCentralReady(path){
-    const res = await fetch(path, { method: "POST" });
-    try{ return await res.json(); }catch(e){ return null; }
-  }
-
-  document.addEventListener("DOMContentLoaded", function(){
-    // initial server state
-    updateCentralReadyUI({{ 'true' if central_ready else 'false' }});
-
-    // Poll central_ready so Workshop sees it without refreshing
-    async function pollCentralReady(){
-      try{
-        const res = await fetch("/api/central_ready", { cache: "no-store" });
-        const data = await res.json();
-        if (data && data.ok){
-          updateCentralReadyUI(!!data.central_ready);
-        }
-      }catch(e){}
-    }
-    // initial poll + interval
-    pollCentralReady();
-    setInterval(pollCentralReady, 8000);
-
-
-    const toggleBtn = document.getElementById("btnCentralReadyToggle");
-    if (toggleBtn){
-      toggleBtn.addEventListener("click", async () => {
-        const isOn = document.getElementById("centralReadyBanner")?.style.display !== "none";
-        const data = await postCentralReady(isOn ? "/api/central_ready/clear" : "/api/central_ready/set");
-        if (data && data.ok){
-          updateCentralReadyUI(!!data.central_ready);
-        }
-      });
-    }
-
-    const ackBtn = document.getElementById("btnCentralReadyAck");
-    if (ackBtn){
-      ackBtn.addEventListener("click", async () => {
-        const data = await postCentralReady("/api/central_ready/clear");
-        if (data && data.ok){
-          updateCentralReadyUI(false);
-        }
-      });
-    }
-  });
-
   async function refreshStockLive(){
     try{
       const params = new URLSearchParams();
@@ -400,9 +316,6 @@
       if (dot) { dot.classList.add("ok"); dot.classList.remove("bad"); }
       if (txt) txt.textContent = "Live";
 
-      if (typeof data.central_ready !== "undefined"){
-        updateCentralReadyUI(!!data.central_ready);
-      }
 
       for (const item of data.items){
         const row = document.querySelector(`tr[data-product-id="${item.product_id}"]`);
@@ -694,5 +607,54 @@
 })();</script>
 
 {% include "_dialog.html" %}
+
+<script>
+(function(){
+  const banner = document.getElementById('ready-banner');
+  const okBtn = document.getElementById('ready-ok-btn');
+  const sendBtn = document.getElementById('send-ready-btn');
+
+  async function getReady(){
+    try{
+      const r = await fetch('/api/central_ready', {cache:'no-store'});
+      if(!r.ok) return null;
+      return await r.json();
+    }catch(e){ return null; }
+  }
+
+  function setBannerVisible(on){
+    if(!banner) return;
+    banner.style.display = on ? 'flex' : 'none';
+  }
+
+  async function pollCentralReady(){
+    const data = await getReady();
+    if(!data || data.central_ready === undefined) return;
+    setBannerVisible(!!data.central_ready);
+  }
+
+  if (okBtn){
+    okBtn.addEventListener('click', async function(){
+      try{
+        const r = await fetch('/api/central_ready/clear', {method:'POST'});
+        if(r.ok) setBannerVisible(false);
+      }catch(e){}
+    });
+  }
+
+  if (sendBtn){
+    sendBtn.addEventListener('click', async function(){
+      try{
+        await fetch('/api/central_ready/set', {method:'POST'});
+      }catch(e){}
+    });
+  }
+
+  // initial + polling
+  pollCentralReady();
+  setInterval(pollCentralReady, 4000);
+})();
+</script>
 </body>
+
 </html>
