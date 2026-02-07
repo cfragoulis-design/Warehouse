@@ -151,8 +151,8 @@
     <div class="card">
       <div class="card-h">
         <div>
-          <h2>Consumables (Workshop)</h2>
-          <div class="sub">Stock is tracked in <b>units</b>. Suggested ordering is shown in <b>packs</b> (rounded up to full packs).</div>
+          <h2>Consumables</h2>
+          <div class="sub">Stock is tracked in <b>units</b>. Suggested ordering is shown in <b>packs</b> (rounded up to full packs).<br><span class="muted" style="font-size:12px">Formula: needed = max(0, target − (on hand + on order)); order packs = ceil(needed / pack size).</span></div>
         </div>
         <div class="filters">
           <input id="q" placeholder="Search by name…" />
@@ -170,7 +170,7 @@
       {% if rows|length == 0 %}
       <div class="empty">
         <h3>No consumables yet</h3>
-        <p>Add your first consumable above to start tracking workshop supplies and suggested orders.</p>
+        <p>Add your first consumable above to start tracking supplies and suggested orders.</p>
       </div>
       {% else %}
       <table>
@@ -217,7 +217,8 @@
             <td class="num">
               {% if has_suggested %}
                 <div class="kpi">
-                  <span class="badge bWarn">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
+                  <span class="badge bWarn" title="needed = max(0, target - (on hand + on order))">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
+                  <span class="small">Need: {{ r.needed_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
                   <span class="small">= {{ r.suggested_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
                 </div>
               {% else %}
