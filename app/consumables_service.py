@@ -62,10 +62,12 @@ def _round_to_pack(qty: Decimal, pack: Decimal) -> Decimal:
 
 @router.get("/consumables")
 def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
-    # stocks (workshop only)
-    stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
-        ConsumableStock.location_code == WORKSHOP_CODE
-    ).all()
+    # stocks (single-location mode): sum all stock rows per consumable
+    stock_rows = (
+        db.query(ConsumableStock.consumable_id, func.coalesce(func.sum(ConsumableStock.qty), 0))
+        .group_by(ConsumableStock.consumable_id)
+        .all()
+    )
     stock_map = {cid: _d(qty) for cid, qty in stock_rows}
 
     # on_order per consumable (open POs only)
@@ -90,9 +92,11 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
         on_order = on_order_map.get(c.id, Decimal("0"))
         desired = _d(c.desired_qty)
         pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
-        suggested_raw = desired - (on_hand + on_order)
+        needed_units = desired - (on_hand + on_order)
+        if needed_units < 0:
+            needed_units = Decimal("0")
         # Suggested is stored/handled in *units* but always rounded up to a whole pack.
-        suggested_units = _round_to_pack(suggested_raw, pack) if suggested_raw > 0 else Decimal("0")
+        suggested_units = _round_to_pack(needed_units, pack) if needed_units > 0 else Decimal("0")
         suggested_packs = _packs_for(suggested_units, pack) if suggested_units > 0 else 0
         rows.append({
             "id": c.id,
@@ -105,6 +109,7 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
             "on_hand": on_hand,
             "on_order": on_order,
             "suggested_units": suggested_units,
+            "needed_units": needed_units,
             "suggested_packs": suggested_packs,
             "supplier_name": suppliers.get(c.supplier_id).name if c.supplier_id and c.supplier_id in suppliers else "",
             "notes": c.notes or "",
@@ -220,9 +225,11 @@ def consumable_adjust(
     c = db.get(Consumable, cid)
     if not c:
         raise HTTPException(404)
-    st = db.query(ConsumableStock).filter_by(consumable_id=cid, location_code=WORKSHOP_CODE).first()
+    # single-location mode: keep using an existing row regardless of location_code.
+    # If none exists yet, create one with a neutral code.
+    st = db.query(ConsumableStock).filter_by(consumable_id=cid).order_by(ConsumableStock.location_code.asc()).first()
     if not st:
-        st = ConsumableStock(consumable_id=cid, location_code=WORKSHOP_CODE, qty=Decimal("0"))
+        st = ConsumableStock(consumable_id=cid, location_code="MAIN", qty=Decimal("0"))
         db.add(st)
         db.flush()
     st.qty = _d(st.qty) + _d(delta)
