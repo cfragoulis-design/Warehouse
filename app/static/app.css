@@ -259,16 +259,9 @@ body.show-workshop-only .col-actions { display: none; }
   .input{ width: 100%; }
 }
 
-/* Central Ready banner (Workshop) */
-.centralReadyBanner{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:12px;
-  padding:10px 12px;
-  border-radius:10px;
-  background: rgba(255, 193, 7, 0.18);
-  border: 1px solid rgba(255, 193, 7, 0.35);
-  margin: 10px 0 12px 0;
-}
-.centralReadyBanner .muted{ opacity: .75; margin-left: 8px; font-size: 12px; }
+
+/* Tooltips */
+.tt{position:relative;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:999px;border:1px solid var(--line,#243055);color:var(--muted,#a7b0c7);font-size:11px;line-height:1;cursor:help;margin-left:6px;background:rgba(255,255,255,.03)}
+.tt::after{content:attr(data-tip);position:absolute;left:50%;top:calc(100% + 10px);transform:translateX(-50%);min-width:220px;max-width:320px;white-space:normal;padding:10px 12px;border-radius:10px;border:1px solid var(--line,#243055);background:rgba(15,22,45,.98);color:var(--text,#e7e9ee);font-size:12px;line-height:1.35;box-shadow:0 16px 40px rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .12s ease;z-index:50}
+.tt::before{content:"";position:absolute;left:50%;top:calc(100% + 4px);transform:translateX(-50%);border:6px solid transparent;border-bottom-color:var(--line,#243055);opacity:0;transition:opacity .12s ease;z-index:51}
+.tt:hover::after,.tt:hover::before{opacity:1}
