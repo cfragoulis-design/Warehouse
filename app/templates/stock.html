@@ -100,6 +100,21 @@
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
+    .readyBanner{
+      margin:12px 0;
+      padding:12px 14px;
+      border-radius:16px;
+      border:1px solid rgba(47,124,246,.35);
+      background:rgba(47,124,246,.10);
+      display:none;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .readyBanner.show{display:flex}
+    .readyBanner .msg{font-weight:900}
+    .readyBanner .note{color:var(--muted);font-size:12px;margin-top:2px}
+    .readyBanner .left{display:flex;flex-direction:column}
   </style>
 </head>
 <body>
@@ -121,6 +136,16 @@
   </div>
 
   <div class="wrap">
+    {% if user and user.role == "workshop" %}
+      <div id="centralReadyBanner" class="readyBanner {% if central_ready %}show{% endif %}">
+        <div class="left">
+          <div class="msg">✅ Ready to Load</div>
+          <div class="note" id="centralReadyNote">{% if central_ready_note %}{{ central_ready_note }}{% else %}Central marked the load as ready.{% endif %}</div>
+        </div>
+        <button class="btn btnGhost btnTiny" id="btnReadyAcknowledge" type="button">Loaded</button>
+      </div>
+    {% endif %}
+
     <div class="card">
       <div class="cardHead">
         <div class="filters">
@@ -136,6 +161,11 @@
         </div>
 
         <div class="rightHead">
+          {% if user and user.role == "admin" %}
+            <button class="btn btnBlue btnTiny" id="btnReadyToLoad" type="button">✅ Ready to Load</button>
+            <button class="btn btnGhost btnTiny" id="btnReadyClear" type="button">Clear</button>
+          {% endif %}
+
           <a class="btn btnGhost btnTiny" href="/stock/print?scope=pending" target="_blank">🖨️ Εκτύπωση (Εργαστήριο)</a>
           <a class="btn btnGhost btnTiny" href="/stock/print?scope=all" target="_blank">🖨️ Εκτύπωση (Όλα)</a>
 
@@ -583,6 +613,91 @@
       }
     });
   });
+
+
+  // --------------------
+  // CENTRAL Ready-to-load banner + controls
+  // --------------------
+  async function fetchCentralReady(){
+    try{
+      const res = await fetch("/api/central_ready", {cache:"no-store"});
+      const data = await res.json();
+      if(!data || !data.ok) return null;
+      return data;
+    }catch(e){ return null; }
+  }
+
+  async function setCentralReady(isReady){
+    const fd = new FormData();
+    fd.append("ready", isReady ? "1" : "0");
+    if(isReady){
+      const note = prompt("Optional note for Workshop (leave empty for none):", "") || "";
+      fd.append("note", note);
+    }
+    const res = await fetch("/api/central_ready", {method:"POST", body: fd, headers: {"X-Requested-With":"XMLHttpRequest"}});
+    return res.ok;
+  }
+
+  async function clearCentralReady(){
+    const res = await fetch("/api/central_ready/clear", {method:"POST", headers: {"X-Requested-With":"XMLHttpRequest"}});
+    return res.ok;
+  }
+
+  const banner = document.getElementById("centralReadyBanner");
+  const noteEl = document.getElementById("centralReadyNote");
+  const ackBtn = document.getElementById("btnReadyAcknowledge");
+  const adminSetBtn = document.getElementById("btnReadyToLoad");
+  const adminClearBtn = document.getElementById("btnReadyClear");
+
+  if(adminSetBtn){
+    adminSetBtn.addEventListener("click", async ()=>{
+      adminSetBtn.disabled = true;
+      try{
+        const ok = await setCentralReady(true);
+        if(!ok) alert("Failed to set Ready to Load.");
+      }finally{
+        adminSetBtn.disabled = false;
+      }
+    });
+  }
+  if(adminClearBtn){
+    adminClearBtn.addEventListener("click", async ()=>{
+      adminClearBtn.disabled = true;
+      try{
+        const ok = await clearCentralReady();
+        if(!ok) alert("Failed to clear.");
+      }finally{
+        adminClearBtn.disabled = false;
+      }
+    });
+  }
+
+  if(ackBtn && banner){
+    ackBtn.addEventListener("click", async ()=>{
+      ackBtn.disabled = true;
+      try{
+        const ok = await clearCentralReady();
+        if(ok) banner.classList.remove("show");
+      }finally{
+        ackBtn.disabled = false;
+      }
+    });
+  }
+
+  // Workshop polling (kept lightweight)
+  if(banner){
+    setInterval(async ()=>{
+      const data = await fetchCentralReady();
+      if(!data) return;
+      if(data.ready){
+        banner.classList.add("show");
+        if(noteEl) noteEl.textContent = data.note || "Central marked the load as ready.";
+      }else{
+        banner.classList.remove("show");
+      }
+    }, 15000);
+  }
+
 
 })();</script>
 
