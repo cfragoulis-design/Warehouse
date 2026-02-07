@@ -97,6 +97,13 @@
       <input name="min_stock" type="number" min="0" step="1" value="{{ product.min_stock if product and product.min_stock is not none else 0 }}">
       <div class="muted">Αν είναι &gt; 0 και το Κεντρικό πέσει κάτω, θα εμφανίζει ένδειξη LOW.</div>
 
+      
+      <label style="margin-top:10px; display:flex; align-items:center; gap:10px;">
+        <input type="checkbox" name="only_in_freezer" value="1" {% if product and product.only_in_freezer %}checked{% endif %}>
+        <span><b>Only in Freezer</b> (δεν εμφανίζεται στο Stock)</span>
+      </label>
+      <div class="muted">Για προϊόντα που υπάρχουν αποκλειστικά στην Κατάψυξη.</div>
+
       <div class="actions">
         <button class="btn" type="submit">Αποθήκευση</button>
         <a class="link" href="/products">Ακύρωση</a>
