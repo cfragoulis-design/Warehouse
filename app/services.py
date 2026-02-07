@@ -328,7 +328,7 @@ def products_list(
         select(Product)
         .outerjoin(Category, Category.name == Product.category)
         .where(func.coalesce(Product.only_in_freezer, False).is_(False))
-        .where(True if show_all else (Product.is_active == True))
+        .where((Product.is_active == True) & (Product.only_in_freezer == False))
         .order_by(
             Product.is_active.desc(),
             cat_order.asc(),
