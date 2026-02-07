@@ -14,6 +14,7 @@ from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func, case
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
@@ -367,6 +368,7 @@ def product_new_form(
 
 @router.post("/products/new")
 def product_create(
+    request: Request,
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
     name: str = Form(...),
@@ -386,7 +388,15 @@ def product_create(
         only_in_freezer=_truthy_flag(only_in_freezer),
     )
     db.add(p)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Most common: duplicate SKU unique constraint
+        db.rollback()
+        # Keep UX simple: show the existing warning banner in product_form.html
+        # (query param err=sku)
+        return RedirectResponse(url="/products/new?err=sku", status_code=303)
+
     return RedirectResponse(url="/products", status_code=303)
 
 
@@ -411,6 +421,7 @@ def product_edit_form(
 @router.post("/products/{pid}/edit")
 def product_update(
     pid: int,
+    request: Request,
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
     name: str = Form(...),
@@ -431,7 +442,12 @@ def product_update(
     product.only_in_freezer = _truthy_flag(only_in_freezer)
     ms = parse_qty(min_stock)
     product.min_stock = float(ms) if ms is not None else 0
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return RedirectResponse(url=f"/products/{pid}/edit?err=sku", status_code=303)
+
     return RedirectResponse(url="/products", status_code=303)
 
 
