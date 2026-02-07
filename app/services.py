@@ -955,52 +955,10 @@ def stock_view(
             "can_edit_target": (user.role == "admin"),
             "can_adjust_central": (user.role == "admin"),
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
-            "central_ready": _get_central_ready(db)[0],
-            "central_ready_at": _get_central_ready(db)[1],
         },
     )
 
 
-
-
-# --- CENTRAL READY flag (global) ---
-def _get_central_ready(db: Session) -> tuple[bool, str | None]:
-    row = db.execute(text("SELECT central_ready, central_ready_at FROM app_state WHERE id=1")).fetchone()
-    if not row:
-        return False, None
-    ready = bool(row[0])
-    at = row[1].isoformat() if row[1] else None
-    return ready, at
-
-
-def _set_central_ready(db: Session, ready: bool) -> None:
-    if ready:
-        db.execute(text("UPDATE app_state SET central_ready=TRUE, central_ready_at=NOW() WHERE id=1"))
-    else:
-        db.execute(text("UPDATE app_state SET central_ready=FALSE WHERE id=1"))
-    db.commit()
-
-
-@router.get("/api/central_ready")
-def api_get_central_ready(user: User = Depends(require_user), db: Session = Depends(get_db)):
-    ready, at = _get_central_ready(db)
-    return {"ready": ready, "at": at}
-
-
-@router.post("/api/central_ready/set")
-def api_set_central_ready(user: User = Depends(require_user), db: Session = Depends(get_db)):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Not allowed")
-    _set_central_ready(db, True)
-    return {"ok": True}
-
-
-@router.post("/api/central_ready/clear")
-def api_clear_central_ready(user: User = Depends(require_user), db: Session = Depends(get_db)):
-    if user.role not in ("admin", "workshop"):
-        raise HTTPException(status_code=403, detail="Not allowed")
-    _set_central_ready(db, False)
-    return {"ok": True}
 def _telegram_send(text: str) -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
