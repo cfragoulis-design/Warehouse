@@ -97,6 +97,7 @@
         <div class="sub">Required: <b>Name</b>, <b>Unit</b></div>
       </div>
       <div class="card-b">
+        {% if user.role == 'admin' %}
         <form id="addForm" method="post" action="/consumables/new">
           <div class="grid">
             <div>
@@ -141,6 +142,9 @@
             Units logic: <b>Pack size</b> defines how many units are in 1 pack. <b>Target stock</b> and <b>Reorder point</b> are in <b>units</b>.
           </div>
         </form>
+        {% else %}
+          <div class="muted" style="font-size:13px;line-height:1.4">Only admins can add or edit consumables.</div>
+        {% endif %}
       </div>
     </div>
 
@@ -222,6 +226,8 @@
             </td>
             <td>
               <div class="actions">
+                {% if user.role == 'admin' %}
+                <a class="btn2" href="/consumables/{{ r.id }}/edit">Edit</a>
                 <form method="post" action="/consumables/{{ r.id }}/adjust" class="mini">
                   <input name="delta" type="number" step="1" value="1" aria-label="Adjust delta" />
                   <button class="btn2" type="submit">Adjust</button>
@@ -237,6 +243,9 @@
                 <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
                   <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
                 </form>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
               </div>
             </td>
           </tr>
@@ -246,14 +255,16 @@
       {% endif %}
     </div>
 
-    <div class="footer">
-      <form method="post" action="/purchase-orders/generate">
-        <button class="btn" type="submit">Generate POs by supplier</button>
-      </form>
-      <div class="muted" style="font-size:12px;">
-        Creates Draft purchase orders from <b>Suggested &gt; 0</b> (only items that have a Supplier).
+    {% if user.role == 'admin' %}
+      <div class="footer">
+        <form method="post" action="/purchase-orders/generate">
+          <button class="btn" type="submit">Generate POs by supplier</button>
+        </form>
+        <div class="muted" style="font-size:12px;">
+          Creates Draft purchase orders from <b>Suggested &gt; 0</b> (only items that have a Supplier).
+        </div>
       </div>
-    </div>
+    {% endif %}
 
   </div>
 

@@ -52,6 +52,7 @@
 
   <div class="wrap">
     <div class="card" style="padding:14px;margin-bottom:14px;">
+      {% if user.role == 'admin' %}
       <form class="row" method="post" action="/suppliers/new">
         <input class="grow" name="name" placeholder="Όνομα προμηθευτή" required />
         <input name="phone" placeholder="Τηλέφωνο" />
@@ -59,6 +60,9 @@
         <input class="grow" name="notes" placeholder="Σημειώσεις" />
         <button class="btn" type="submit">+ Προσθήκη</button>
       </form>
+      {% else %}
+        <div class="muted" style="font-size:13px;line-height:1.4">Μόνο admin μπορεί να προσθέσει/επεξεργαστεί προμηθευτές.</div>
+      {% endif %}
     </div>
 
     <div class="card">
@@ -73,9 +77,16 @@
             <td class="muted">{{ s.email or "" }}</td>
             <td>{% if s.is_active %}<span class="ok">ACTIVE</span>{% else %}<span class="bad">OFF</span>{% endif %}</td>
             <td>
-              <form method="post" action="/suppliers/{{ s.id }}/toggle">
-                <button class="btn2" type="submit">{% if s.is_active %}Disable{% else %}Enable{% endif %}</button>
-              </form>
+              {% if user.role == 'admin' %}
+                <div class="right">
+                  <a class="btn2" href="/suppliers/{{ s.id }}/edit">Edit</a>
+                  <form method="post" action="/suppliers/{{ s.id }}/toggle" style="margin:0">
+                    <button class="btn2" type="submit">{% if s.is_active %}Disable{% else %}Enable{% endif %}</button>
+                  </form>
+                </div>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}

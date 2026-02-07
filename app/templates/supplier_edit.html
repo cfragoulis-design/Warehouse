@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Επεξεργασία προμηθευτή</title>
+
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
+
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--red:#ef4444;--green:#22c55e;}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);}
+    a{color:inherit;text-decoration:none}
+    .top{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg, rgba(17,25,54,.9), rgba(11,16,32,.9));position:sticky;top:0;z-index:10}
+    .nav{display:flex;gap:10px;flex-wrap:wrap}
+    .pill{padding:8px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.02)}
+    .pill:hover{border-color:#35508e}
+    .wrap{max-width:900px;margin:0 auto;padding:18px}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    .card-h{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+    .card-h h2{margin:0;font-size:16px;letter-spacing:.01em}
+    .card-h .sub{margin-top:2px;color:var(--muted);font-size:12px}
+    .card-b{padding:14px 16px}
+    label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px 2px}
+    input,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:9px 10px;border-radius:10px;outline:none}
+    input:focus,textarea:focus{border-color:#3d5fb5}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media (max-width:760px){.grid{grid-template-columns:1fr}}
+    .btn{border:1px solid var(--line);background:rgba(47,124,246,.14);color:var(--text);padding:9px 12px;border-radius:10px;cursor:pointer;white-space:nowrap}
+    .btn:hover{border-color:#3d5fb5}
+    .btn2{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--text);padding:9px 12px;border-radius:10px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center}
+    .btn2:hover{border-color:#3d5fb5}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+    .ok{color:var(--green);font-weight:700}
+    .bad{color:var(--red);font-weight:700}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="nav">
+      <span id="app-datetime" class="app-datetime"></span>
+      <a class="pill" href="/dashboard">Dashboard</a>
+      <a class="pill" href="/stock">Stock</a>
+      <a class="pill" href="/movements">Movements</a>
+      <a class="pill" href="/products">Products</a>
+      <a class="pill" href="/consumables">Αναλώσιμα</a>
+      <a class="pill" href="/suppliers"><b>Προμηθευτές</b></a>
+      <a class="pill" href="/purchase-orders">Παραγγελίες</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <h2>Επεξεργασία προμηθευτή</h2>
+          <div class="sub">ID: <b>#{{ s.id }}</b> • Status: {% if s.is_active %}<span class="ok">ACTIVE</span>{% else %}<span class="bad">OFF</span>{% endif %}</div>
+        </div>
+        <a class="btn2" href="/suppliers">Back</a>
+      </div>
+      <div class="card-b">
+        <form method="post" action="/suppliers/{{ s.id }}/edit">
+          <div class="grid">
+            <div>
+              <label for="name">Όνομα *</label>
+              <input id="name" name="name" value="{{ s.name }}" required />
+            </div>
+            <div>
+              <label for="phone">Τηλέφωνο</label>
+              <input id="phone" name="phone" value="{{ s.phone or '' }}" />
+            </div>
+            <div>
+              <label for="email">Email</label>
+              <input id="email" name="email" value="{{ s.email or '' }}" />
+            </div>
+            <div>
+              <label for="notes">Σημειώσεις</label>
+              <input id="notes" name="notes" value="{{ s.notes or '' }}" />
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:14px">
+            <a class="btn2" href="/suppliers">Cancel</a>
+            <button class="btn" type="submit">Save changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

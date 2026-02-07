@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Edit consumable</title>
+
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
+
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--red:#ef4444;}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);}
+    a{color:inherit;text-decoration:none}
+    .top{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg, rgba(17,25,54,.9), rgba(11,16,32,.9));position:sticky;top:0;z-index:10}
+    .nav{display:flex;gap:10px;flex-wrap:wrap}
+    .pill{padding:8px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.02)}
+    .pill:hover{border-color:#35508e}
+    .wrap{max-width:900px;margin:0 auto;padding:18px}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    .card-h{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+    .card-h h2{margin:0;font-size:16px;letter-spacing:.01em}
+    .card-h .sub{margin-top:2px;color:var(--muted);font-size:12px}
+    .card-b{padding:14px 16px}
+    label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px 2px}
+    input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:9px 10px;border-radius:10px;outline:none}
+    input:focus,select:focus,textarea:focus{border-color:#3d5fb5}
+    .grid{display:grid;grid-template-columns:1.6fr 1fr;gap:12px}
+    @media (max-width:760px){.grid{grid-template-columns:1fr}}
+    .btn{border:1px solid var(--line);background:rgba(47,124,246,.14);color:var(--text);padding:9px 12px;border-radius:10px;cursor:pointer;white-space:nowrap}
+    .btn:hover{border-color:#3d5fb5}
+    .btn2{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--text);padding:9px 12px;border-radius:10px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center}
+    .btn2:hover{border-color:#3d5fb5}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+    .hint{margin-top:10px;color:var(--muted);font-size:12px;line-height:1.4}
+    .danger{color:#ffd3d3}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="nav">
+      <span id="app-datetime" class="app-datetime"></span>
+      <a class="pill" href="/dashboard">Dashboard</a>
+      <a class="pill" href="/stock">Stock</a>
+      <a class="pill" href="/movements">Movements</a>
+      <a class="pill" href="/products">Products</a>
+      <a class="pill" href="/consumables"><b>Consumables</b></a>
+      <a class="pill" href="/suppliers">Suppliers</a>
+      <a class="pill" href="/purchase-orders">Purchase Orders</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <h2>Edit consumable</h2>
+          <div class="sub">ID: <b>#{{ c.id }}</b> • Status: {% if c.is_active %}<b>ACTIVE</b>{% else %}<b class="danger">DISABLED</b>{% endif %}</div>
+        </div>
+        <a class="btn2" href="/consumables">Back</a>
+      </div>
+      <div class="card-b">
+        <form method="post" action="/consumables/{{ c.id }}/edit">
+          <div class="grid">
+            <div>
+              <label for="name">Name *</label>
+              <input id="name" name="name" value="{{ c.name }}" required />
+            </div>
+            <div>
+              <label for="category">Category</label>
+              <input id="category" name="category" value="{{ c.category or '' }}" />
+            </div>
+            <div>
+              <label for="unit">Unit</label>
+              <input id="unit" name="unit" value="{{ c.unit or '' }}" placeholder="e.g. pcs / box" />
+            </div>
+            <div>
+              <label for="pack_size">Pack size (units per pack)</label>
+              <input id="pack_size" name="pack_size" type="number" min="1" step="1" value="{{ (c.pack_size or 1)|int }}" />
+            </div>
+            <div>
+              <label for="min_qty">Reorder point (Min units)</label>
+              <input id="min_qty" name="min_qty" type="number" min="0" step="1" value="{{ (c.min_qty or 0)|int }}" />
+            </div>
+            <div>
+              <label for="desired_qty">Target stock (units)</label>
+              <input id="desired_qty" name="desired_qty" type="number" min="0" step="1" value="{{ (c.desired_qty or 0)|int }}" />
+            </div>
+            <div>
+              <label for="supplier_id">Supplier</label>
+              <select id="supplier_id" name="supplier_id">
+                <option value="">—</option>
+                {% for s in suppliers %}
+                  <option value="{{ s.id }}" {% if c.supplier_id == s.id %}selected{% endif %}>{{ s.name }}{% if not s.is_active %} (inactive){% endif %}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label for="notes">Notes</label>
+              <input id="notes" name="notes" value="{{ c.notes or '' }}" />
+            </div>
+          </div>
+
+          <div class="hint">
+            Suggested ordering uses: <b>Target</b> - (<b>On hand</b> + <b>On order</b>) and is rounded up to a full <b>pack</b>.
+          </div>
+
+          <div class="row" style="margin-top:14px">
+            <a class="btn2" href="/consumables">Cancel</a>
+            <button class="btn" type="submit">Save changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
