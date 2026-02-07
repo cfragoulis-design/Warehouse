@@ -26,6 +26,24 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     pin_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
+class AppFlag(Base):
+    """Simple key/value flags for app-wide state (e.g. CENTRAL ready-to-load)."""
+
+    __tablename__ = "app_flags"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    bool_value: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+
+
 
 class Product(Base):
     __tablename__ = "products"

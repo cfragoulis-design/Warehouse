@@ -101,3 +101,20 @@ def init_db() -> None:
             )
     except Exception:
         pass
+
+
+    # App flags (e.g. CENTRAL ready-to-load). Safe, idempotent.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS app_flags (
+                    key VARCHAR(64) PRIMARY KEY,
+                    bool_value BOOLEAN NOT NULL DEFAULT FALSE,
+                    note VARCHAR(255),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """
+            )
+    except Exception:
+        pass

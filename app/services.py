@@ -21,11 +21,11 @@ from sqlalchemy.orm import Session
 try:
     from app.auth import require_user
     from app.db import get_db
-    from app.models import User, Product, Category, StockMovement, Location, StockMissing, FreezerItem
+    from app.models import User, Product, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag
 except Exception:
     from auth import require_user
     from db import get_db
-    from models import User, Product, Category, StockMovement, Location, StockMissing, FreezerItem
+    from models import User, Product, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag
 
 router = APIRouter()
 
@@ -112,6 +112,21 @@ def parse_qty_any(qty: str) -> Decimal | None:
     try:
         q = Decimal(qty.replace(",", ".").strip())
         if q < 0:
+            return None
+        return q
+    except Exception:
+        return None
+
+
+
+def parse_qty_signed(qty: str) -> Decimal | None:
+    """Parse qty that may be negative (for +/- adjustments)."""
+    try:
+        s = qty.replace(",", ".").strip()
+        if not s:
+            return None
+        q = Decimal(s)
+        if q == 0:
             return None
         return q
     except Exception:
@@ -939,6 +954,10 @@ def api_stock(
     """
     grouped = build_stock_grouped(db, loc=loc, q=q)
 
+    f = _get_flag(db, _CENTRAL_READY_KEY)
+    central_ready = bool(f.bool_value) if f else False
+    central_ready_note = (f.note if f else None)
+
     items = []
     for _cat, arr in grouped.items():
         for it in arr:
@@ -972,6 +991,10 @@ def stock_view(
     db: Session = Depends(get_db),
 ):
     grouped = build_stock_grouped(db, loc=loc, q=q)
+
+    f = _get_flag(db, _CENTRAL_READY_KEY)
+    central_ready = bool(f.bool_value) if f else False
+    central_ready_note = (f.note if f else None)
 
     return templates.TemplateResponse(
         "stock.html",
@@ -1012,6 +1035,89 @@ def _telegram_send(text: str) -> None:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Telegram send error: {e}")
+
+
+
+# --------------------
+# CENTRAL Ready-to-load flag
+# --------------------
+
+_CENTRAL_READY_KEY = "central_ready"
+
+
+def _get_flag(db: Session, key: str) -> AppFlag | None:
+    return db.get(AppFlag, key)
+
+
+def _set_flag(db: Session, key: str, value: bool, note: str | None = None) -> AppFlag:
+    f = db.get(AppFlag, key)
+    if not f:
+        f = AppFlag(key=key, bool_value=bool(value), note=(note or None))
+        db.add(f)
+    else:
+        f.bool_value = bool(value)
+        f.note = (note or None)
+    db.commit()
+    return f
+
+
+@router.get("/api/central_ready")
+def api_central_ready(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    # visible to all logged-in users
+    f = _get_flag(db, _CENTRAL_READY_KEY)
+    return {
+        "ok": True,
+        "ready": bool(f.bool_value) if f else False,
+        "note": (f.note if f else None),
+        "updated_at": (f.updated_at.isoformat() if f else None),
+    }
+
+
+@router.post("/api/central_ready")
+def api_central_ready_set(
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+    ready: str = Form("1"),
+    note: str = Form(""),
+):
+    # admin sets "ready"
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    is_ready = _truthy_flag(ready)
+    note_clean = (note or "").strip() or None
+    f = _set_flag(db, _CENTRAL_READY_KEY, is_ready, note_clean)
+
+    # Optional telegram notify (no hard fail if not configured)
+    if is_ready:
+        try:
+            who = user.username or str(user.id)
+            msg = "✅ READY TO LOAD (CENTRAL)\n" + f"By: {who}"
+            if note_clean:
+                msg += f"\nNote: {note_clean}"
+            _telegram_send(msg)
+        except Exception:
+            # Do not block the UX if telegram is not configured or fails
+            pass
+
+    return {"ok": True, "ready": bool(f.bool_value), "note": f.note, "updated_at": f.updated_at.isoformat()}
+
+
+@router.post("/api/central_ready/clear")
+def api_central_ready_clear(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    # workshop or admin can clear after loading
+    if user.role not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    f = _set_flag(db, _CENTRAL_READY_KEY, False, None)
+    return {"ok": True, "ready": False, "updated_at": f.updated_at.isoformat()}
 
 
 @router.post("/stock/need")
@@ -1076,6 +1182,10 @@ def stock_print_a4(
     db: Session = Depends(get_db),
 ):
     grouped = build_stock_grouped(db, loc=loc, q=q)
+
+    f = _get_flag(db, _CENTRAL_READY_KEY)
+    central_ready = bool(f.bool_value) if f else False
+    central_ready_note = (f.note if f else None)
 
     if scope == "pending":
         grouped2: dict[str, list[dict]] = {}
@@ -1790,7 +1900,7 @@ def freezer_adjust(
     if not _can_freezer_adjust(user):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    d = parse_qty_any(delta)
+    d = parse_qty_signed(delta)
     if d is None:
         return JSONResponse({"ok": False, "error": "bad_qty"}, status_code=400)
 
