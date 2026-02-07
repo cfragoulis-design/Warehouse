@@ -194,6 +194,9 @@ class Consumable(Base):
     min_qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("0"))
     desired_qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("0"))
 
+    # pricing
+    cost_per_pack: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("0"))
+
     supplier_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("suppliers.id"), nullable=True)
 
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)

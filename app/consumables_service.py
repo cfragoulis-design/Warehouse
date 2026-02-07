@@ -62,12 +62,10 @@ def _round_to_pack(qty: Decimal, pack: Decimal) -> Decimal:
 
 @router.get("/consumables")
 def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
-    # stocks (single-location mode): sum all stock rows per consumable
-    stock_rows = (
-        db.query(ConsumableStock.consumable_id, func.coalesce(func.sum(ConsumableStock.qty), 0))
-        .group_by(ConsumableStock.consumable_id)
-        .all()
-    )
+    # stocks (workshop only)
+    stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
+        ConsumableStock.location_code == WORKSHOP_CODE
+    ).all()
     stock_map = {cid: _d(qty) for cid, qty in stock_rows}
 
     # on_order per consumable (open POs only)
@@ -81,8 +79,8 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
     on_order_map = {cid: _d(qty) for cid, qty in on_order_rows}
 
     consumables = db.query(Consumable).order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc()).all()
-    supplier_rows = db.query(Supplier).order_by(Supplier.is_active.desc(), Supplier.name.asc()).all()
-    suppliers = {s.id: s for s in supplier_rows}
+    suppliers_list = db.query(Supplier).order_by(Supplier.name.asc()).all()
+    suppliers = {s.id: s for s in suppliers_list}
 
     rows = []
     for c in consumables:
@@ -92,11 +90,9 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
         on_order = on_order_map.get(c.id, Decimal("0"))
         desired = _d(c.desired_qty)
         pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
-        needed_units = desired - (on_hand + on_order)
-        if needed_units < 0:
-            needed_units = Decimal("0")
+        suggested_raw = desired - (on_hand + on_order)
         # Suggested is stored/handled in *units* but always rounded up to a whole pack.
-        suggested_units = _round_to_pack(needed_units, pack) if needed_units > 0 else Decimal("0")
+        suggested_units = _round_to_pack(suggested_raw, pack) if suggested_raw > 0 else Decimal("0")
         suggested_packs = _packs_for(suggested_units, pack) if suggested_units > 0 else 0
         rows.append({
             "id": c.id,
@@ -109,17 +105,15 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
             "on_hand": on_hand,
             "on_order": on_order,
             "suggested_units": suggested_units,
-            "needed_units": needed_units,
             "suggested_packs": suggested_packs,
             "supplier_name": suppliers.get(c.supplier_id).name if c.supplier_id and c.supplier_id in suppliers else "",
             "notes": c.notes or "",
+            "cost_per_pack": _d(getattr(c, "cost_per_pack", 0)),
+            "cost_per_unit": (_d(getattr(c, "cost_per_pack", 0)) / pack) if pack and pack != 0 else Decimal("0"),
+            "suggested_cost": (_d(getattr(c, "cost_per_pack", 0)) * Decimal(str(suggested_packs))) if suggested_packs else Decimal("0"),
         })
 
-    # suppliers list is used by the "Add consumable" form (dropdown)
-    return templates.TemplateResponse(
-        "consumables_list.html",
-        {"request": request, "user": user, "rows": rows, "suppliers": supplier_rows},
-    )
+    return templates.TemplateResponse("consumables_list.html", {"request": request, "user": user, "rows": rows, "suppliers_list": suppliers_list})
 
 
 @router.post("/consumables/new")
@@ -133,6 +127,7 @@ def consumable_new(
     pack_size: str = Form("1"),
     min_qty: str = Form("0"),
     desired_qty: str = Form("0"),
+    cost_per_pack: str = Form("0"),
     supplier_id: str = Form(""),
     notes: str = Form(""),
 ):
@@ -144,63 +139,12 @@ def consumable_new(
         pack_size=_d(pack_size),
         min_qty=_d(min_qty),
         desired_qty=_d(desired_qty),
+        cost_per_pack=_d(cost_per_pack),
         supplier_id=sid,
         notes=notes.strip() or None,
         is_active=True,
     )
     db.add(c)
-    db.commit()
-    return RedirectResponse("/consumables", status_code=303)
-
-
-@router.get("/consumables/{cid}/edit")
-def consumable_edit_page(
-    cid: int,
-    request: Request,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_role("admin")),
-):
-    c = db.get(Consumable, cid)
-    if not c:
-        raise HTTPException(404)
-
-    suppliers = db.query(Supplier).order_by(Supplier.is_active.desc(), Supplier.name.asc()).all()
-
-    return templates.TemplateResponse(
-        "consumable_edit.html",
-        {"request": request, "user": user, "c": c, "suppliers": suppliers},
-    )
-
-
-@router.post("/consumables/{cid}/edit")
-def consumable_edit_save(
-    cid: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_role("admin")),
-    name: str = Form(...),
-    category: str = Form(""),
-    unit: str = Form(""),
-    pack_size: str = Form("1"),
-    min_qty: str = Form("0"),
-    desired_qty: str = Form("0"),
-    supplier_id: str = Form(""),
-    notes: str = Form(""),
-):
-    c = db.get(Consumable, cid)
-    if not c:
-        raise HTTPException(404)
-
-    sid = int(supplier_id) if supplier_id.strip() else None
-
-    c.name = name.strip()
-    c.category = category.strip() or None
-    c.unit = unit.strip() or None
-    c.pack_size = _d(pack_size)
-    c.min_qty = _d(min_qty)
-    c.desired_qty = _d(desired_qty)
-    c.supplier_id = sid
-    c.notes = notes.strip() or None
-
     db.commit()
     return RedirectResponse("/consumables", status_code=303)
 
@@ -225,11 +169,9 @@ def consumable_adjust(
     c = db.get(Consumable, cid)
     if not c:
         raise HTTPException(404)
-    # single-location mode: keep using an existing row regardless of location_code.
-    # If none exists yet, create one with a neutral code.
-    st = db.query(ConsumableStock).filter_by(consumable_id=cid).order_by(ConsumableStock.location_code.asc()).first()
+    st = db.query(ConsumableStock).filter_by(consumable_id=cid, location_code=WORKSHOP_CODE).first()
     if not st:
-        st = ConsumableStock(consumable_id=cid, location_code="MAIN", qty=Decimal("0"))
+        st = ConsumableStock(consumable_id=cid, location_code=WORKSHOP_CODE, qty=Decimal("0"))
         db.add(st)
         db.flush()
     st.qty = _d(st.qty) + _d(delta)
@@ -256,40 +198,6 @@ def supplier_new(
 ):
     s = Supplier(name=name.strip(), phone=phone.strip() or None, email=email.strip() or None, notes=notes.strip() or None, is_active=True)
     db.add(s)
-    db.commit()
-    return RedirectResponse("/suppliers", status_code=303)
-
-
-@router.get("/suppliers/{sid}/edit")
-def supplier_edit_page(
-    sid: int,
-    request: Request,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_role("admin")),
-):
-    s = db.get(Supplier, sid)
-    if not s:
-        raise HTTPException(404)
-    return templates.TemplateResponse("supplier_edit.html", {"request": request, "user": user, "s": s})
-
-
-@router.post("/suppliers/{sid}/edit")
-def supplier_edit_save(
-    sid: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_role("admin")),
-    name: str = Form(...),
-    phone: str = Form(""),
-    email: str = Form(""),
-    notes: str = Form(""),
-):
-    s = db.get(Supplier, sid)
-    if not s:
-        raise HTTPException(404)
-    s.name = name.strip()
-    s.phone = phone.strip() or None
-    s.email = email.strip() or None
-    s.notes = notes.strip() or None
     db.commit()
     return RedirectResponse("/suppliers", status_code=303)
 
