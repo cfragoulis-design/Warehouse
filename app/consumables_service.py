@@ -79,7 +79,8 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
     on_order_map = {cid: _d(qty) for cid, qty in on_order_rows}
 
     consumables = db.query(Consumable).order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc()).all()
-    suppliers = {s.id: s for s in db.query(Supplier).all()}
+    supplier_rows = db.query(Supplier).order_by(Supplier.is_active.desc(), Supplier.name.asc()).all()
+    suppliers = {s.id: s for s in supplier_rows}
 
     rows = []
     for c in consumables:
@@ -109,7 +110,11 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
             "notes": c.notes or "",
         })
 
-    return templates.TemplateResponse("consumables_list.html", {"request": request, "user": user, "rows": rows})
+    # suppliers list is used by the "Add consumable" form (dropdown)
+    return templates.TemplateResponse(
+        "consumables_list.html",
+        {"request": request, "user": user, "rows": rows, "suppliers": supplier_rows},
+    )
 
 
 @router.post("/consumables/new")
