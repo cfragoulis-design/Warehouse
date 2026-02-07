@@ -115,7 +115,24 @@
     .readyBanner .msg{font-weight:900}
     .readyBanner .note{color:var(--muted);font-size:12px;margin-top:2px}
     .readyBanner .left{display:flex;flex-direction:column}
-  </style>
+  
+    /* Tooltips */
+    .tt{position:relative;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:999px;border:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1;cursor:help;margin-left:6px;background:rgba(255,255,255,.03)}
+    .tt::after{content:attr(data-tip);position:absolute;left:50%;top:calc(100% + 10px);transform:translateX(-50%);min-width:220px;max-width:320px;white-space:normal;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(15,22,45,.98);color:var(--text);font-size:12px;line-height:1.35;box-shadow:0 16px 40px rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .12s ease;z-index:50}
+    .tt::before{content:"";position:absolute;left:50%;top:calc(100% + 4px);transform:translateX(-50%);border:6px solid transparent;border-bottom-color:var(--line);opacity:0;transition:opacity .12s ease;z-index:51}
+    .tt:hover::after,.tt:hover::before{opacity:1}
+
+    /* Visual hierarchy */
+    tr.rowPending td{box-shadow:inset 0 0 0 9999px rgba(202,162,74,.06)}
+    tr.rowLow td{box-shadow:inset 0 0 0 9999px rgba(255,107,107,.08)}
+    tr.rowPending td:first-child, tr.rowLow td:first-child{border-left:3px solid rgba(202,162,74,.65)}
+    tr.rowLow td:first-child{border-left-color: rgba(255,107,107,.8)}
+    tr.rowPending td{border-top:1px solid rgba(202,162,74,.25);border-bottom:1px solid rgba(202,162,74,.25)}
+    tr.rowLow td{border-top:1px solid rgba(255,107,107,.22);border-bottom:1px solid rgba(255,107,107,.22)}
+
+    /* Sticky category headers (keeps context while scrolling) */
+    tr.catrow td{position:sticky;top:0;z-index:10}
+</style>
 </head>
 <body>
   <div class="top wrap" style="padding-bottom:10px">
@@ -182,8 +199,8 @@
             <th style="width:10%">Unit</th>
             <th style="width:10%">Central</th>
             <th style="width:10%">Workshop</th>
-            <th style="width:16%">Target (Central)</th>
-            <th style="width:10%">Pending</th>
+            <th style="width:16%">Target (Central)<span class="tt" data-tip="Target is the desired CENTRAL stock level you set manually. Pending is calculated from this target.">i</span></th>
+            <th style="width:10%">Pending<span class="tt" data-tip="Pending = Target (Central) − Central stock. Tap the +Pending pill to fulfill by transferring from WORKSHOP to CENTRAL.">i</span></th>
             <th style="width:20%">Actions</th>
           </tr>
         </thead>
@@ -191,7 +208,7 @@
         {% for cat, items in grouped.items() %}
           <tr class="catrow"><td colspan="8">{{ cat }}</td></tr>
           {% for it in items %}
-            <tr data-product-id="{{ it.id }}">
+            <tr data-product-id="{{ it.id }}" class="{% if it.is_low %}rowLow {% endif %}{% if it.pending > 0 %}rowPending{% endif %}">
               <td>
                 <div class="prodRow">
                   {% if user and user.role == 'admin' %}
