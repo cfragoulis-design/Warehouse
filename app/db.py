@@ -118,3 +118,13 @@ def init_db() -> None:
             )
     except Exception:
         pass
+
+    # Consumables prices (safe, idempotent).
+    # Added for the consumables module to support Cost €/pack.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "ALTER TABLE consumables ADD COLUMN IF NOT EXISTS cost_per_pack NUMERIC(12,2) NOT NULL DEFAULT 0"
+            )
+    except Exception:
+        pass
