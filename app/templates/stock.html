@@ -101,9 +101,46 @@
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
   
-.readyBar{display:flex;align-items:center;gap:10px;margin:10px 0 0 0;}
-.centralReadyBanner{margin:10px 0 0 0;padding:10px 12px;border-radius:12px;border:1px solid rgba(36,48,85,.75);background:rgba(202,162,74,.22);display:flex;align-items:center;gap:10px;}
-.centralReadyBanner .muted{color:var(--muted);font-size:12px}
+
+  /* Central Ready banner */
+  .readyBanner {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255, 176, 0, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .readyBanner .readyText { font-weight: 700; }
+  .readyBanner .readyClear {
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    cursor: pointer;
+  }
+  .readyAdminRow {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .readyAdminRow .readySet {
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    cursor: pointer;
+  }
+  .readyStatus {
+    opacity: 0.85;
+    font-size: 13px;
+  }
 </style>
 </head>
 <body>
@@ -149,20 +186,15 @@
       </div>
 
 
-      <!-- CENTRAL READY (shows regardless of location filter) -->
-<div class="readyBar">
-  {% if user.role == 'admin' %}
-    <button id="central-ready-btn" type="button" class="btn btnBlue btnTiny">🚚 Ready to Load (Workshop)</button>
-    <button id="central-ready-clear-btn" type="button" class="btn btnGhost btnTiny" style="display:none;">Clear</button>
-    <span id="central-ready-sent" class="pill warn" style="display:none;">Sent</span>
-  {% endif %}
-</div>
+      <div id="central-ready-admin" class="readyAdminRow" style="display:none">
+        <button type="button" id="btn-ready-set" class="readySet">🚚 Ready to Load (Send to Workshop)</button>
+        <span id="ready-status" class="readyStatus"></span>
+      </div>
 
-<div id="central-ready-banner" class="centralReadyBanner" style="display:none;">
-  🚚 <strong>CENTRAL IS READY TO LOAD</strong>
-  <span id="central-ready-at" class="muted"></span>
-  <button id="central-ready-ok" type="button" class="btn btnGhost btnTiny">OK</button>
-</div>
+      <div id="central-ready-banner" class="readyBanner" style="display:none">
+        <span class="readyText">🚚 Ready to Load (Workshop)</span>
+        <button type="button" id="btn-ready-clear" class="readyClear">OK</button>
+      </div>
 
       <table>
         <thead>
@@ -604,77 +636,92 @@
     });
   });
 
+
+
+  // ---------------------------
+  // Central Ready (notify workshop)
+  // ---------------------------
+  const role = "{{ user.role }}";
+  const adminRow = document.getElementById("central-ready-admin");
+  const banner = document.getElementById("central-ready-banner");
+  const btnSet = document.getElementById("btn-ready-set");
+  const btnClear = document.getElementById("btn-ready-clear");
+  const statusEl = document.getElementById("ready-status");
+
+  let centralReady = {{ 'true' if central_ready else 'false' }};
+
+  function renderCentralReady(state){
+    centralReady = !!state;
+
+    if (role === "admin") {
+      if (adminRow) adminRow.style.display = "flex";
+      if (btnSet) btnSet.disabled = centralReady;
+      if (statusEl) statusEl.textContent = centralReady ? "Sent" : "";
+    } else {
+      if (adminRow) adminRow.style.display = "none";
+    }
+
+    if (role === "workshop") {
+      if (banner) banner.style.display = centralReady ? "flex" : "none";
+    } else {
+      if (banner) banner.style.display = "none";
+    }
+  }
+
+  async function fetchCentralReady(){
+    try{
+      const res = await fetch("/api/central_ready", { method: "GET" });
+      if(!res.ok) return;
+      const data = await res.json();
+      if(data && data.ok){
+        renderCentralReady(!!data.central_ready);
+      }
+    }catch(_e){}
+  }
+
+  if (btnSet) {
+    btnSet.addEventListener("click", async () => {
+      btnSet.disabled = true;
+      try{
+        const res = await fetch("/api/central_ready/set", { method: "POST" });
+        if(!res.ok){
+          alert("Server error");
+          return;
+        }
+        const data = await res.json();
+        renderCentralReady(!!(data && data.central_ready));
+      }catch(err){
+        console.error(err);
+        alert("Server error");
+      }
+    });
+  }
+
+  if (btnClear) {
+    btnClear.addEventListener("click", async () => {
+      btnClear.disabled = true;
+      try{
+        const res = await fetch("/api/central_ready/clear", { method: "POST" });
+        if(!res.ok){
+          alert("Server error");
+          return;
+        }
+        const data = await res.json();
+        renderCentralReady(!!(data && data.central_ready));
+      }catch(err){
+        console.error(err);
+        alert("Server error");
+      }finally{
+        btnClear.disabled = false;
+      }
+    });
+  }
+
+  // Initial render + poll
+  renderCentralReady(centralReady);
+  setInterval(fetchCentralReady, 4000);
 })();</script>
 
 {% include "_dialog.html" %}
-<script>
-(function(){
-  const banner = document.getElementById('central-ready-banner');
-  const atEl = document.getElementById('central-ready-at');
-  const okBtn = document.getElementById('central-ready-ok');
-  const adminBtn = document.getElementById('central-ready-btn');
-  const clearBtn = document.getElementById('central-ready-clear-btn');
-  const sentPill = document.getElementById('central-ready-sent');
-
-  async function api(path, method){
-    const res = await fetch(path, {method: method || 'GET', headers: {'Content-Type':'application/json'}});
-    try { return await res.json(); } catch(e){ return null; }
-  }
-
-  function setAdminUI(isReady){
-    if (!adminBtn) return;
-    if (isReady){
-      if (sentPill) sentPill.style.display = '';
-      if (clearBtn) clearBtn.style.display = '';
-    } else {
-      if (sentPill) sentPill.style.display = 'none';
-      if (clearBtn) clearBtn.style.display = 'none';
-    }
-  }
-
-  function setBanner(isReady, at){
-    if (!banner) return;
-    if (isReady){
-      banner.style.display = 'flex';
-      if (atEl) atEl.textContent = at ? ('(' + at + ')') : '';
-    } else {
-      banner.style.display = 'none';
-      if (atEl) atEl.textContent = '';
-    }
-  }
-
-  async function pollCentralReady(){
-    const data = await api('/api/central_ready','GET');
-    const ready = !!(data && data.ready === true);
-    setAdminUI(ready);
-    setBanner(ready, data ? data.at : null);
-  }
-
-  // Initial
-  pollCentralReady();
-  // Poll every 5s
-  setInterval(pollCentralReady, 5000);
-
-  if (adminBtn){
-    adminBtn.addEventListener('click', async ()=>{
-      await api('/api/central_ready/set','POST');
-      pollCentralReady();
-    });
-  }
-  if (clearBtn){
-    clearBtn.addEventListener('click', async ()=>{
-      await api('/api/central_ready/clear','POST');
-      pollCentralReady();
-    });
-  }
-  if (okBtn){
-    okBtn.addEventListener('click', async ()=>{
-      await api('/api/central_ready/clear','POST');
-      pollCentralReady();
-    });
-  }
-})();
-</script>
-
 </body>
 </html>
