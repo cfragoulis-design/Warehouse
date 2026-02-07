@@ -97,7 +97,6 @@
         <div class="sub">Required: <b>Name</b>, <b>Unit</b></div>
       </div>
       <div class="card-b">
-        {% if user.role == 'admin' %}
         <form id="addForm" method="post" action="/consumables/new">
           <div class="grid">
             <div>
@@ -117,21 +116,30 @@
               <input id="pack_size" name="pack_size" type="number" min="1" step="1" value="1" />
             </div>
             <div>
-              <label for="min_qty" title="When stock drops below this (and Min > 0) the item is marked LOW">Reorder point (Min units)</label>
+              <label for="min_qty">Min</label>
               <input id="min_qty" name="min_qty" type="number" min="0" step="1" value="0" />
             </div>
             <div>
-              <label for="desired_qty" title="Target stock level in units. Suggested = max(0, Target - (On hand + On order)), rounded up to a pack.">Target stock (units)</label>
+              <label for="desired_qty">Desired</label>
               <input id="desired_qty" name="desired_qty" type="number" min="0" step="1" value="0" />
             </div>
             <div>
+              <label for="cost_per_pack">Cost €/pack</label>
+              <input id="cost_per_pack" name="cost_per_pack" type="number" min="0" step="0.01" value="0" />
+            </div>
+            <div>
               <label for="supplier_id">Supplier</label>
+              {% if suppliers_list %}
               <select id="supplier_id" name="supplier_id">
                 <option value="">—</option>
-                {% for s in suppliers %}
-                  <option value="{{ s.id }}">{{ s.name }}{% if not s.is_active %} (inactive){% endif %}</option>
+                {% for s in suppliers_list %}
+                  <option value="{{ s.id }}">{{ s.name }}</option>
                 {% endfor %}
               </select>
+              <div class="hint">Optional</div>
+              {% else %}
+              <input id="supplier_id" name="supplier_id" placeholder="Find it in Suppliers" inputmode="numeric" />
+              {% endif %}
             </div>
             <div style="display:flex;justify-content:flex-end">
               <button id="addBtn" class="btn" type="submit">Add</button>
@@ -139,20 +147,17 @@
           </div>
 
           <div class="hint">
-            Units logic: <b>Pack size</b> defines how many units are in 1 pack. <b>Target stock</b> and <b>Reorder point</b> are in <b>units</b>.
+            Tip: Open <a href="/suppliers" target="_blank" rel="noopener">Suppliers</a> to see each Supplier ID.
           </div>
         </form>
-        {% else %}
-          <div class="muted" style="font-size:13px;line-height:1.4">Only admins can add or edit consumables.</div>
-        {% endif %}
       </div>
     </div>
 
     <div class="card">
       <div class="card-h">
         <div>
-          <h2>Consumables</h2>
-          <div class="sub">Stock is tracked in <b>units</b>. Suggested ordering is shown in <b>packs</b> (rounded up to full packs).<br><span class="muted" style="font-size:12px">Formula: needed = max(0, target − (on hand + on order)); order packs = ceil(needed / pack size).</span></div>
+          <h2>Consumables (Workshop)</h2>
+          <div class="sub">Stock is tracked in <b>units</b>. Suggested ordering is shown in <b>packs</b> (rounded up).</div>
         </div>
         <div class="filters">
           <input id="q" placeholder="Search by name…" />
@@ -170,7 +175,7 @@
       {% if rows|length == 0 %}
       <div class="empty">
         <h3>No consumables yet</h3>
-        <p>Add your first consumable above to start tracking supplies and suggested orders.</p>
+        <p>Add your first consumable above to start tracking workshop supplies and suggested orders.</p>
       </div>
       {% else %}
       <table>
@@ -179,10 +184,12 @@
             <th style="min-width:240px">Name</th>
             <th>Category</th>
             <th>Supplier</th>
+            <th>€/pack</th>
+            <th>€ Suggested</th>
             <th>Stock (units)</th>
             <th>On‑order (units)</th>
-            <th>Reorder point</th>
-            <th>Target stock</th>
+            <th>Min</th>
+            <th>Desired</th>
             <th>Suggested (packs)</th>
             <th style="min-width:220px">Actions</th>
           </tr>
@@ -205,6 +212,8 @@
             </td>
             <td class="muted">{{ r.category }}</td>
             <td>{{ r.supplier_name }}</td>
+            <td class="num muted">{% if r.cost_per_pack and r.cost_per_pack > 0 %}{{ r.cost_per_pack }}{% else %}—{% endif %}</td>
+            <td class="num">{% if r.suggested_cost and r.suggested_cost > 0 %}{{ r.suggested_cost }}{% else %}<span class="muted">—</span>{% endif %}</td>
             <td class="num">
               {% if is_low %}
                 <span class="badge bDanger">LOW</span>
@@ -212,13 +221,12 @@
               <span class="badge">{{ r.on_hand }}</span>
             </td>
             <td class="num muted">{{ r.on_order }}</td>
-            <td class="num muted" title="Reorder point (Min units)">{{ r.min_qty }}</td>
-            <td class="num muted" title="Target stock in units">{{ r.desired_qty }}</td>
+            <td class="num muted">{{ r.min_qty }}</td>
+            <td class="num muted">{{ r.desired_qty }}</td>
             <td class="num">
               {% if has_suggested %}
                 <div class="kpi">
-                  <span class="badge bWarn" title="needed = max(0, target - (on hand + on order))">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
-                  <span class="small">Need: {{ r.needed_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
+                  <span class="badge bWarn">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
                   <span class="small">= {{ r.suggested_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
                 </div>
               {% else %}
@@ -227,8 +235,6 @@
             </td>
             <td>
               <div class="actions">
-                {% if user.role == 'admin' %}
-                <a class="btn2" href="/consumables/{{ r.id }}/edit">Edit</a>
                 <form method="post" action="/consumables/{{ r.id }}/adjust" class="mini">
                   <input name="delta" type="number" step="1" value="1" aria-label="Adjust delta" />
                   <button class="btn2" type="submit">Adjust</button>
@@ -244,9 +250,6 @@
                 <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
                   <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
                 </form>
-                {% else %}
-                  <span class="muted">—</span>
-                {% endif %}
               </div>
             </td>
           </tr>
@@ -256,16 +259,14 @@
       {% endif %}
     </div>
 
-    {% if user.role == 'admin' %}
-      <div class="footer">
-        <form method="post" action="/purchase-orders/generate">
-          <button class="btn" type="submit">Generate POs by supplier</button>
-        </form>
-        <div class="muted" style="font-size:12px;">
-          Creates Draft purchase orders from <b>Suggested &gt; 0</b> (only items that have a Supplier).
-        </div>
+    <div class="footer">
+      <form method="post" action="/purchase-orders/generate">
+        <button class="btn" type="submit">Generate POs by supplier</button>
+      </form>
+      <div class="muted" style="font-size:12px;">
+        Creates Draft purchase orders from <b>Suggested &gt; 0</b> (only items that have a Supplier).
       </div>
-    {% endif %}
+    </div>
 
   </div>
 
