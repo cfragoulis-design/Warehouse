@@ -13,7 +13,7 @@ import urllib.request
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, text
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
@@ -896,6 +896,56 @@ def _group_from_category(cat: str | None, name: str | None) -> str:
 
 
 
+
+
+# ---------------------------
+# Central Ready (notify workshop)
+# ---------------------------
+
+def _ensure_central_ready_row(db: Session) -> None:
+    # idempotent: makes sure the single-row state exists
+    db.execute(text("""
+        INSERT INTO central_ready_state (id, is_ready)
+        VALUES (1, FALSE)
+        ON CONFLICT (id) DO NOTHING
+    """))
+    db.commit()
+
+def get_central_ready(db: Session) -> bool:
+    try:
+        _ensure_central_ready_row(db)
+        val = db.execute(text("SELECT is_ready FROM central_ready_state WHERE id = 1")).scalar()
+        return bool(val)
+    except Exception:
+        # do not crash the app if table is missing/migration not applied yet
+        return False
+
+@router.get("/api/central_ready")
+def api_central_ready(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    _ensure_central_ready_row(db)
+    row = db.execute(text("SELECT is_ready, updated_at FROM central_ready_state WHERE id = 1")).first()
+    is_ready = bool(row[0]) if row else False
+    updated_at = row[1].isoformat() if (row and row[1] is not None) else None
+    return {"ok": True, "central_ready": is_ready, "updated_at": updated_at}
+
+@router.post("/api/central_ready/set")
+def api_central_ready_set(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if getattr(user, "role", None) != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    _ensure_central_ready_row(db)
+    db.execute(text("UPDATE central_ready_state SET is_ready = TRUE, updated_at = NOW() WHERE id = 1"))
+    db.commit()
+    return {"ok": True, "central_ready": True}
+
+@router.post("/api/central_ready/clear")
+def api_central_ready_clear(user: User = Depends(require_user), db: Session = Depends(get_db)):
+    # workshop can acknowledge/clear; admin can also clear if needed
+    if getattr(user, "role", None) not in ("admin", "workshop"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    _ensure_central_ready_row(db)
+    db.execute(text("UPDATE central_ready_state SET is_ready = FALSE, updated_at = NOW() WHERE id = 1"))
+    db.commit()
+    return {"ok": True, "central_ready": False}
 
 @router.get("/api/stock")
 def api_stock(
