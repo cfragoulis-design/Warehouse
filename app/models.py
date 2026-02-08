@@ -56,8 +56,6 @@ class Product(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Minimum total stock (CENTRAL + WORKSHOP). If >0 and total falls below it, UI shows LOW.
     min_stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # Optional price per unit (€/pcs or €/kg). Used for visibility and reporting.
-    price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     # Desired stock at CENTRAL. Used to compute Pending (Target - Central)
     target_central: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
 
@@ -195,6 +193,9 @@ class Consumable(Base):
     pack_size: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("1"))
     min_qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("0"))
     desired_qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("0"))
+
+    # pricing
+    cost_per_pack: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("0"))
 
     supplier_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("suppliers.id"), nullable=True)
 
