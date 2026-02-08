@@ -66,6 +66,51 @@
   .empty h3{margin:0 0 6px 0;font-size:15px}
   .empty p{margin:0;color:var(--muted);font-size:13px;line-height:1.4}
   .footer{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+/* Consumables table polish */
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:rgba(17,25,54,.55);}
+.ctable{width:100%;border-collapse:separate;border-spacing:0;min-width:980px}
+.ctable thead th{position:sticky;top:0;z-index:2;background:linear-gradient(180deg, rgba(17,25,54,.98), rgba(17,25,54,.92));border-bottom:1px solid var(--line);text-align:left;font-weight:700;font-size:12px;letter-spacing:.02em;color:var(--muted);padding:10px 12px}
+.ctable tbody td{border-bottom:1px solid rgba(36,48,85,.65);padding:12px}
+.ctable tbody tr:hover{background:rgba(47,124,246,.06)}
+.nameRow{display:flex;flex-direction:column;gap:6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;border:1px solid rgba(36,48,85,.9);background:rgba(15,22,45,.6);font-size:12px}
+.mutedChip{color:var(--muted)}
+.supplierCell .sub{margin-top:6px;font-size:12px}
+.statusCell .statusTop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.statusCell .statusSub{margin-top:6px;font-size:12px}
+.stockPill{display:inline-flex;align-items:center;justify-content:center;min-width:44px;padding:4px 10px;border-radius:999px;background:rgba(47,124,246,.12);border:1px solid rgba(47,124,246,.25);font-variant-numeric:tabular-nums}
+.onOrder{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;border:1px solid rgba(36,48,85,.9);background:rgba(15,22,45,.6);font-size:12px;color:var(--muted)}
+.decisionTop{display:flex;flex-direction:column;gap:6px}
+.decisionCost{margin-top:8px;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums}
+.mono{font-variant-numeric:tabular-nums}
+.actions.compact{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btnIcon{width:42px;justify-content:center;padding:8px 0}
+/* keep existing actions form input hidden in compact mode */
+.actions.compact .mini{display:none}
+
+/* actions menu */
+.menu{position:relative}
+.menu summary{list-style:none}
+.menu summary::-webkit-details-marker{display:none}
+.menuPop{position:absolute;right:0;top:44px;min-width:160px;background:rgba(17,25,54,.98);border:1px solid var(--line);border-radius:12px;padding:6px;display:flex;flex-direction:column;gap:4px;z-index:50;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.menuItem{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:9px 10px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--text);text-decoration:none;font-size:13px;cursor:pointer}
+.menuItem:hover{background:rgba(255,255,255,.05);border-color:rgba(61,95,181,.55)}
+.menuItem.danger{color:#ffd3d3;border-color:rgba(239,68,68,.25)}
+.menuItem.danger:hover{border-color:rgba(239,68,68,.65);background:rgba(239,68,68,.10)}
+
+/* modal */
+.modalBack{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:80;padding:18px}
+.modal{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.modalH{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.modalH h3{margin:0;font-size:16px}
+.modalH .sub{margin-top:2px;color:var(--muted);font-size:12px;line-height:1.3}
+.modalB{padding:14px 16px;display:grid;gap:12px}
+.modalRow{display:grid;grid-template-columns: 1fr 1fr;gap:10px}
+@media (max-width:560px){.modalRow{grid-template-columns:1fr}}
+.modalF{padding:14px 16px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end;align-items:center}
+.help{font-size:12px;color:var(--muted);line-height:1.35}
+
 </style>
 
 </head>
@@ -129,17 +174,13 @@
             </div>
             <div>
               <label for="supplier_id">Supplier</label>
-              {% if suppliers_list %}
               <select id="supplier_id" name="supplier_id">
                 <option value="">—</option>
-                {% for s in suppliers_list %}
+                {% for s in suppliers %}
                   <option value="{{ s.id }}">{{ s.name }}</option>
                 {% endfor %}
               </select>
-              <div class="hint">Optional</div>
-              {% else %}
-              <input id="supplier_id" name="supplier_id" placeholder="Find it in Suppliers" inputmode="numeric" />
-              {% endif %}
+              <div class="meta" style="margin-top:6px">Optional</div>
             </div>
             <div style="display:flex;justify-content:flex-end">
               <button id="addBtn" class="btn" type="submit">Add</button>
@@ -147,7 +188,7 @@
           </div>
 
           <div class="hint">
-            Tip: Open <a href="/suppliers" target="_blank" rel="noopener">Suppliers</a> to see each Supplier ID.
+            Tip: Keep <b>Min</b> and <b>Target</b> in <b>units</b> (not packs). Cost is stored per <b>pack</b>.
           </div>
         </form>
       </div>
@@ -178,84 +219,109 @@
         <p>Add your first consumable above to start tracking workshop supplies and suggested orders.</p>
       </div>
       {% else %}
-      <table>
-        <thead>
-          <tr>
-            <th style="min-width:240px">Name</th>
-            <th>Category</th>
-            <th>Supplier</th>
-            <th>€/pack</th>
-            <th>€ Suggested</th>
-            <th>Stock (units)</th>
-            <th>On‑order (units)</th>
-            <th>Min</th>
-            <th>Desired</th>
-            <th>Suggested (packs)</th>
-            <th style="min-width:220px">Actions</th>
-          </tr>
-        </thead>
-        <tbody id="tbody">
-          {% for r in rows %}
-          {% set is_low = (r.min_qty > 0 and r.on_hand < r.min_qty) %}
-          {% set has_suggested = (r.suggested_packs > 0) %}
-          <tr class="r"
-              data-name="{{ r.name|lower }}"
-              data-low="{{ 1 if is_low else 0 }}"
-              data-suggested="{{ 1 if has_suggested else 0 }}">
-            <td>
-              <div class="name">{{ r.name }}</div>
-              <div class="meta">
-                {% if r.unit %}{{ r.unit }}{% else %}<span class="muted">unit</span>{% endif %}
-                • pack {{ r.pack_size|int }}
-                {% if r.unit %} {{ r.unit }}{% endif %}/pack
-              </div>
-            </td>
-            <td class="muted">{{ r.category }}</td>
-            <td>{{ r.supplier_name }}</td>
-            <td class="num muted">{% if r.cost_per_pack and r.cost_per_pack > 0 %}{{ r.cost_per_pack }}{% else %}—{% endif %}</td>
-            <td class="num">{% if r.suggested_cost and r.suggested_cost > 0 %}{{ r.suggested_cost }}{% else %}<span class="muted">—</span>{% endif %}</td>
-            <td class="num">
-              {% if is_low %}
-                <span class="badge bDanger">LOW</span>
+      <table class="ctable">
+  <thead>
+    <tr>
+      <th style="min-width:260px">Item</th>
+      <th style="min-width:160px">Supplier</th>
+      <th style="min-width:220px">Status</th>
+      <th style="min-width:220px">Decision</th>
+      <th style="min-width:170px">Actions</th>
+    </tr>
+  </thead>
+  <tbody id="tbody">
+    {% for r in rows %}
+    {% set is_low = (r.min_qty > 0 and r.on_hand < r.min_qty) %}
+    {% set has_suggested = (r.suggested_packs > 0) %}
+    {% set cost_pack = r.cost_per_pack|default(0) %}
+    {% set suggested_cost = (r.suggested_packs * cost_pack) if (cost_pack and has_suggested) else 0 %}
+    <tr class="r"
+        data-name="{{ r.name|lower }}"
+        data-low="{{ 1 if is_low else 0 }}"
+        data-suggested="{{ 1 if has_suggested else 0 }}">
+      <td>
+        <div class="nameRow">
+          <div class="name">{{ r.name }}</div>
+          <div class="chips">
+            {% if r.category %}<span class="chip">{{ r.category }}</span>{% endif %}
+            {% if r.unit %}<span class="chip mutedChip">{{ r.unit }}</span>{% endif %}
+            <span class="chip mutedChip">pack {{ r.pack_size|int }}</span>
+          </div>
+        </div>
+      </td>
+
+      <td>
+        <div class="supplierCell">
+          {% if r.supplier_name %}{{ r.supplier_name }}{% else %}<span class="muted">—</span>{% endif %}
+          {% if cost_pack %}
+            <div class="sub muted">€{{ '%.2f'|format(cost_pack) }}/pack</div>
+          {% endif %}
+        </div>
+      </td>
+
+      <td class="statusCell">
+        <div class="statusTop">
+          {% if is_low %}
+            <span class="badge bDanger">LOW</span>
+          {% endif %}
+          <span class="stockPill">{{ r.on_hand }}</span>
+          <span class="muted">units</span>
+          {% if r.on_order and r.on_order > 0 %}
+            <span class="onOrder">On‑order {{ r.on_order }}</span>
+          {% endif %}
+        </div>
+        <div class="statusSub muted" title="Reorder point (Min) and Target stock are in units.">
+          Min <span class="mono">{{ r.min_qty }}</span> • Target <span class="mono">{{ r.desired_qty }}</span>
+        </div>
+      </td>
+
+      <td class="decisionCell">
+        {% if has_suggested %}
+          <div class="decisionTop">
+            <span class="badge bWarn">Order {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
+            <span class="muted">= {{ r.suggested_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
+          </div>
+          {% if suggested_cost %}
+            <div class="decisionCost">€{{ '%.2f'|format(suggested_cost) }}</div>
+          {% elif cost_pack %}
+            <div class="decisionCost muted">€—</div>
+          {% endif %}
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+
+      <td>
+        <div class="actions compact">
+          <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
+            <input type="hidden" name="delta" value="1" />
+            <button class="btn2 btnIcon" type="submit" title="Add 1">+1</button>
+          </form>
+          <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
+            <input type="hidden" name="delta" value="-1" />
+            <button class="btn2 btnIcon" type="submit" title="Remove 1">-1</button>
+          </form>
+
+          <button class="btn2" type="button" data-adjust data-id="{{ r.id }}" data-name="{{ r.name|e }}" title="Adjust with a custom quantity">Adjust…</button>
+
+          <details class="menu">
+            <summary class="btn2 btnIcon" title="More">⋮</summary>
+            <div class="menuPop">
+              <button class="menuItem" type="button" data-adjust data-id="{{ r.id }}" data-name="{{ r.name|e }}">Bulk adjust…</button>
+              {% if is_admin %}
+                <a class="menuItem" href="/consumables/{{ r.id }}/edit">Edit</a>
+                <form method="post" action="/consumables/{{ r.id }}/toggle" style="margin:0;">
+                  <button class="menuItem danger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
+                </form>
               {% endif %}
-              <span class="badge">{{ r.on_hand }}</span>
-            </td>
-            <td class="num muted">{{ r.on_order }}</td>
-            <td class="num muted">{{ r.min_qty }}</td>
-            <td class="num muted">{{ r.desired_qty }}</td>
-            <td class="num">
-              {% if has_suggested %}
-                <div class="kpi">
-                  <span class="badge bWarn">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
-                  <span class="small">= {{ r.suggested_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
-                </div>
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
-            </td>
-            <td>
-              <div class="actions">
-                <form method="post" action="/consumables/{{ r.id }}/adjust" class="mini">
-                  <input name="delta" type="number" step="1" value="1" aria-label="Adjust delta" />
-                  <button class="btn2" type="submit">Adjust</button>
-                </form>
-                <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
-                  <input type="hidden" name="delta" value="1" />
-                  <button class="btn2 btnIcon" type="submit" title="Add 1">+1</button>
-                </form>
-                <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
-                  <input type="hidden" name="delta" value="-1" />
-                  <button class="btn2 btnIcon" type="submit" title="Remove 1">-1</button>
-                </form>
-                <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
-                  <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
-                </form>
-              </div>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+            </div>
+          </details>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
       {% endif %}
     </div>
 
@@ -268,7 +334,44 @@
       </div>
     </div>
 
+  
+  <!-- Bulk Adjust Modal -->
+  <div id="adjustModal" class="modalBack" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="adjustTitle">
+      <div class="modalH">
+        <div>
+          <h3 id="adjustTitle">Adjust stock</h3>
+          <div id="adjustSub" class="sub">—</div>
+        </div>
+        <button id="adjustClose" class="btn2 btnIcon" type="button" title="Close">✕</button>
+      </div>
+      <form id="adjustForm" method="post" action="">
+        <div class="modalB">
+          <div class="modalRow">
+            <div>
+              <label for="adjustDelta">Delta (units)</label>
+              <input id="adjustDelta" name="delta" type="number" step="1" inputmode="numeric" placeholder="e.g. 200 or -150" required />
+              <div class="meta" style="margin-top:6px">Use <b>+</b> for receive, <b>-</b> for usage/loss.</div>
+            </div>
+            <div>
+              <label for="adjustNote">Note (optional)</label>
+              <input id="adjustNote" name="note" placeholder="e.g. Invoice 123 / stocktake" />
+              <div class="meta" style="margin-top:6px">If backend ignores note, it will be safely ignored.</div>
+            </div>
+          </div>
+          <div class="help">
+            This creates <b>one</b> adjustment (no need for +1 repeated clicks). If you want to change Min/Target/Pack/Cost use <b>Edit</b>.
+          </div>
+        </div>
+        <div class="modalF">
+          <button id="adjustCancel" class="btn2" type="button">Cancel</button>
+          <button class="btn" type="submit">Save</button>
+        </div>
+      </form>
+    </div>
   </div>
+
+</div>
 
 <script>
 (function(){
@@ -297,6 +400,54 @@
   if (q) q.addEventListener('input', apply);
   if (onlySuggested) onlySuggested.addEventListener('change', apply);
   if (onlyLow) onlyLow.addEventListener('change', apply);
+
+
+  // Bulk adjust modal
+  const modalBack = document.getElementById('adjustModal');
+  const adjustForm = document.getElementById('adjustForm');
+  const adjustDelta = document.getElementById('adjustDelta');
+  const adjustSub = document.getElementById('adjustSub');
+  const closeBtn = document.getElementById('adjustClose');
+  const cancelBtn = document.getElementById('adjustCancel');
+
+  function openAdjust(id, name){
+    if(!modalBack || !adjustForm || !adjustDelta) return;
+    adjustForm.action = `/consumables/${id}/adjust`;
+    if (adjustSub) adjustSub.textContent = name ? name : `Consumable #${id}`;
+    adjustDelta.value = '';
+    modalBack.style.display = 'flex';
+    modalBack.setAttribute('aria-hidden','false');
+    setTimeout(()=>adjustDelta.focus(), 10);
+  }
+  function closeAdjust(){
+    if(!modalBack) return;
+    modalBack.style.display = 'none';
+    modalBack.setAttribute('aria-hidden','true');
+  }
+
+  document.querySelectorAll('[data-adjust]').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      const id = btn.getAttribute('data-id');
+      const name = btn.getAttribute('data-name');
+      if(id) openAdjust(id, name);
+      // close menu if inside details
+      const d = btn.closest('details');
+      if(d) d.removeAttribute('open');
+    });
+  });
+
+  if(closeBtn) closeBtn.addEventListener('click', closeAdjust);
+  if(cancelBtn) cancelBtn.addEventListener('click', closeAdjust);
+  if(modalBack) modalBack.addEventListener('click', (e)=>{ if(e.target === modalBack) closeAdjust(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') closeAdjust(); });
+
+  // Close menus on outside click
+  document.addEventListener('click', (e)=>{
+    document.querySelectorAll('details.menu[open]').forEach(d=>{
+      if(!d.contains(e.target)) d.removeAttribute('open');
+    });
+  });
+
 
   // Basic required fields guard (frontend only)
   const addBtn = document.getElementById('addBtn');
