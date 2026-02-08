@@ -236,9 +236,12 @@
                   <input type="hidden" name="delta" value="-1" />
                   <button class="btn2 btnIcon" type="submit" title="Remove 1">-1</button>
                 </form>
+                {% if user and user.role == 'admin' %}
+                <a class="btn2" href="/consumables/{{ r.id }}/edit" title="Edit">Edit</a>
                 <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
                   <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
                 </form>
+                {% endif %}
               </div>
             </td>
           </tr>
@@ -248,6 +251,7 @@
       {% endif %}
     </div>
 
+    {% if user and user.role == 'admin' %}
     <div class="footer">
       <form method="post" action="/purchase-orders/generate">
         <button class="btn" type="submit">Generate POs by supplier</button>
@@ -256,6 +260,7 @@
         Creates Draft purchase orders from <b>Suggested &gt; 0</b> (only items that have a Supplier).
       </div>
     </div>
+    {% endif %}
 
   </div>
 
