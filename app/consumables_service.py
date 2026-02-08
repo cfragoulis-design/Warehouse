@@ -105,13 +105,79 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
             "on_order": on_order,
             "suggested_units": suggested_units,
             "suggested_packs": suggested_packs,
-            "cost_per_pack": _d(getattr(c, "cost_per_pack", Decimal("0")) or Decimal("0")),
-            "suggested_cost": (_d(getattr(c, "cost_per_pack", Decimal("0")) or Decimal("0")) * Decimal(suggested_packs)) if suggested_packs else Decimal("0"),
             "supplier_name": suppliers.get(c.supplier_id).name if c.supplier_id and c.supplier_id in suppliers else "",
             "notes": c.notes or "",
         })
 
-    return templates.TemplateResponse("consumables_list.html", {"request": request, "user": user, "rows": rows, "suppliers_list": db.query(Supplier).filter(Supplier.is_active==True).order_by(Supplier.name.asc()).all()})
+    return templates.TemplateResponse("consumables_list.html", {"request": request, "user": user, "rows": rows})
+
+
+@router.get("/consumables/edit")
+def consumable_edit_form(
+    request: Request,
+    id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    c = db.get(Consumable, id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Consumable not found")
+
+    suppliers = (
+        db.query(Supplier)
+        .filter(Supplier.is_active == True)
+        .order_by(func.coalesce(Supplier.name, "").asc())
+        .all()
+    )
+
+    return templates.TemplateResponse(
+        "consumable_edit.html",
+        {"request": request, "user": user, "consumable": c, "suppliers": suppliers},
+    )
+
+
+@router.post("/consumables/edit")
+def consumable_edit_save(
+    id: int = Form(...),
+    name: str = Form(...),
+    category: str = Form(""),
+    unit: str = Form(""),
+    pack_size: str = Form("1"),
+    min_qty: str = Form("0"),
+    desired_qty: str = Form("0"),
+    supplier_id: str = Form(""),
+    cost_per_pack: str = Form(""),
+    notes: str = Form(""),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    c = db.get(Consumable, int(id))
+    if not c:
+        raise HTTPException(status_code=404, detail="Consumable not found")
+
+    c.name = (name or "").strip()
+    c.category = (category or "").strip() or None
+    c.unit = (unit or "").strip() or None
+
+    # store as Decimal via existing helper
+    c.pack_size = _d(pack_size) if pack_size is not None else c.pack_size
+    c.min_qty = _d(min_qty) if min_qty is not None else c.min_qty
+    c.desired_qty = _d(desired_qty) if desired_qty is not None else c.desired_qty
+
+    sid = (supplier_id or "").strip()
+    c.supplier_id = int(sid) if sid.isdigit() else None
+
+    if hasattr(c, "cost_per_pack"):
+        val = (cost_per_pack or "").strip()
+        c.cost_per_pack = _d(val) if val not in ("", None) else Decimal("0")
+
+    c.notes = (notes or "").strip() or None
+
+    db.add(c)
+    db.commit()
+
+    return RedirectResponse(url="/consumables", status_code=303)
+
 
 
 @router.post("/consumables/new")
@@ -125,7 +191,6 @@ def consumable_new(
     pack_size: str = Form("1"),
     min_qty: str = Form("0"),
     desired_qty: str = Form("0"),
-    cost_per_pack: str = Form(""),
     supplier_id: str = Form(""),
     notes: str = Form(""),
 ):
@@ -141,14 +206,7 @@ def consumable_new(
         notes=notes.strip() or None,
         is_active=True,
     )
-        # optional field
-    if hasattr(c, "cost_per_pack"):
-        try:
-            c.cost_per_pack = _d(cost_per_pack) if str(cost_per_pack).strip() else Decimal("0")
-        except Exception:
-            c.cost_per_pack = Decimal("0")
-
-db.add(c)
+    db.add(c)
     db.commit()
     return RedirectResponse("/consumables", status_code=303)
 
@@ -394,52 +452,3 @@ def po_set_status(po_id: int, status: str = Form(...), db: Session = Depends(get
     po.status = status
     db.commit()
     return RedirectResponse("/purchase-orders", status_code=303)
-
-@router.get("/consumables/{cid}/edit")
-def consumable_edit_form(cid: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
-    c = db.query(Consumable).filter(Consumable.id == cid).first()
-    if not c:
-        raise HTTPException(status_code=404, detail="Consumable not found")
-    suppliers = db.query(Supplier).filter(Supplier.is_active == True).order_by(Supplier.name.asc()).all()
-    return templates.TemplateResponse("consumable_edit.html", {"request": request, "user": user, "c": c, "suppliers_list": suppliers})
-
-@router.post("/consumables/{cid}/edit")
-def consumable_edit_save(
-    cid: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_role("admin")),
-    name: str = Form(...),
-    category: str = Form(""),
-    unit: str = Form(""),
-    pack_size: str = Form("1"),
-    min_qty: str = Form("0"),
-    desired_qty: str = Form("0"),
-    cost_per_pack: str = Form(""),
-    supplier_id: str = Form(""),
-    notes: str = Form(""),
-):
-    c = db.query(Consumable).filter(Consumable.id == cid).first()
-    if not c:
-        raise HTTPException(status_code=404, detail="Consumable not found")
-
-    c.name = name.strip()
-    c.category = category.strip() or None
-    c.unit = unit.strip() or None
-    c.pack_size = _d(pack_size)
-    c.min_qty = _d(min_qty)
-    c.desired_qty = _d(desired_qty)
-    c.notes = notes.strip() or None
-
-    sid = int(supplier_id) if supplier_id.strip() else None
-    c.supplier_id = sid
-
-    # optional field: only if model has it
-    if hasattr(c, "cost_per_pack"):
-        try:
-            c.cost_per_pack = _d(cost_per_pack) if str(cost_per_pack).strip() else Decimal("0")
-        except Exception:
-            c.cost_per_pack = Decimal("0")
-
-    db.add(c)
-    db.commit()
-    return RedirectResponse("/consumables", status_code=303)
