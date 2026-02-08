@@ -70,7 +70,6 @@
         <th>SKU</th>
         <th>Category</th>
         <th>Unit</th>
-        <th class="right">Price</th>
         <th class="right">Min</th>
         <th>Status</th>
         <th>Actions</th>
@@ -81,7 +80,7 @@
       {% set cat = (p.category or 'Uncategorized') %}
       {% if cat != ns.cur_cat %}
       <tr class="catrow" data-cat-header="{{ cat|e }}">
-        <td colspan="8">{{ cat }}</td>
+        <td colspan="7">{{ cat }}</td>
       </tr>
       {% set ns.cur_cat = cat %}
       {% endif %}
@@ -97,7 +96,6 @@
           {% else %}{{ p.unit }}
           {% endif %}
         </td>
-        <td class="right mono">{{ "%.2f"|format(p.price or 0) }}</td>
         <td class="right mono">{{ (p.min_stock or 0) }}</td>
         <td>
           {% if p.is_active %}
