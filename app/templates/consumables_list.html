@@ -218,8 +218,17 @@
                   <span class="badge bWarn">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
                   <span class="small">= {{ r.suggested_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
                 </div>
+                  {% set cpp = (r.cost_per_pack if r.cost_per_pack is defined else 0) %}
+                  {% if cpp and cpp > 0 %}
+                    <div class="small muted">€{{ '%.2f'|format(cpp) }}/pack • ≈ €{{ '%.2f'|format((r.suggested_packs * cpp)) }}</div>
+                  {% endif %}
               {% else %}
-                <span class="muted">—</span>
+                {% set cpp = (r.cost_per_pack if r.cost_per_pack is defined else 0) %}
+                {% if cpp and cpp > 0 %}
+                  <span class="muted">€{{ '%.2f'|format(cpp) }}/pack</span>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
               {% endif %}
             </td>
             <td>
@@ -236,12 +245,9 @@
                   <input type="hidden" name="delta" value="-1" />
                   <button class="btn2 btnIcon" type="submit" title="Remove 1">-1</button>
                 </form>
-                {% if user and user.role == 'admin' %}
-                <a class="btn2" href="/consumables/edit?id={{ r.id }}" title="Edit">Edit</a>
                 <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
                   <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
                 </form>
-                {% endif %}
               </div>
             </td>
           </tr>
@@ -251,7 +257,6 @@
       {% endif %}
     </div>
 
-    {% if user and user.role == 'admin' %}
     <div class="footer">
       <form method="post" action="/purchase-orders/generate">
         <button class="btn" type="submit">Generate POs by supplier</button>
@@ -260,7 +265,6 @@
         Creates Draft purchase orders from <b>Suggested &gt; 0</b> (only items that have a Supplier).
       </div>
     </div>
-    {% endif %}
 
   </div>
 
