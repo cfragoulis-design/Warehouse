@@ -79,7 +79,7 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
     on_order_map = {cid: _d(qty) for cid, qty in on_order_rows}
 
     consumables = db.query(Consumable).order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc()).all()
-    suppliers_list = db.query(Supplier).order_by(Supplier.name.asc()).all()
+    suppliers_list = db.query(Supplier).order_by(Supplier.is_active.desc(), Supplier.name.asc()).all()
     suppliers = {s.id: s for s in suppliers_list}
 
     rows = []
@@ -108,12 +108,9 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
             "suggested_packs": suggested_packs,
             "supplier_name": suppliers.get(c.supplier_id).name if c.supplier_id and c.supplier_id in suppliers else "",
             "notes": c.notes or "",
-            "cost_per_pack": _d(getattr(c, "cost_per_pack", 0)),
-            "cost_per_unit": (_d(getattr(c, "cost_per_pack", 0)) / pack) if pack and pack != 0 else Decimal("0"),
-            "suggested_cost": (_d(getattr(c, "cost_per_pack", 0)) * Decimal(str(suggested_packs))) if suggested_packs else Decimal("0"),
         })
 
-    return templates.TemplateResponse("consumables_list.html", {"request": request, "user": user, "rows": rows, "suppliers_list": suppliers_list})
+    return templates.TemplateResponse("consumables_list.html", {"request": request, "user": user, "rows": rows, "suppliers": suppliers_list})
 
 
 @router.post("/consumables/new")
@@ -127,7 +124,6 @@ def consumable_new(
     pack_size: str = Form("1"),
     min_qty: str = Form("0"),
     desired_qty: str = Form("0"),
-    cost_per_pack: str = Form("0"),
     supplier_id: str = Form(""),
     notes: str = Form(""),
 ):
@@ -139,7 +135,6 @@ def consumable_new(
         pack_size=_d(pack_size),
         min_qty=_d(min_qty),
         desired_qty=_d(desired_qty),
-        cost_per_pack=_d(cost_per_pack),
         supplier_id=sid,
         notes=notes.strip() or None,
         is_active=True,
