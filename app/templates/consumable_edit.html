@@ -60,9 +60,7 @@
         Update name, pack size, reorder point, target, supplier and price. Quantities are adjusted from the list using +/− or Adjust…
       </div>
 
-      <form method="post" action="/consumables/edit">
-        <input type="hidden" name="id" value="{{ consumable.id }}" />
-
+      <form method="post" action="/consumables/{{ consumable.id }}/edit">
         <div class="grid">
           <div>
             <label>Name *</label>
