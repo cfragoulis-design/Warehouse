@@ -24,7 +24,7 @@
   .card-h h2{margin:0;font-size:16px;letter-spacing:.01em}
   .card-h .sub{margin-top:2px;color:var(--muted);font-size:12px}
   .card-b{padding:14px 16px}
-  .grid{display:grid;grid-template-columns: 2fr 1.2fr 1.2fr .9fr .9fr .8fr .9fr 1.2fr auto;gap:10px;align-items:end}
+  .grid{display:grid;grid-template-columns: 2fr 1.2fr 1.2fr .9fr .8fr .9fr 1.2fr auto;gap:10px;align-items:end}
   @media (max-width: 980px){.grid{grid-template-columns: 1fr 1fr;}}
   label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px 2px}
   input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:9px 10px;border-radius:10px;outline:none}
@@ -41,9 +41,10 @@
   .muted{color:var(--muted)}
   .hint{font-size:12px;color:var(--muted);margin-top:10px}
   .hint a{text-decoration:underline;color:var(--text)}
-  table{width:100%;border-collapse:collapse}
-  th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
-  th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.02);text-align:left;position:sticky;top:58px;z-index:5}
+  .tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{width:100%;border-collapse:collapse;min-width:1200px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.02);text-align:left;position:sticky;top:58px;z-index:5;white-space:nowrap}
   tr:hover td{background:rgba(255,255,255,.02)}
   .name{font-weight:700}
   .meta{font-size:12px;color:var(--muted);margin-top:3px}
@@ -54,7 +55,7 @@
   .bOk{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.10);color:#c8f7dd}
   .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .mini{display:inline-flex;gap:6px;align-items:center}
-  .mini input{width:82px}
+  .mini input, select{width:100%}
   .btnIcon{width:38px;display:inline-flex;justify-content:center}
   .kpi{display:flex;flex-direction:column;gap:4px}
   .kpi .small{font-size:12px;color:var(--muted)}
@@ -116,10 +117,6 @@
               <input id="pack_size" name="pack_size" type="number" min="1" step="1" value="1" />
             </div>
             <div>
-              <label for="cost_per_pack">Cost €/pack</label>
-              <input id="cost_per_pack" name="cost_per_pack" type="number" min="0" step="0.01" value="0" />
-            </div>
-            <div>
               <label for="min_qty">Min</label>
               <input id="min_qty" name="min_qty" type="number" min="0" step="1" value="0" />
             </div>
@@ -128,8 +125,15 @@
               <input id="desired_qty" name="desired_qty" type="number" min="0" step="1" value="0" />
             </div>
             <div>
-              <label for="supplier_id">Supplier ID</label>
-              <input id="supplier_id" name="supplier_id" placeholder="Find it in Suppliers" inputmode="numeric" />
+              <label for="supplier_id">Supplier</label>
+              <select id="supplier_id" name="supplier_id">
+                <option value="">—</option>
+                {% for s in suppliers %}
+                  {% if s.is_active %}
+                    <option value="{{ s.id }}">{{ s.name }}</option>
+                  {% endif %}
+                {% endfor %}
+              </select>
             </div>
             <div style="display:flex;justify-content:flex-end">
               <button id="addBtn" class="btn" type="submit">Add</button>
@@ -168,16 +172,13 @@
         <p>Add your first consumable above to start tracking workshop supplies and suggested orders.</p>
       </div>
       {% else %}
+      <div class="tableWrap">
       <table>
         <thead>
           <tr>
             <th style="min-width:240px">Name</th>
             <th>Category</th>
             <th>Supplier</th>
-            <th>Cost/pack</th>
-            <th>Cost/unit</th>
-            <th>Stock value</th>
-            <th>Suggested €</th>
             <th>Stock (units)</th>
             <th>On‑order (units)</th>
             <th>Min</th>
@@ -204,10 +205,6 @@
             </td>
             <td class="muted">{{ r.category }}</td>
             <td>{{ r.supplier_name }}</td>
-            <td class="num">{{ r.cost_per_pack_eur }}</td>
-            <td class="num muted">{{ r.cost_per_unit_eur }}</td>
-            <td class="num">{{ r.stock_value_eur }}</td>
-            <td class="num">{{ r.suggested_value_eur }}</td>
             <td class="num">
               {% if is_low %}
                 <span class="badge bDanger">LOW</span>
@@ -223,11 +220,8 @@
                   <span class="badge bWarn">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
                   <span class="small">= {{ r.suggested_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
                 </div>
-                  {% if r.cost_per_pack is defined and r.cost_per_pack and (r.cost_per_pack|float) > 0 %}
-                    <div class="small muted">€{{ '%.2f'|format(r.cost_per_pack|float) }} / pack{% if r.suggested_packs and (r.suggested_packs|int) > 0 %} • ≈ €{{ '%.2f'|format((r.cost_per_pack|float) * (r.suggested_packs|int)) }}{% endif %}</div>
-                  {% endif %}
               {% else %}
-                {% if r.cost_per_pack is defined and r.cost_per_pack and (r.cost_per_pack|float) > 0 %}<span class="muted">€{{ '%.2f'|format(r.cost_per_pack|float) }} / pack</span>{% else %}<span class="muted">—</span>{% endif %}
+                <span class="muted">—</span>
               {% endif %}
             </td>
             <td>
@@ -244,18 +238,23 @@
                   <input type="hidden" name="delta" value="-1" />
                   <button class="btn2 btnIcon" type="submit" title="Remove 1">-1</button>
                 </form>
+                {% if user and user.role == 'admin' %}
+                <a class="btn2" href="/consumables/{{ r.id }}/edit" title="Edit">Edit</a>
                 <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
                   <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
                 </form>
+                {% endif %}
               </div>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
+      </div>
       {% endif %}
     </div>
 
+    {% if user and user.role == 'admin' %}
     <div class="footer">
       <form method="post" action="/purchase-orders/generate">
         <button class="btn" type="submit">Generate POs by supplier</button>
@@ -264,6 +263,7 @@
         Creates Draft purchase orders from <b>Suggested &gt; 0</b> (only items that have a Supplier).
       </div>
     </div>
+    {% endif %}
 
   </div>
 
@@ -312,6 +312,5 @@
 })();
 </script>
 
-{% include "_workshop_message_modal.html" %}
 </body>
 </html>
