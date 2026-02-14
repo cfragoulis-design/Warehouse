@@ -1,0 +1,88 @@
+<!-- Workshop Message Modal (polling) -->
+{% if user is defined %}
+<script>
+  window.WH_ROLE = {{ (user.role or "") | tojson }};
+</script>
+{% endif %}
+
+<div id="whMsgOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.60); z-index:99999;">
+  <div style="max-width:560px; margin:10vh auto; background:#0f1733; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:18px; box-shadow:0 20px 60px rgba(0,0,0,.45); color:#e7e9ee;">
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+      <div>
+        <div id="whMsgTitle" style="font-weight:800; font-size:16px; margin-bottom:6px;">Message</div>
+        <div id="whMsgText" style="font-size:14px; line-height:1.45; color:#cfd6ea; white-space:pre-wrap;"></div>
+        <div id="whMsgMeta" style="margin-top:10px; font-size:12px; color:#a7b0c7;"></div>
+      </div>
+    </div>
+    <div style="margin-top:14px; text-align:right;">
+      <button id="whMsgOk" type="button"
+        style="padding:8px 14px; border-radius:12px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06); color:#e7e9ee; cursor:pointer;">
+        OK
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const role = (window.WH_ROLE || "").toLowerCase();
+  if (role !== "workshop") return;
+
+  const overlay = document.getElementById("whMsgOverlay");
+  const titleEl = document.getElementById("whMsgTitle");
+  const textEl = document.getElementById("whMsgText");
+  const metaEl = document.getElementById("whMsgMeta");
+  const okBtn = document.getElementById("whMsgOk");
+
+  let showingId = null;
+  let polling = false;
+
+  async function fetchPending() {
+    if (polling) return;
+    polling = true;
+    try {
+      const res = await fetch("/api/workshop/messages/pending", { credentials: "same-origin" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const msg = data && data.message ? data.message : null;
+
+      if (!msg) return;
+
+      if (showingId === msg.id && overlay.style.display === "block") return;
+
+      showingId = msg.id;
+      titleEl.textContent = msg.title || "Message";
+      textEl.textContent = msg.body || "";
+      metaEl.textContent = msg.created_at ? ("Sent: " + msg.created_at) : "";
+      overlay.style.display = "block";
+    } catch (e) {
+      // silent
+    } finally {
+      polling = false;
+    }
+  }
+
+  async function ackAndClose() {
+    if (!showingId) {
+      overlay.style.display = "none";
+      return;
+    }
+    try {
+      await fetch("/api/workshop/messages/" + encodeURIComponent(showingId) + "/ack", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: "{}"
+      });
+    } catch (e) {}
+    overlay.style.display = "none";
+    showingId = null;
+    setTimeout(fetchPending, 400);
+  }
+
+  okBtn.addEventListener("click", ackAndClose);
+
+  fetchPending();
+  setInterval(fetchPending, 20000);
+})();
+</script>
