@@ -59,6 +59,13 @@ def _round_to_pack(qty: Decimal, pack: Decimal) -> Decimal:
     n_int = int(n) if n == int(n) else int(n) + 1
     return (Decimal(n_int) * pack) if qty > 0 else Decimal("0")
 
+def _money(x: Decimal) -> str:
+    try:
+        return f"{_d(x).quantize(Decimal('0.01')):.2f}"
+    except Exception:
+        return "0.00"
+
+
 
 @router.get("/consumables")
 def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
@@ -94,6 +101,19 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
         # Suggested is stored/handled in *units* but always rounded up to a whole pack.
         suggested_units = _round_to_pack(suggested_raw, pack) if suggested_raw > 0 else Decimal("0")
         suggested_packs = _packs_for(suggested_units, pack) if suggested_units > 0 else 0
+        cost_pack = _d(getattr(c, "cost_per_pack", None))
+        pack_safe = pack if pack and pack > 0 else Decimal("1")
+        cost_unit = (cost_pack / pack_safe) if pack_safe > 0 else Decimal("0")
+
+        # Stock value is based on on_hand (units) converted to packs.
+        stock_value = (on_hand / pack_safe) * cost_pack if cost_pack > 0 and on_hand > 0 else Decimal("0")
+        suggested_value = (Decimal(suggested_packs) * cost_pack) if cost_pack > 0 and suggested_packs > 0 else Decimal("0")
+
+        cost_pack_eur = _money(cost_pack)
+        cost_unit_eur = _money(cost_unit)
+        stock_value_eur = _money(stock_value)
+        suggested_value_eur = _money(suggested_value)
+
         rows.append({
             "id": c.id,
             "name": c.name,
@@ -107,6 +127,14 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
             "suggested_units": suggested_units,
             "suggested_packs": suggested_packs,
             "supplier_name": suppliers.get(c.supplier_id).name if c.supplier_id and c.supplier_id in suppliers else "",
+            "cost_per_pack": cost_pack,
+            "cost_per_pack_eur": cost_pack_eur,
+            "cost_per_unit": cost_unit,
+            "cost_per_unit_eur": cost_unit_eur,
+            "stock_value": stock_value,
+            "stock_value_eur": stock_value_eur,
+            "suggested_value": suggested_value,
+            "suggested_value_eur": suggested_value_eur,
             "notes": c.notes or "",
         })
 
@@ -125,6 +153,7 @@ def consumable_new(
     min_qty: str = Form("0"),
     desired_qty: str = Form("0"),
     supplier_id: str = Form(""),
+    cost_per_pack: str = Form("0"),
     notes: str = Form(""),
 ):
     sid = int(supplier_id) if supplier_id.strip() else None
@@ -136,10 +165,62 @@ def consumable_new(
         min_qty=_d(min_qty),
         desired_qty=_d(desired_qty),
         supplier_id=sid,
+        cost_per_pack=_d(cost_per_pack),
         notes=notes.strip() or None,
         is_active=True,
     )
     db.add(c)
+    db.commit()
+    return RedirectResponse("/consumables", status_code=303)
+
+
+
+@router.get("/consumables/{cid}/edit")
+def consumable_edit_page(
+    cid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    c = db.get(Consumable, cid)
+    if not c:
+        raise HTTPException(404)
+    suppliers_list = db.query(Supplier).order_by(Supplier.is_active.desc(), Supplier.name.asc()).all()
+    return templates.TemplateResponse(
+        "consumable_edit.html",
+        {"request": request, "user": user, "consumable": c, "suppliers": suppliers_list},
+    )
+
+
+@router.post("/consumables/{cid}/edit")
+def consumable_edit_save(
+    cid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+    name: str = Form(...),
+    category: str = Form(""),
+    unit: str = Form(""),
+    pack_size: str = Form("1"),
+    min_qty: str = Form("0"),
+    desired_qty: str = Form("0"),
+    cost_per_pack: str = Form("0"),
+    supplier_id: str = Form(""),
+    notes: str = Form(""),
+):
+    c = db.get(Consumable, cid)
+    if not c:
+        raise HTTPException(404)
+    sid = int(supplier_id) if supplier_id.strip() else None
+    c.name = name.strip()
+    c.category = category.strip() or None
+    c.unit = unit.strip() or None
+    c.pack_size = _d(pack_size)
+    c.min_qty = _d(min_qty)
+    c.desired_qty = _d(desired_qty)
+    c.cost_per_pack = _d(cost_per_pack)
+    c.supplier_id = sid
+    c.notes = notes.strip() or None
     db.commit()
     return RedirectResponse("/consumables", status_code=303)
 
