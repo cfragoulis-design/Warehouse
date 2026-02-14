@@ -128,3 +128,37 @@ def init_db() -> None:
             )
     except Exception:
         pass
+
+# Workshop messages (CENTRAL -> WORKSHOP). Safe, idempotent.
+try:
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS workshop_messages (
+                id SERIAL PRIMARY KEY,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                target_role VARCHAR(32) NOT NULL DEFAULT 'workshop',
+                title VARCHAR(120),
+                body VARCHAR(800) NOT NULL,
+                require_ack BOOLEAN NOT NULL DEFAULT TRUE,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE
+            );
+            """
+        )
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS workshop_message_acks (
+                id SERIAL PRIMARY KEY,
+                message_id INTEGER NOT NULL REFERENCES workshop_messages(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                acked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """
+        )
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_workshop_message_acks_msg_user ON workshop_message_acks(message_id, user_id);"
+        )
+except Exception:
+    pass
+

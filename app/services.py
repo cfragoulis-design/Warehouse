@@ -13,7 +13,7 @@ import urllib.request
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, exists
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -21,11 +21,11 @@ from sqlalchemy.orm import Session
 try:
     from app.auth import require_user
     from app.db import get_db
-    from app.models import User, Product, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag
+    from app.models import User, Product, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
 except Exception:
     from auth import require_user
     from db import get_db
-    from models import User, Product, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag
+    from models import User, Product, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
 
 router = APIRouter()
 
@@ -78,6 +78,110 @@ def admin_only_dialog(request: Request, user: User, next_url: str = "/dashboard"
 
 # compatibility alias (you used require_login later)
 require_login = require_user
+
+# --------------------
+# workshop messaging (CENTRAL -> WORKSHOP)
+# --------------------
+@router.post("/admin/workshop-message")
+def admin_send_workshop_message(
+    request: Request,
+    body: str = Form(...),
+    title: str = Form(""),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    msg_body = (body or "").strip()
+    if not msg_body:
+        return RedirectResponse(url="/dashboard?msg=" + urllib.parse.quote("Empty message") + "&level=warning", status_code=303)
+
+    msg_title = (title or "").strip() or None
+
+    msg = WorkshopMessage(
+        created_by_user_id=user.id,
+        target_role="workshop",
+        title=msg_title,
+        body=msg_body,
+        require_ack=True,
+        is_active=True,
+    )
+    db.add(msg)
+    db.commit()
+    return RedirectResponse(url="/dashboard?msg=" + urllib.parse.quote("Message sent to workshop") + "&level=info", status_code=303)
+
+
+@router.get("/api/workshop/messages/pending", response_class=JSONResponse)
+def workshop_pending_message(
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    # Non-workshop users should never see messages; also keeps script safe if included everywhere.
+    if (user.role or "").lower() != "workshop":
+        return {"ok": True, "message": None}
+
+    ack_exists = exists().where(
+        (WorkshopMessageAck.message_id == WorkshopMessage.id) &
+        (WorkshopMessageAck.user_id == user.id)
+    )
+
+    msg = (
+        db.execute(
+            select(WorkshopMessage)
+            .where(
+                WorkshopMessage.is_active == True,
+                WorkshopMessage.target_role == "workshop",
+                ~ack_exists,
+            )
+            .order_by(WorkshopMessage.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
+    if not msg:
+        return {"ok": True, "message": None}
+
+    return {
+        "ok": True,
+        "message": {
+            "id": msg.id,
+            "title": msg.title or "Message",
+            "body": msg.body,
+            "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            "require_ack": bool(msg.require_ack),
+        },
+    }
+
+
+@router.post("/api/workshop/messages/{message_id}/ack", response_class=JSONResponse)
+def workshop_ack_message(
+    message_id: int,
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    if (user.role or "").lower() != "workshop":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    msg = db.get(WorkshopMessage, message_id)
+    if not msg or not msg.is_active:
+        return {"ok": True}
+
+    # Best-effort dedupe
+    existing = db.execute(
+        select(WorkshopMessageAck.id).where(
+            WorkshopMessageAck.message_id == message_id,
+            WorkshopMessageAck.user_id == user.id,
+        )
+    ).first()
+
+    if not existing:
+        db.add(WorkshopMessageAck(message_id=message_id, user_id=user.id))
+        db.commit()
+
+    return {"ok": True}
+
 
 
 # --------------------

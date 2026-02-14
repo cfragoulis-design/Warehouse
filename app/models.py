@@ -26,6 +26,58 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     pin_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
+
+class WorkshopMessage(Base):
+    """Broadcast-style message from CENTRAL(admin) to WORKSHOP.
+    Shown as a blocking dialog until acknowledged by the workshop user.
+    """
+
+    __tablename__ = "workshop_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+
+    target_role: Mapped[str] = mapped_column(String(32), nullable=False, default="workshop")
+    title: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    body: Mapped[str] = mapped_column(String(800), nullable=False)
+    require_ack: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class WorkshopMessageAck(Base):
+    __tablename__ = "workshop_message_acks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("workshop_messages.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+
+    acked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
 class AppFlag(Base):
     """Simple key/value flags for app-wide state (e.g. CENTRAL ready-to-load)."""
 
