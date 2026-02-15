@@ -17,7 +17,7 @@
   .nav{display:flex;gap:10px;flex-wrap:wrap}
   .pill{padding:8px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.02)}
   .pill:hover{border-color:#35508e}
-  .wrap{max-width:1150px;margin:0 auto;padding:18px}
+  .wrap{max-width:1500px;margin:0 auto;padding:18px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
   .card + .card{margin-top:14px}
   .card-h{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
@@ -42,7 +42,21 @@
   .hint{font-size:12px;color:var(--muted);margin-top:10px}
   .hint a{text-decoration:underline;color:var(--text)}
   /* Table (ERP-style, stable widths, no overlap) */
-  .table-wrap{overflow-x:auto;overflow-y:hidden;border-top:1px solid var(--line)}
+  table.cons-table{width:100%;table-layout:fixed;border-collapse:collapse}
+  table.cons-table th, table.cons-table td{padding:10px 10px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:middle}
+  table.cons-table thead th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:rgba(255,255,255,.02)}
+  .col-name{min-width:0}
+  .nameRow .name{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nameRow .meta, .nameRow .meta2{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .num{font-variant-numeric:tabular-nums}
+  .t-right{text-align:right}
+  .t-center{text-align:center}
+  .small{font-size:12px}
+  .actions.compact{display:inline-flex;gap:6px;align-items:center;justify-content:center;flex-wrap:nowrap}
+  .actions.compact .btn2{padding:6px 8px;font-size:12px}
+  .actions.compact .btnIcon{min-width:34px}
+
+  .table-wrap{overflow-x:hidden;overflow-y:visible;border-top:1px solid var(--line)}
   .table-wrap::-webkit-scrollbar{height:10px}
   .table-wrap::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10);border-radius:999px}
   .table-wrap::-webkit-scrollbar-track{background:rgba(255,255,255,.03)}
@@ -58,7 +72,7 @@
   th.col-money{width:110px}
   th.col-units{width:110px}
   th.col-small{width:90px}
-  th.col-actions{width:210px}
+  th.col-actions{width:240px}
   tr:hover td{background:rgba(255,255,255,.02)}
   .name{font-weight:700}
   .meta{font-size:12px;color:var(--muted);margin-top:3px}
@@ -67,10 +81,10 @@
   .bDanger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10);color:#ffd3d3}
   .bWarn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);color:#ffe9c2}
   .bOk{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.10);color:#c8f7dd}
-  .actions{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:center}
+  .actions{display:flex;gap:8px;flex-wrap:nowrap;align-items:center}
   .mini{display:inline-flex;gap:6px;align-items:center}
   .mini input{width:70px}
-  .btnIcon{width:40px;display:inline-flex;justify-content:center;padding:8px 0}
+  .btnIcon{width:38px;display:inline-flex;justify-content:center}
   .kpi{display:flex;flex-direction:column;gap:4px}
   .kpi .small{font-size:12px;color:var(--muted)}
   .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
@@ -184,22 +198,23 @@
       </div>
       {% else %}
       <div class="table-wrap">
-      <table aria-label="Consumables">
+      <table aria-label="Consumables" class="cons-table">
+        <colgroup>
+          <col style="width:38%">
+          <col style="width:12%">
+          <col style="width:10%">
+          <col style="width:10%">
+          <col style="width:20%">
+          <col style="width:10%">
+        </colgroup>
         <thead>
           <tr>
-            <th class="col-name">Name</th>
-            <th class="col-cat">Category</th>
-            <th class="col-supp">Supplier</th>
-            <th class="col-money t-right">Cost/pack</th>
-            <th class="col-money t-right">Cost/unit</th>
-            <th class="col-money t-right">Stock value</th>
-            <th class="col-money t-right">Suggested €</th>
-            <th class="col-units t-right">Stock</th>
-            <th class="col-units t-right">On‑order</th>
-            <th class="col-small t-right">Min</th>
-            <th class="col-small t-right">Desired</th>
-            <th class="col-units t-right">Suggested</th>
-            <th class="col-actions t-center">Actions</th>
+            <th class="col-name">Item</th>
+            <th class="t-right">Cost/pack</th>
+            <th class="t-right">Stock</th>
+            <th class="t-right">Min/Des</th>
+            <th class="t-right">Suggested</th>
+            <th class="t-center">Actions</th>
           </tr>
         </thead>
         <tbody id="tbody">
@@ -211,43 +226,52 @@
               data-low="{{ 1 if is_low else 0 }}"
               data-suggested="{{ 1 if has_suggested else 0 }}">
             <td class="col-name">
-              <div class="name">{{ r.name }}</div>
-              <div class="meta">
-                {% if r.unit %}{{ r.unit }}{% else %}<span class="muted">unit</span>{% endif %}
-                • pack {{ r.pack_size|int }}
-                {% if r.unit %} {{ r.unit }}{% endif %}/pack
+              <div class="nameRow">
+                <div class="name">
+                  {% if is_low %}<span class="badge bDanger">LOW</span>{% endif %}
+                  {{ r.name }}
+                </div>
+                <div class="meta">
+                  {% if r.category %}<span class="muted">{{ r.category }}</span>{% endif %}
+                  {% if r.supplier_name %}{% if r.category %}<span class="muted"> • </span>{% endif %}<span class="muted">{{ r.supplier_name }}</span>{% endif %}
+                </div>
+                <div class="meta2">
+                  {% if r.unit %}{{ r.unit }}{% else %}<span class="muted">unit</span>{% endif %}
+                  • pack {{ r.pack_size|int }}{% if r.unit %} {{ r.unit }}{% endif %}/pack
+                  {% if r.on_order and (r.on_order|int) > 0 %}<span class="muted"> • on‑order {{ r.on_order }}</span>{% endif %}
+                </div>
               </div>
             </td>
-            <td class="muted col-cat">{{ r.category }}</td>
-            <td class="col-supp">{{ r.supplier_name }}</td>
-            <td class="num t-right col-money">{{ r.cost_per_pack_eur }}</td>
-            <td class="num muted t-right col-money">{{ r.cost_per_unit_eur }}</td>
-            <td class="num t-right col-money">{{ r.stock_value_eur }}</td>
-            <td class="num t-right col-money">{{ r.suggested_value_eur }}</td>
-            <td class="num t-right col-units">
-              {% if is_low %}
-                <span class="badge bDanger">LOW</span>
-              {% endif %}
-              <span class="badge">{{ r.on_hand }}</span>
+
+            <td class="num t-right">
+              {% if r.cost_per_pack_eur is defined and r.cost_per_pack_eur %}{{ r.cost_per_pack_eur }}{% else %}<span class="muted">—</span>{% endif %}
+              {% if r.cost_per_unit_eur is defined and r.cost_per_unit_eur %}<div class="small muted">{{ r.cost_per_unit_eur }} / unit</div>{% endif %}
             </td>
-            <td class="num muted t-right col-units">{{ r.on_order }}</td>
-            <td class="num muted t-right col-small">{{ r.min_qty }}</td>
-            <td class="num muted t-right col-small">{{ r.desired_qty }}</td>
-            <td class="num t-right col-units">
+
+            <td class="num t-right">
+              <span class="badge">{{ r.on_hand }}</span>
+              {% if r.stock_value_eur is defined and r.stock_value_eur %}<div class="small muted">{{ r.stock_value_eur }}</div>{% endif %}
+            </td>
+
+            <td class="num t-right">
+              <div class="small muted">min {{ r.min_qty }}</div>
+              <div class="small muted">des {{ r.desired_qty }}</div>
+            </td>
+
+            <td class="num t-right">
               {% if has_suggested %}
                 <div class="kpi">
-                  <span class="badge bWarn">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
+                  <span class="badge bWarn">{{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
                   <span class="small">= {{ r.suggested_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
                 </div>
-                  {% if r.cost_per_pack is defined and r.cost_per_pack and (r.cost_per_pack|float) > 0 %}
-                    <div class="small muted">€{{ '%.2f'|format(r.cost_per_pack|float) }} / pack{% if r.suggested_packs and (r.suggested_packs|int) > 0 %} • ≈ €{{ '%.2f'|format((r.cost_per_pack|float) * (r.suggested_packs|int)) }}{% endif %}</div>
-                  {% endif %}
+                {% if r.suggested_value_eur is defined and r.suggested_value_eur %}<div class="small muted">{{ r.suggested_value_eur }}</div>{% endif %}
               {% else %}
-                {% if r.cost_per_pack is defined and r.cost_per_pack and (r.cost_per_pack|float) > 0 %}<span class="muted">€{{ '%.2f'|format(r.cost_per_pack|float) }} / pack</span>{% else %}<span class="muted">—</span>{% endif %}
+                <span class="muted">—</span>
               {% endif %}
             </td>
-            <td class="col-actions t-center">
-              <div class="actions">
+
+            <td class="t-center">
+              <div class="actions compact">
                 <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
                   <input type="hidden" name="delta" value="1" />
                   <button class="btn2 btnIcon" type="submit" title="Add 1">+1</button>
@@ -257,8 +281,8 @@
                   <button class="btn2 btnIcon" type="submit" title="Remove 1">-1</button>
                 </form>
                 <a class="btn2" href="/consumables/{{ r.id }}/edit">Edit</a>
-                <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
-                  <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
+                <form method="post" action="/consumables/{{ r.id }}/disable" style="display:inline;">
+                  <button class="btn2 btnDanger" type="submit">Disable</button>
                 </form>
               </div>
             </td>
