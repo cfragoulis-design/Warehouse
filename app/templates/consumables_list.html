@@ -17,14 +17,14 @@
   .nav{display:flex;gap:10px;flex-wrap:wrap}
   .pill{padding:8px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.02)}
   .pill:hover{border-color:#35508e}
-  .wrap{max-width:1500px;margin:0 auto;padding:18px}
+  .wrap{max-width:1150px;margin:0 auto;padding:18px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
   .card + .card{margin-top:14px}
   .card-h{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
   .card-h h2{margin:0;font-size:16px;letter-spacing:.01em}
   .card-h .sub{margin-top:2px;color:var(--muted);font-size:12px}
   .card-b{padding:14px 16px}
-  .grid{display:grid;grid-template-columns: 2fr 1.2fr 1.2fr .9fr .9fr .8fr .9fr 1.2fr auto;gap:10px;align-items:end}
+  .grid{display:grid;grid-template-columns: 2fr 1.2fr 1.2fr .9fr .8fr .9fr 1.2fr auto;gap:10px;align-items:end}
   @media (max-width: 980px){.grid{grid-template-columns: 1fr 1fr;}}
   label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px 2px}
   input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:9px 10px;border-radius:10px;outline:none}
@@ -41,38 +41,9 @@
   .muted{color:var(--muted)}
   .hint{font-size:12px;color:var(--muted);margin-top:10px}
   .hint a{text-decoration:underline;color:var(--text)}
-  /* Table (ERP-style, stable widths, no overlap) */
-  table.cons-table{width:100%;table-layout:fixed;border-collapse:collapse}
-  table.cons-table th, table.cons-table td{padding:10px 10px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:middle}
-  table.cons-table thead th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:rgba(255,255,255,.02)}
-  .col-name{min-width:0}
-  .nameRow .name{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .nameRow .meta, .nameRow .meta2{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .num{font-variant-numeric:tabular-nums}
-  .t-right{text-align:right}
-  .t-center{text-align:center}
-  .small{font-size:12px}
-  .actions.compact{display:inline-flex;gap:6px;align-items:center;justify-content:center;flex-wrap:nowrap}
-  .actions.compact .btn2{padding:6px 8px;font-size:12px}
-  .actions.compact .btnIcon{min-width:34px}
-
-  .table-wrap{overflow-x:hidden;overflow-y:visible;border-top:1px solid var(--line)}
-  .table-wrap::-webkit-scrollbar{height:10px}
-  .table-wrap::-webkit-scrollbar-thumb{background:rgba(255,255,255,.10);border-radius:999px}
-  .table-wrap::-webkit-scrollbar-track{background:rgba(255,255,255,.03)}
-  table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:1500px}
-  th,td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
   th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.02);text-align:left;position:sticky;top:58px;z-index:5}
-  th.t-right, td.t-right{text-align:right}
-  th.t-center, td.t-center{text-align:center}
-  th.col-name, td.col-name{white-space:normal}
-  th.col-name{width:260px}
-  th.col-cat{width:120px}
-  th.col-supp{width:230px}
-  th.col-money{width:110px}
-  th.col-units{width:110px}
-  th.col-small{width:90px}
-  th.col-actions{width:240px}
   tr:hover td{background:rgba(255,255,255,.02)}
   .name{font-weight:700}
   .meta{font-size:12px;color:var(--muted);margin-top:3px}
@@ -81,9 +52,9 @@
   .bDanger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10);color:#ffd3d3}
   .bWarn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);color:#ffe9c2}
   .bOk{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.10);color:#c8f7dd}
-  .actions{display:flex;gap:8px;flex-wrap:nowrap;align-items:center}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .mini{display:inline-flex;gap:6px;align-items:center}
-  .mini input{width:70px}
+  .mini input{width:82px}
   .btnIcon{width:38px;display:inline-flex;justify-content:center}
   .kpi{display:flex;flex-direction:column;gap:4px}
   .kpi .small{font-size:12px;color:var(--muted)}
@@ -145,10 +116,6 @@
               <input id="pack_size" name="pack_size" type="number" min="1" step="1" value="1" />
             </div>
             <div>
-              <label for="cost_per_pack">Cost €/pack</label>
-              <input id="cost_per_pack" name="cost_per_pack" type="number" min="0" step="0.01" value="0" />
-            </div>
-            <div>
               <label for="min_qty">Min</label>
               <input id="min_qty" name="min_qty" type="number" min="0" step="1" value="0" />
             </div>
@@ -197,24 +164,18 @@
         <p>Add your first consumable above to start tracking workshop supplies and suggested orders.</p>
       </div>
       {% else %}
-      <div class="table-wrap">
-      <table aria-label="Consumables" class="cons-table">
-        <colgroup>
-          <col style="width:38%">
-          <col style="width:12%">
-          <col style="width:10%">
-          <col style="width:10%">
-          <col style="width:20%">
-          <col style="width:10%">
-        </colgroup>
+      <table>
         <thead>
           <tr>
-            <th class="col-name">Item</th>
-            <th class="t-right">Cost/pack</th>
-            <th class="t-right">Stock</th>
-            <th class="t-right">Min/Des</th>
-            <th class="t-right">Suggested</th>
-            <th class="t-center">Actions</th>
+            <th style="min-width:240px">Name</th>
+            <th>Category</th>
+            <th>Supplier</th>
+            <th>Stock (units)</th>
+            <th>On‑order (units)</th>
+            <th>Min</th>
+            <th>Desired</th>
+            <th>Suggested (packs)</th>
+            <th style="min-width:220px">Actions</th>
           </tr>
         </thead>
         <tbody id="tbody">
@@ -225,53 +186,44 @@
               data-name="{{ r.name|lower }}"
               data-low="{{ 1 if is_low else 0 }}"
               data-suggested="{{ 1 if has_suggested else 0 }}">
-            <td class="col-name">
-              <div class="nameRow">
-                <div class="name">
-                  {% if is_low %}<span class="badge bDanger">LOW</span>{% endif %}
-                  {{ r.name }}
-                </div>
-                <div class="meta">
-                  {% if r.category %}<span class="muted">{{ r.category }}</span>{% endif %}
-                  {% if r.supplier_name %}{% if r.category %}<span class="muted"> • </span>{% endif %}<span class="muted">{{ r.supplier_name }}</span>{% endif %}
-                </div>
-                <div class="meta2">
-                  {% if r.unit %}{{ r.unit }}{% else %}<span class="muted">unit</span>{% endif %}
-                  • pack {{ r.pack_size|int }}{% if r.unit %} {{ r.unit }}{% endif %}/pack
-                  {% if r.on_order and (r.on_order|int) > 0 %}<span class="muted"> • on‑order {{ r.on_order }}</span>{% endif %}
-                </div>
+            <td>
+              <div class="name">{{ r.name }}</div>
+              <div class="meta">
+                {% if r.unit %}{{ r.unit }}{% else %}<span class="muted">unit</span>{% endif %}
+                • pack {{ r.pack_size|int }}
+                {% if r.unit %} {{ r.unit }}{% endif %}/pack
               </div>
             </td>
-
-            <td class="num t-right">
-              {% if r.cost_per_pack_eur is defined and r.cost_per_pack_eur %}{{ r.cost_per_pack_eur }}{% else %}<span class="muted">—</span>{% endif %}
-              {% if r.cost_per_unit_eur is defined and r.cost_per_unit_eur %}<div class="small muted">{{ r.cost_per_unit_eur }} / unit</div>{% endif %}
-            </td>
-
-            <td class="num t-right">
+            <td class="muted">{{ r.category }}</td>
+            <td>{{ r.supplier_name }}</td>
+            <td class="num">
+              {% if is_low %}
+                <span class="badge bDanger">LOW</span>
+              {% endif %}
               <span class="badge">{{ r.on_hand }}</span>
-              {% if r.stock_value_eur is defined and r.stock_value_eur %}<div class="small muted">{{ r.stock_value_eur }}</div>{% endif %}
             </td>
-
-            <td class="num t-right">
-              <div class="small muted">min {{ r.min_qty }}</div>
-              <div class="small muted">des {{ r.desired_qty }}</div>
-            </td>
-
-            <td class="num t-right">
+            <td class="num muted">{{ r.on_order }}</td>
+            <td class="num muted">{{ r.min_qty }}</td>
+            <td class="num muted">{{ r.desired_qty }}</td>
+            <td class="num">
               {% if has_suggested %}
                 <div class="kpi">
-                  <span class="badge bWarn">{{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
+                  <span class="badge bWarn">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
                   <span class="small">= {{ r.suggested_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
                 </div>
-                {% if r.suggested_value_eur is defined and r.suggested_value_eur %}<div class="small muted">{{ r.suggested_value_eur }}</div>{% endif %}
+                  {% if r.cost_per_pack is defined and r.cost_per_pack and (r.cost_per_pack|float) > 0 %}
+                    <div class="small muted">€{{ '%.2f'|format(r.cost_per_pack|float) }} / pack{% if r.suggested_packs and (r.suggested_packs|int) > 0 %} • ≈ €{{ '%.2f'|format((r.cost_per_pack|float) * (r.suggested_packs|int)) }}{% endif %}</div>
+                  {% endif %}
               {% else %}
-                <span class="muted">—</span>
+                {% if r.cost_per_pack is defined and r.cost_per_pack and (r.cost_per_pack|float) > 0 %}<span class="muted">€{{ '%.2f'|format(r.cost_per_pack|float) }} / pack</span>{% else %}<span class="muted">—</span>{% endif %}
               {% endif %}
             </td>
-
-            <td class="t-center">
-              <div class="actions compact">
+            <td>
+              <div class="actions">
+                <form method="post" action="/consumables/{{ r.id }}/adjust" class="mini">
+                  <input name="delta" type="number" step="1" value="1" aria-label="Adjust delta" />
+                  <button class="btn2" type="submit">Adjust</button>
+                </form>
                 <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
                   <input type="hidden" name="delta" value="1" />
                   <button class="btn2 btnIcon" type="submit" title="Add 1">+1</button>
@@ -280,9 +232,8 @@
                   <input type="hidden" name="delta" value="-1" />
                   <button class="btn2 btnIcon" type="submit" title="Remove 1">-1</button>
                 </form>
-                <a class="btn2" href="/consumables/{{ r.id }}/edit">Edit</a>
-                <form method="post" action="/consumables/{{ r.id }}/disable" style="display:inline;">
-                  <button class="btn2 btnDanger" type="submit">Disable</button>
+                <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
+                  <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
                 </form>
               </div>
             </td>
@@ -290,7 +241,6 @@
           {% endfor %}
         </tbody>
       </table>
-      </div>
       {% endif %}
     </div>
 
