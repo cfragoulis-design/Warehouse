@@ -30,6 +30,7 @@
   
 .pill{display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; margin-left:8px; border:1px solid rgba(255,255,255,.2); opacity:.9}
 .pill-freezer{background: rgba(0, 120, 255, 0.15); border-color: rgba(0, 120, 255, 0.35);}
+.pill-prod{background: rgba(46, 204, 113, 0.14); border-color: rgba(46, 204, 113, 0.35);}
 </style>
 </head>
 <body>
@@ -86,7 +87,7 @@
       {% endif %}
 
       <tr class="prodrow" data-cat="{{ cat|e }}">
-        <td style="font-weight:800">{{ p.name }}{% if p.only_in_freezer %} <span class="pill pill-freezer">Freezer Only</span>{% endif %}</td>
+        <td style="font-weight:800">{{ p.name }}{% if p.only_in_freezer %} <span class="pill pill-freezer">Freezer Only</span>{% endif %}{% if p.is_production_item %} <span class="pill pill-prod">Production</span>{% endif %}</td>
         <td class="mono">{{ p.sku or '' }}</td>
         <td>{{ p.category or '' }}</td>
         <td>

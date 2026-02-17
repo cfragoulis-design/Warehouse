@@ -112,6 +112,18 @@
       </div>
       <div class="muted">Αν είναι ενεργό, το προϊόν ΔΕΝ θα εμφανίζεται στο Stock (/stock) και θα διαχειρίζεται μόνο από το Freezer (/freezer).</div>
 
+      <div class="checkrow">
+        <input
+          id="is_production_item"
+          name="is_production_item"
+          type="checkbox"
+          value="1"
+          {% if product and product.is_production_item %}checked{% endif %}
+        />
+        <label class="label" for="is_production_item">Daily Production Report</label>
+      </div>
+      <div class="muted">Αν είναι ενεργό, το προϊόν θα συμπεριλαμβάνεται στο καθημερινό email “Ημερήσια Παραγωγή” (WORKSHOP → CENTRAL).</div>
+
       <div class="actions">
         <button class="btn" type="submit">Αποθήκευση</button>
         <a class="link" href="/products">Ακύρωση</a>
