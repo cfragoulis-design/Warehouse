@@ -496,6 +496,7 @@ def product_create(
     unit: str = Form("pcs"),
     min_stock: str = Form("0"),
     only_in_freezer: str | None = Form(None),
+    is_production_item: str | None = Form(None),
 ):
     ms = parse_qty(min_stock) or Decimal("0")
     p = Product(
@@ -505,6 +506,7 @@ def product_create(
         unit=unit,
         min_stock=float(ms),
         only_in_freezer=_truthy_flag(only_in_freezer),
+        is_production_item=_truthy_flag(is_production_item),
     )
     db.add(p)
     try:
@@ -549,6 +551,7 @@ def product_update(
     unit: str = Form("pcs"),
     min_stock: str = Form("0"),
     only_in_freezer: str | None = Form(None),
+    is_production_item: str | None = Form(None),
 ):
     product = db.get(Product, pid)
     if not product:
@@ -559,6 +562,7 @@ def product_update(
     product.category = category.strip() if category else None
     product.unit = unit
     product.only_in_freezer = _truthy_flag(only_in_freezer)
+    product.is_production_item = _truthy_flag(is_production_item)
     ms = parse_qty(min_stock)
     product.min_stock = float(ms) if ms is not None else 0
     try:

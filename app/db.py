@@ -67,6 +67,34 @@ def init_db() -> None:
     except Exception:
         pass
 
+    # Daily Production Report flag (safe, idempotent).
+    # Products with is_production_item=TRUE are included in the daily email report.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_production_item BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+    except Exception:
+        pass
+
+    # Report runs table (idempotency for cron retries).
+    # Ensures we don't send the same report twice for the same day.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS report_runs (
+                    id SERIAL PRIMARY KEY,
+                    report_key VARCHAR(64) NOT NULL,
+                    run_date DATE NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (report_key, run_date)
+                );
+                """
+            )
+    except Exception:
+        pass
+
     # Missing/Owed table (safe, idempotent). We also keep a migration file, but this prevents crashes
     # on deployments where migrations were not run.
     try:

@@ -113,6 +113,10 @@ class Product(Base):
 
     # If true, product is managed ONLY in /freezer and should NOT appear in /stock.
     only_in_freezer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # If true, this product is included in the Daily Production Report email.
+    # Bound to product IDs (not names), so renames won't break reporting.
+    is_production_item: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
