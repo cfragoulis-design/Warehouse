@@ -22,137 +22,68 @@
     }
     *{box-sizing:border-box}
     body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;}
-    a{color:#8ab4ff;text-decoration:none}
-    .top{
-      display:flex;justify-content:space-between;align-items:center;
-      padding:16px 20px;
-      background:linear-gradient(180deg,#111936 0%, #0b1020 100%);
-      border-bottom:1px solid var(--line);
+    a{color:inherit}
+    .topbar{position:sticky;top:0;z-index:50;background:linear-gradient(180deg, rgba(11,16,32,0.98), rgba(11,16,32,0.80));backdrop-filter: blur(10px);border-bottom:1px solid var(--line);}
+    .topbar-inner{max-width:1200px;margin:0 auto;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;}
+    .brand{display:flex;align-items:center;gap:12px;}
+    .brand-title{font-size:18px;font-weight:900;letter-spacing:.2px}
+    .muted{color:var(--muted);font-size:13px}
+    .btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:8px 12px;border-radius:10px;font-weight:800;cursor:pointer}
+    .btn:hover{border-color:#35508f}
+    .page{max-width:1200px;margin:0 auto;padding:16px;}
+    .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:14px;}
+    @media (max-width: 960px){
+      .grid{grid-template-columns:1fr;}
+      .topbar-inner{flex-wrap:wrap}
     }
-    .brand{display:flex;align-items:center;gap:10px;}
-    .brand img{height:32px;}
-    .brand-title{font-weight:800;letter-spacing:0.4px;}
-    .muted{color:var(--muted)}
-    .btn{background:var(--blue);color:white;border:0;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
-    .btn:active{transform:translateY(1px)}
-    form{margin:0}
-
-    .page{max-width:980px;margin:22px auto;padding:0 16px;}
-
-    .grid{
-      display:grid;
-      grid-template-columns:repeat(12,1fr);
-      gap:14px;
-      align-items:stretch;
-    }
-
-    .card{
-      background:var(--panel);
-      border:1px solid var(--line);
-      border-radius:14px;
-      padding:16px;
-    }
-
-    .stats{grid-column:span 12;}
-    .statsRow{
-      display:grid;
-      grid-template-columns:repeat(3,minmax(0,1fr));
-      gap:12px;
-      margin-top:10px;
-    }
-
-    .statLink{display:block;text-decoration:none;color:inherit;}
-    .statLink:hover .stat{border-color:rgba(75,123,236,0.65)}
-    .badgeLink{text-decoration:none;display:inline-flex;}
-    .badgeLink:hover .badge{border-color:rgba(75,123,236,0.65)}
-
-    .stat{
-      background:var(--panel2);
-      border:1px solid var(--line);
-      border-radius:12px;
-      padding:12px;
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-end;
-      gap:10px;
-      min-height:72px;
-    }
-    .stat .k{font-size:12px;color:var(--muted);}
-    .stat .v{font-size:22px;font-weight:800;letter-spacing:0.2px;}
-    .badge{
-      font-size:11px;
-      padding:3px 8px;
-      border-radius:999px;
-      border:1px solid var(--line);
-      color:var(--muted);
-      background:rgba(255,255,255,0.03);
-      white-space:nowrap;
-    }
-    .badge.good{border-color:rgba(53,194,125,0.35);color:#b8f0d4;background:rgba(53,194,125,0.10);}
-    .badge.warn{border-color:rgba(202,162,74,0.35);color:#ffe4a5;background:rgba(202,162,74,0.10);}
-    .badge.danger{border-color:rgba(255,107,107,0.35);color:#ffd0d0;background:rgba(255,107,107,0.10);}
-
-    .actions{grid-column:span 12;}
-    .actionsGrid{
-      display:grid;
-      grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-      gap:14px;
-      margin-top:10px;
-    }
-    .action{
-      display:block;
-      padding:14px;
-      border-radius:12px;
-      background:var(--panel2);
-      border:1px solid var(--line);
-      color:var(--text);
-      text-decoration:none;
-      transition:transform .05s ease, border-color .08s ease;
-      min-height:86px;
-    }
-    .action strong{display:block;margin-bottom:4px;}
-    .action span{color:var(--muted);font-size:13px;line-height:1.3;}
-    .action:hover{border-color:rgba(75,123,236,0.65)}
-    .action:active{transform:translateY(1px)}
-
-    .quick{grid-column:span 12;}
-    .quickRow{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;}
-    .qbtn{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:10px 12px;border-radius:12px;
-      border:1px solid var(--line);
-      background:var(--panel2);
-      color:var(--text);
-      font-weight:700;
-    }
-    .qbtn:hover{border-color:rgba(75,123,236,0.65)}
-    .qbtn small{font-weight:600;color:var(--muted)}
-
-    .foot{margin-top:16px;color:var(--muted);font-size:12px;opacity:0.9}
-    @media (max-width:640px){
-      .statsRow{grid-template-columns:1fr}
-      .top{padding:14px 14px}
-    }
+    .card{background:linear-gradient(180deg, rgba(17,25,54,0.92), rgba(14,21,48,0.92));border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);overflow:hidden;}
+    .card h2{margin:0;padding:12px 14px;border-bottom:1px solid var(--line);font-size:14px;letter-spacing:.2px;text-transform:uppercase;color:var(--muted)}
+    .card .body{padding:14px}
+    .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    @media (max-width: 700px){.stats{grid-template-columns:1fr}}
+    .stat{background:rgba(14,21,48,.75);border:1px solid var(--line);border-radius:14px;padding:12px}
+    .stat .k{font-size:13px;color:var(--muted)}
+    .stat .v{font-size:22px;font-weight:900;margin-top:2px}
+    .chip{display:inline-flex;align-items:center;gap:8px;background:rgba(47,124,246,.12);border:1px solid rgba(47,124,246,.35);color:#cfe0ff;padding:7px 10px;border-radius:999px;font-weight:800;font-size:12px}
+    .chip.good{background:rgba(53,194,125,.10);border-color:rgba(53,194,125,.35);color:#ccffe5}
+    .chip.warn{background:rgba(202,162,74,.12);border-color:rgba(202,162,74,.35);color:#ffe8b6}
+    .chip.danger{background:rgba(255,107,107,.10);border-color:rgba(255,107,107,.35);color:#ffd0d0}
+    .list{display:flex;flex-direction:column;gap:10px}
+    .row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:rgba(14,21,48,.55)}
+    .row .title{font-weight:900}
+    .row .sub{color:var(--muted);font-size:13px;margin-top:3px}
+    .row .right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+    .kv{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}
+    .kv b{color:var(--text)}
+    .divider{height:1px;background:var(--line);margin:10px 0}
+    .app-datetime{font-variant-numeric: tabular-nums; font-weight: 800; color: var(--muted);}
   </style>
 </head>
 <body>
 
-  <div class="top">
-    <div class="brand">
-      <img src="/static/logo-icon.png" alt="Sklavounos">
-      <div>
-        <div class="brand-title">Sklavounos Stock</div>
-        <div class="muted">
-          Logged in as <strong>{{ user.username }}</strong> ({{ user.role }})
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="logo" aria-label="Sklavounos">
+          <div>
+            <div class="brand-title">Sklavounos Stock</div>
+            <div class="muted">
+              Logged in as <strong>{{ user.username }}</strong> ({{ user.role }})
+            </div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div style="display:flex;align-items:center;gap:12px;">
-      <span id="app-datetime" class="app-datetime"></span>
-      <form method="post" action="/logout">
-        <button class="btn" type="submit">Logout</button>
-      </form>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span id="app-datetime" class="app-datetime"></span>
+        {% if user.role == "admin" %}
+        <button class="btn" type="button" id="btnSendProd" style="background:var(--warn);border-color:var(--warn);color:#111936;font-weight:900;">Send Production</button>
+        <button class="btn" type="button" id="btnSendProdTest" style="background:#8ab4ff;border-color:#8ab4ff;color:#0b1020;font-weight:900;">Send Test (Admin)</button>
+        {% endif %}
+        <form method="post" action="/logout">
+          <button class="btn" type="submit">Logout</button>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -160,157 +91,155 @@
     <div class="grid">
 
       <div class="card stats">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-          <div>
-            <div style="font-weight:900;font-size:18px">Overview</div>
-            <div class="muted" style="font-size:13px">Quick snapshot of inventory &amp; activity</div>
-          </div>
-
-          {% set low = stats.low_stock_count if stats is defined else None %}
-          {% if low is not none and low|int == 0 %}
-            <a class="badgeLink" href="/stock"><span class="badge good">All good</span></a>
-          {% elif low is not none and low|int > 0 %}
-            <a class="badgeLink" href="/stock?pending=1"><span class="badge warn">Needs attention: {{ low }}</span></a>
-          {% else %}
-            <a class="badgeLink" href="/stock"><span class="badge">Stats not loaded</span></a>
-          {% endif %}
-        </div>
-
-        <div class="statsRow">
-          <div class="stat">
-            <div>
-              <div class="k">Products</div>
-              <div class="v">{{ stats.products_count if stats is defined else "—" }}</div>
-            </div>
-            <span class="badge">total</span>
-          </div>
-
-          <a class="statLink" href="/stock?pending=1">
+        <h2>Today</h2>
+        <div class="body">
+          <div class="stats">
             <div class="stat">
+              <div class="k">Total Items</div>
+              <div class="v">{{ totals.total_items }}</div>
+            </div>
+            <div class="stat">
+              <div class="k">Low Stock</div>
+              <div class="v">{{ totals.low_items }}</div>
+            </div>
+            <div class="stat">
+              <div class="k">Pending</div>
+              <div class="v">{{ totals.pending_items }}</div>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <a class="chip" href="/stock">Stock</a>
+            <a class="chip good" href="/consumables">Consumables</a>
+            <a class="chip warn" href="/transfers">Transfers</a>
+            <a class="chip danger" href="/freezer">Freezer</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Notes</h2>
+        <div class="body">
+          <div class="list">
+            {% for n in notes %}
+            <div class="row">
               <div>
-                <div class="k">Low stock</div>
-                <div class="v">{{ stats.low_stock_count if stats is defined else "—" }}</div>
+                <div class="title">{{ n.title }}</div>
+                <div class="sub">{{ n.body }}</div>
               </div>
-              {% if stats is defined and stats.low_stock_count|int > 0 %}
-                <span class="badge warn">check</span>
-              {% elif stats is defined and stats.low_stock_count|int == 0 %}
-                <span class="badge good">ok</span>
-              {% else %}
-                <span class="badge">—</span>
-              {% endif %}
+              <div class="right">
+                <div class="kv"><b>{{ n.when }}</b></div>
+                {% if n.badge %}
+                <span class="chip {{ n.badge_kind }}">{{ n.badge }}</span>
+                {% endif %}
+              </div>
             </div>
-          </a>
-
-          <div class="stat">
-            <div>
-              <div class="k">Movements today</div>
-              <div class="v">{{ stats.movements_today if stats is defined else "—" }}</div>
-            </div>
-            <span class="badge">today</span>
+            {% endfor %}
+            {% if notes|length == 0 %}
+            <div class="muted">No notes</div>
+            {% endif %}
           </div>
         </div>
-
-        <div class="foot">
-          Tip: “Low stock” is calculated from your targets (Pending &gt; 0). If you prefer a different rule, tell me and we’ll align it.
-        </div>
       </div>
 
-      <div class="card quick">
-        <div style="font-weight:900;font-size:16px">Quick actions</div>
-        <div class="muted" style="font-size:13px">Fast access to common tasks</div>
-
-        <div class="quickRow">
-          <a class="qbtn" href="/products/new">➕ Add Product <small>(new)</small></a>
-          <a class="qbtn" href="/stock">📦 View Stock <small>(live)</small></a>
-          <a class="qbtn" href="/freezer">🧊 Freezer Stock <small>(frozen)</small></a>
-          <a class="qbtn" href="/movements/new">🔄 New Movement <small>(IN/OUT/ADJ)</small></a>
-        </div>
-      </div>
-
-      <div class="card actions">
-        <div style="font-weight:900;font-size:16px">Management</div>
-        <div class="muted" style="font-size:13px">Core screens</div>
-
-        <div class="actionsGrid">
-          
-
-<!-- Consumables module -->
-<a class="action" href="/consumables">
-  <strong>Consumables (WORKSHOP)</strong>
-  <span class="muted">Manage consumables stock / min-desired</span>
-</a>
-<a class="action" href="/suppliers">
-  <strong>Suppliers</strong>
-  <span class="muted">Supplier list & details</span>
-</a>
-<a class="action" href="/purchase-orders">
-  <strong>Consumables POs</strong>
-  <span class="muted">Draft / Pending / Received</span>
-</a>
-<a class="action" href="/products">
-            <strong>Products</strong>
-            <span>Add / edit inventory items</span>
-          </a>
-
-          <a class="action" href="/categories">
-            <strong>Categories</strong>
-            <span>Order / rename / disable categories</span>
-          </a>
-
-          <a class="action" href="/stock">
-
-            <strong>Current Stock</strong>
-            <span>Live totals (includes zeros)</span>
-          </a>
-<a class="action" href="/freezer">
-  <strong>Freezer Stock</strong>
-  <span class="muted">Frozen items & quantities</span>
-</a>
-
-
-          <a class="action" href="/movements">
-            <strong>Stock Movements</strong>
-            <span>IN / OUT / ADJ movements</span>
-          </a>
-        </div>
-      </div>
-
-      <div class="card" style="grid-column:span 12;">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-          <div>
-            <div style="font-weight:900;font-size:16px">Health</div>
-            <div class="muted" style="font-size:13px">Service endpoint</div>
+      <div class="card">
+        <h2>Recent Transfers</h2>
+        <div class="body">
+          <div class="list">
+            {% for t in recent_transfers %}
+            <div class="row">
+              <div>
+                <div class="title">{{ t.title }}</div>
+                <div class="sub">{{ t.sub }}</div>
+              </div>
+              <div class="right">
+                <span class="chip {{ t.kind }}">{{ t.status }}</span>
+                <div class="kv"><b>{{ t.when }}</b></div>
+              </div>
+            </div>
+            {% endfor %}
+            {% if recent_transfers|length == 0 %}
+            <div class="muted">No transfers</div>
+            {% endif %}
           </div>
-          <a class="btn" href="/health" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;">/health</a>
         </div>
       </div>
 
-{% if user.role == "admin" %}
-<div class="card" style="grid-column:span 12;">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-    <div>
-      <div style="font-weight:900;font-size:16px">Message to Workshop</div>
-      <div class="muted" style="font-size:13px">Shows as a blocking dialog until OK (polling every 20s).</div>
-    </div>
-  </div>
-
-  <form method="post" action="/admin/workshop-message" style="margin-top:12px; display:grid; gap:10px;">
-    <input name="title" placeholder="Title (optional)"
-      style="padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--text);" />
-
-    <textarea name="body" required rows="3" placeholder="Write message..."
-      style="padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--text);resize:vertical;"></textarea>
-
-    <div style="display:flex; justify-content:flex-end;">
-      <button class="btn" type="submit">Send</button>
-    </div>
-  </form>
-</div>
-{% endif %}
+      <div class="card">
+        <h2>System</h2>
+        <div class="body">
+          <div class="list">
+            {% for s in system %}
+            <div class="row">
+              <div>
+                <div class="title">{{ s.title }}</div>
+                <div class="sub">{{ s.sub }}</div>
+              </div>
+              <div class="right">
+                <span class="chip {{ s.kind }}">{{ s.status }}</span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
 
     </div>
   </div>
 
-{% include "_workshop_message_modal.html" %}
+<script>
+(function () {
+  function post(mode) {
+    return fetch("/admin/send-production-report", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({mode: mode})
+    }).then(function (r) {
+      return r.json().then(function (j) { return {status: r.status, json: j}; });
+    });
+  }
+
+  var btn1 = document.getElementById("btnSendProd");
+  var btn2 = document.getElementById("btnSendProdTest");
+
+  if (btn1) {
+    btn1.addEventListener("click", function () {
+      if (!confirm("Να σταλεί τώρα το Production Report στους επίσημους παραλήπτες;")) return;
+      btn1.disabled = true;
+      post("official").then(function (res) {
+        btn1.disabled = false;
+        if (res.status >= 200 && res.status < 300 && res.json && res.json.ok) {
+          if (res.json.skipped) alert("Ήδη έχει σταλεί σήμερα (cron/χειροκίνητο).");
+          else alert("Production report sent.");
+        } else {
+          alert("Error: " + (res.json && (res.json.error || res.json.detail) ? (res.json.error || res.json.detail) : "Unknown"));
+        }
+      }).catch(function () {
+        btn1.disabled = false;
+        alert("Request failed.");
+      });
+    });
+  }
+
+  if (btn2) {
+    btn2.addEventListener("click", function () {
+      if (!confirm("TEST MODE: Να σταλεί μόνο σε Admin email (χωρίς να επηρεάσει το cron);")) return;
+      btn2.disabled = true;
+      post("admin").then(function (res) {
+        btn2.disabled = false;
+        if (res.status >= 200 && res.status < 300 && res.json && res.json.ok) {
+          alert("Admin test email sent.");
+        } else {
+          alert("Error: " + (res.json && (res.json.error || res.json.detail) ? (res.json.error || res.json.detail) : "Unknown"));
+        }
+      }).catch(function () {
+        btn2.disabled = false;
+        alert("Request failed.");
+      });
+    });
+  }
+})();
+</script>
+
 </body>
 </html>
