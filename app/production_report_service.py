@@ -5,13 +5,14 @@ import json
 import urllib.request
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Body
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models import Product
+from .models import Product, User
+from .auth import require_role
 
 
 router = APIRouter()
@@ -87,37 +88,39 @@ def _normalize_list(addrs: str) -> list[str]:
     return [a for a in raw if a]
 
 
-@router.get("/internal/daily-production-cron")
-def daily_production_cron(
-    request: Request,
-    token: str = "",
-    db: Session = Depends(get_db),
-):
-    expected = _env("PRODUCTION_REPORT_TOKEN")
-    if not expected or token != expected:
-        raise HTTPException(status_code=403, detail="Forbidden")
+def _build_and_send_report(
+    *,
+    db: Session,
+    mark_as_sent: bool,
+    to_override: list[str] | None = None,
+    cc_override: list[str] | None = None,
+) -> dict:
+    """Build today's production report (WORKSHOP → CENTRAL) and send it.
 
-    # Idempotency (cron retries / double trigger)
+    - mark_as_sent=True: records a run in report_runs to prevent duplicates (cron-safe)
+    - mark_as_sent=False: does NOT touch report_runs (admin test sends)
+    """
+
     report_key = "daily_production"
     today = date.today()
-    inserted = db.execute(
-        text(
-            """
-            INSERT INTO report_runs (report_key, run_date)
-            VALUES (:k, :d)
-            ON CONFLICT (report_key, run_date) DO NOTHING
-            RETURNING id;
-            """
-        ),
-        {"k": report_key, "d": today},
-    ).fetchone()
-    db.commit()
 
-    if inserted is None:
-        # already sent today
-        return JSONResponse({"ok": True, "skipped": True, "reason": "already-sent"})
+    if mark_as_sent:
+        inserted = db.execute(
+            text(
+                """
+                INSERT INTO report_runs (report_key, run_date)
+                VALUES (:k, :d)
+                ON CONFLICT (report_key, run_date) DO NOTHING
+                RETURNING id;
+                """
+            ),
+            {"k": report_key, "d": today},
+        ).fetchone()
+        db.commit()
 
-    # Load production items (bind to product IDs)
+        if inserted is None:
+            return {"ok": True, "skipped": True, "reason": "already-sent"}
+
     prod_products: list[Product] = (
         db.query(Product)
         .filter(Product.is_production_item == True)  # noqa: E712
@@ -125,14 +128,10 @@ def daily_production_cron(
         .order_by(Product.name.asc())
         .all()
     )
-
     prod_ids = [p.id for p in prod_products]
 
-    # If nothing is selected yet, still send a minimal email (so the flow is verifiable)
     rows: list[tuple[int, object]] = []
     if prod_ids:
-        # Sum CENTRAL IN movements that are part of a transfer (transfer_id not null)
-        # for the current day (Europe/Athens).
         rows = (
             db.execute(
                 text(
@@ -149,30 +148,37 @@ def daily_production_cron(
                     """
                 ),
                 {"pids": prod_ids},
-            )
-            .fetchall()
+            ).fetchall()
         )
 
     totals_by_pid = {int(pid): total for (pid, total) in rows}
 
-    # Build email
-    to_addrs = _normalize_list(_env("PRODUCTION_REPORT_TO", "info@kentarxos.gr"))
-    cc_addrs = _normalize_list(_env("PRODUCTION_REPORT_CC", "info@sklavounosmeat.gr"))
+    to_addrs = (
+        to_override
+        if to_override is not None
+        else _normalize_list(_env("PRODUCTION_REPORT_TO", "info@kentarxos.gr"))
+    )
+    cc_addrs = (
+        cc_override
+        if cc_override is not None
+        else _normalize_list(_env("PRODUCTION_REPORT_CC", "info@sklavounosmeat.gr"))
+    )
 
     today_gr = db.execute(text("SELECT (NOW() AT TIME ZONE 'Europe/Athens')::date"))
     today_gr_val = today_gr.scalar() or today
     subject = f"Ημερήσια Παραγωγή – {today_gr_val.strftime('%d/%m/%Y')}"
 
     lines: list[str] = []
-    lines.append(f"Ημερήσια Παραγωγή (WORKSHOP → CENTRAL)")
+    lines.append("Ημερήσια Παραγωγή (WORKSHOP → CENTRAL)")
     lines.append(f"Ημερομηνία: {today_gr_val.strftime('%d/%m/%Y')}")
     lines.append("")
 
     if not prod_products:
         lines.append("⚠️ Δεν έχουν επιλεγεί προϊόντα για το report.")
-        lines.append("Σημείωση: Στα Products → Edit Product, ενεργοποίησε το checkbox 'Daily Production Report'.")
+        lines.append(
+            "Σημείωση: Στα Products → Edit Product, ενεργοποίησε το checkbox 'Daily Production Report'."
+        )
     else:
-        # Show only items that had movement today (default), unless SHOW_ZERO=1
         show_zero = _env("PRODUCTION_REPORT_SHOW_ZERO", "0") == "1"
 
         printable = []
@@ -181,7 +187,6 @@ def daily_production_cron(
             if (total is None or float(total) == 0.0) and not show_zero:
                 continue
             unit = p.unit
-            # Keep units aligned with WH conventions
             if unit == "box":
                 unit_lbl = "Κιβ"
             elif unit == "pcs":
@@ -195,7 +200,6 @@ def daily_production_cron(
         if not printable:
             lines.append("Δεν καταγράφηκε παραγωγή σήμερα (για τα επιλεγμένα προϊόντα).")
         else:
-            # Text table
             name_w = max(len(x[0]) for x in printable)
             qty_w = max(len(x[1]) for x in printable)
             lines.append(f"{'Προϊόν'.ljust(name_w)}  {'Ποσότητα'.rjust(qty_w)}  Μονάδα")
@@ -208,5 +212,43 @@ def daily_production_cron(
     body = "\n".join(lines)
 
     _send_email(subject=subject, body=body, to_addrs=to_addrs, cc_addrs=cc_addrs)
+    return {"ok": True, "sent": True, "date": str(today_gr_val)}
 
-    return JSONResponse({"ok": True, "sent": True, "date": str(today_gr_val)})
+
+@router.post("/admin/send-production-report")
+def admin_send_production_report(
+    request: Request,
+    payload: dict = Body(default_factory=dict),
+    user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    mode = str(payload.get("mode") or "official").strip().lower()
+
+    if mode == "admin":
+        test_to = _env("PRODUCTION_REPORT_ADMIN_TEST_EMAIL")
+        if not test_to:
+            raise HTTPException(status_code=400, detail="Missing PRODUCTION_REPORT_ADMIN_TEST_EMAIL")
+        return JSONResponse(
+            _build_and_send_report(
+                db=db,
+                mark_as_sent=False,
+                to_override=_normalize_list(test_to),
+                cc_override=[],
+            )
+        )
+
+    # Official send (marks as sent for the day to avoid cron duplicate)
+    return JSONResponse(_build_and_send_report(db=db, mark_as_sent=True))
+
+
+@router.get("/internal/daily-production-cron")
+def daily_production_cron(
+    request: Request,
+    token: str = "",
+    db: Session = Depends(get_db),
+):
+    expected = _env("PRODUCTION_REPORT_TOKEN")
+    if not expected or token != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    return JSONResponse(_build_and_send_report(db=db, mark_as_sent=True))
