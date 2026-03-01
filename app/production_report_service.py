@@ -14,7 +14,6 @@ from .db import get_db
 from .models import Product, User
 from .auth import require_role
 
-
 router = APIRouter()
 
 
@@ -23,33 +22,32 @@ def _env(name: str, default: str = "") -> str:
 
 
 def _fmt_qty(v: object) -> str:
-    # v may be Decimal/float/None
     if v is None:
         return "0"
     try:
         s = f"{float(v):.3f}"
     except Exception:
         s = str(v)
-    # strip trailing zeros
     if "." in s:
         s = s.rstrip("0").rstrip(".")
     return s
 
 
-def _send_email(
-    *,
-    subject: str,
-    body: str,
-    to_addrs: list[str],
-    cc_addrs: list[str],
-) -> None:
+def _normalize_list(addrs: str) -> list[str]:
+    raw = [a.strip() for a in addrs.replace(";", ",").split(",")]
+    return [a for a in raw if a]
+
+
+def _send_email(*, subject: str, body: str, to_addrs: list[str], cc_addrs: list[str]) -> None:
     api_key = _env("SENDGRID_API_KEY")
     sender = _env("PRODUCTION_REPORT_FROM", "info@sklavounosmeat.gr")
 
     if not api_key:
         raise RuntimeError("Missing SENDGRID_API_KEY")
-    if not sender or not to_addrs:
-        raise RuntimeError("Missing sender/recipients")
+    if not sender:
+        raise RuntimeError("Missing PRODUCTION_REPORT_FROM")
+    if not to_addrs:
+        raise RuntimeError("Missing recipients")
 
     payload = {
         "personalizations": [
@@ -75,17 +73,10 @@ def _send_email(
 
     try:
         with urllib.request.urlopen(req, timeout=25) as resp:
-            # SendGrid returns 202 on success
             if resp.status not in (200, 202):
                 raise RuntimeError(f"SendGrid error status: {resp.status}")
     except Exception as e:
         raise RuntimeError(f"SendGrid send failed: {e}")
-
-
-def _normalize_list(addrs: str) -> list[str]:
-    # accepts comma/semicolon separated
-    raw = [a.strip() for a in addrs.replace(";", ",").split(",")]
-    return [a for a in raw if a]
 
 
 def _build_and_send_report(
@@ -95,12 +86,10 @@ def _build_and_send_report(
     to_override: list[str] | None = None,
     cc_override: list[str] | None = None,
 ) -> dict:
-    """Build today's production report (WORKSHOP → CENTRAL) and send it.
-
-    - mark_as_sent=True: records a run in report_runs to prevent duplicates (cron-safe)
-    - mark_as_sent=False: does NOT touch report_runs (admin test sends)
     """
-
+    - mark_as_sent=True: γράφει report_runs (ώστε cron/manual official να μη διπλοστείλουν)
+    - mark_as_sent=False: ΔΕΝ γράφει report_runs (admin test send)
+    """
     report_key = "daily_production"
     today = date.today()
 
@@ -175,9 +164,7 @@ def _build_and_send_report(
 
     if not prod_products:
         lines.append("⚠️ Δεν έχουν επιλεγεί προϊόντα για το report.")
-        lines.append(
-            "Σημείωση: Στα Products → Edit Product, ενεργοποίησε το checkbox 'Daily Production Report'."
-        )
+        lines.append("Σημείωση: Στα Products → Edit Product, ενεργοποίησε το checkbox 'Daily Production Report'.")
     else:
         show_zero = _env("PRODUCTION_REPORT_SHOW_ZERO", "0") == "1"
 
@@ -224,6 +211,7 @@ def admin_send_production_report(
 ):
     mode = str(payload.get("mode") or "official").strip().lower()
 
+    # TEST: στέλνει ΜΟΝΟ στο admin test email και ΔΕΝ επηρεάζει το cron
     if mode == "admin":
         test_to = _env("PRODUCTION_REPORT_ADMIN_TEST_EMAIL")
         if not test_to:
@@ -237,7 +225,7 @@ def admin_send_production_report(
             )
         )
 
-    # Official send (marks as sent for the day to avoid cron duplicate)
+    # OFFICIAL: στέλνει στους κανονικούς και "κλειδώνει" τη μέρα (ώστε το cron να μη διπλοστείλει)
     return JSONResponse(_build_and_send_report(db=db, mark_as_sent=True))
 
 
