@@ -96,15 +96,15 @@
           <div class="stats">
             <div class="stat">
               <div class="k">Total Items</div>
-              <div class="v">{{ totals.total_items }}</div>
+              <div class="v">{{ stats.total_items }}</div>
             </div>
             <div class="stat">
               <div class="k">Low Stock</div>
-              <div class="v">{{ totals.low_items }}</div>
+              <div class="v">{{ stats.low_items }}</div>
             </div>
             <div class="stat">
               <div class="k">Pending</div>
-              <div class="v">{{ totals.pending_items }}</div>
+              <div class="v">{{ stats.pending_items }}</div>
             </div>
           </div>
           <div class="divider"></div>
@@ -240,6 +240,8 @@
   }
 })();
 </script>
+
+{% include "_workshop_message_modal.html" %}
 
 </body>
 </html>
