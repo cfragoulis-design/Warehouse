@@ -322,8 +322,7 @@ def send_vet_report_weekly(
     user: User = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ):
-    """Send weekly production totals (Mon–Sat) for the *last completed* week,
-    with a daily breakdown (separate totals per day).
+    """Send weekly production totals (Mon–Sat) for the *last completed* week.
 
     Period logic (Europe/Athens):
     - Find the most recent Saturday <= today.
@@ -351,16 +350,13 @@ def send_vet_report_weekly(
         last_sat = today_gr_val - timedelta(days=(wd + 2))
     start_mon = last_sat - timedelta(days=5)
 
-    # Query totals per day + product
-    rows: list[tuple[object, int, object]] = []
+    rows: list[tuple[int, object]] = []
     if prod_ids:
         rows = (
             db.execute(
                 text(
                     """
-                    SELECT (created_at AT TIME ZONE 'Europe/Athens')::date AS d,
-                           product_id,
-                           SUM(qty) AS total_qty
+                    SELECT product_id, SUM(qty) AS total_qty
                     FROM stock_movements
                     WHERE
                       product_id = ANY(:pids)
@@ -368,8 +364,8 @@ def send_vet_report_weekly(
                       AND movement_type = 'IN'
                       AND location_id = (SELECT id FROM locations WHERE code='CENTRAL' LIMIT 1)
                       AND (created_at AT TIME ZONE 'Europe/Athens')::date BETWEEN :d1 AND :d2
-                    GROUP BY d, product_id
-                    ORDER BY d, product_id;
+                    GROUP BY product_id
+                    ORDER BY product_id;
                     """
                 ),
                 {"pids": prod_ids, "d1": start_mon, "d2": last_sat},
@@ -377,13 +373,7 @@ def send_vet_report_weekly(
             .fetchall()
         )
 
-    # day -> {pid -> total}
-    totals_by_day: dict[str, dict[int, object]] = {}
-    for d, pid, total in rows:
-        d_key = str(d)
-        if d_key not in totals_by_day:
-            totals_by_day[d_key] = {}
-        totals_by_day[d_key][int(pid)] = total
+    totals_by_pid = {int(pid): total for (pid, total) in rows}
 
     # Recipients for vet report (fallback to production report recipients)
     to_addrs = _normalize_list(_env("VET_REPORT_TO", _env("PRODUCTION_REPORT_TO", "")))
@@ -408,52 +398,37 @@ def send_vet_report_weekly(
     if not prod_products:
         lines.append("⚠️ Δεν έχουν επιλεγεί προϊόντα για το report.")
         lines.append("Σημείωση: Στα Products → Edit Product, ενεργοποίησε το checkbox 'Daily Production Report'.")
-        lines.append("")
     else:
         show_zero = _env("PRODUCTION_REPORT_SHOW_ZERO", "0") == "1"
-
-        greek_days = ["Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο"]
-        days = [(start_mon + timedelta(days=i), greek_days[i]) for i in range(6)]
-
-        for d_obj, d_name in days:
-            d_key = str(d_obj)
-            day_totals = totals_by_day.get(d_key, {})
-            lines.append(f"{d_name} ({d_obj.strftime('%d/%m/%Y')})")
-
-            printable = []
-            for p in prod_products:
-                total = day_totals.get(p.id)
-                if (total is None or float(total) == 0.0) and not show_zero:
-                    continue
-
-                unit = p.unit
-                if unit == "box":
-                    unit_lbl = "Κιβ"
-                elif unit == "pcs":
-                    unit_lbl = "Τεμ"
-                elif unit == "kg":
-                    unit_lbl = "Kg"
-                else:
-                    unit_lbl = unit
-
-                printable.append((p.name, _fmt_qty(total), unit_lbl))
-
-            if not printable:
-                lines.append("  Δεν καταγράφηκε παραγωγή.")
-                lines.append("")
+        printable = []
+        for p in prod_products:
+            total = totals_by_pid.get(p.id)
+            if (total is None or float(total) == 0.0) and not show_zero:
                 continue
+            unit = p.unit
+            if unit == "box":
+                unit_lbl = "Κιβ"
+            elif unit == "pcs":
+                unit_lbl = "Τεμ"
+            elif unit == "kg":
+                unit_lbl = "Kg"
+            else:
+                unit_lbl = unit
+            printable.append((p.name, _fmt_qty(total), unit_lbl))
 
+        if not printable:
+            lines.append("Δεν καταγράφηκε παραγωγή στην περίοδο (για τα επιλεγμένα προϊόντα).")
+        else:
             name_w = max(len(x[0]) for x in printable)
             qty_w = max(len(x[1]) for x in printable)
-            lines.append(f"  {'Προϊόν'.ljust(name_w)}  {'Ποσότητα'.rjust(qty_w)}  Μονάδα")
-            lines.append(f"  {'-'*name_w}  {'-'*qty_w}  {'-'*6}")
+            lines.append(f"{'Προϊόν'.ljust(name_w)}  {'Σύνολο'.rjust(qty_w)}  Μονάδα")
+            lines.append(f"{'-'*name_w}  {'-'*qty_w}  {'-'*6}")
             for name, qty, unit_lbl in printable:
-                lines.append(f"  {name.ljust(name_w)}  {qty.rjust(qty_w)}  {unit_lbl}")
-            lines.append("")
+                lines.append(f"{name.ljust(name_w)}  {qty.rjust(qty_w)}  {unit_lbl}")
 
+    lines.append("")
     lines.append("(WH report)")
-    body = "
-".join(lines)
+    body = "\n".join(lines)
 
     _send_email(subject=subject, body=body, to_addrs=to_addrs, cc_addrs=cc_addrs, sender=sender)
 
