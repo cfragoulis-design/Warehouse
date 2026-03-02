@@ -330,7 +330,7 @@
         const day = now.getDay();
         const hour = now.getHours();
 
-        // Show only Monday morning (07:00–12:00)
+        // Show only Monday morning (07:00–20:00)
         if (day !== 1 || hour < 7 || hour > 12) return;
 
         const todayKey = "weekly_report_reminder_" + now.toISOString().slice(0,10);
