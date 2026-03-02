@@ -320,5 +320,64 @@
   </div>
 
 {% include "_workshop_message_modal.html" %}
+
+  <script>
+(function () {
+    try {
+        const now = new Date();
+
+        // Monday = 1 (0=Sunday)
+        const day = now.getDay();
+        const hour = now.getHours();
+
+        // Show only Monday morning (07:00–12:00)
+        if (day !== 1 || hour < 7 || hour > 12) return;
+
+        const todayKey = "weekly_report_reminder_" + now.toISOString().slice(0,10);
+        if (localStorage.getItem(todayKey) === "dismissed") return;
+
+        // Create banner
+        const banner = document.createElement("div");
+        banner.style.position = "fixed";
+        banner.style.top = "0";
+        banner.style.left = "0";
+        banner.style.right = "0";
+        banner.style.background = "#fff3cd";
+        banner.style.borderBottom = "1px solid #ffeeba";
+        banner.style.padding = "10px 16px";
+        banner.style.zIndex = "9999";
+        banner.style.display = "flex";
+        banner.style.alignItems = "center";
+        banner.style.justifyContent = "space-between";
+        banner.style.fontSize = "14px";
+
+        banner.innerHTML = `
+            <div>
+                <strong>Υπενθύμιση:</strong> Στείλε την εβδομαδιαία αναφορά παραγωγής (Δευτέρα–Σάββατο)
+            </div>
+            <div>
+                <a href="/admin/vet-report/weekly/send"
+                   style="margin-right:10px; padding:6px 10px; background:#0d6efd; color:white; text-decoration:none; border-radius:4px;">
+                   Send Weekly Report
+                </a>
+                <button id="dismissWeeklyReminder"
+                        style="padding:6px 10px; background:#6c757d; color:white; border:none; border-radius:4px; cursor:pointer;">
+                    Κλείσιμο
+                </button>
+            </div>
+        `;
+
+        document.body.appendChild(banner);
+
+        document.getElementById("dismissWeeklyReminder").onclick = function () {
+            localStorage.setItem(todayKey, "dismissed");
+            banner.remove();
+        };
+
+    } catch (e) {
+        console.log("Weekly reminder error:", e);
+    }
+})();
+</script>
 </body>
 </html>
