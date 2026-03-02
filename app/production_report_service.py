@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import json
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -269,7 +269,7 @@ def send_vet_report_today(
 
     today_gr = db.execute(text("SELECT (NOW() AT TIME ZONE 'Europe/Athens')::date"))
     today_gr_val = today_gr.scalar() or date.today()
-    subject = f"Αναφορά Παραγωγής – {today_gr_val.strftime('%d/%m/%Y')}"
+    subject = f"Αναφορά Παραγωγής (Κτηνίατρος) – {today_gr_val.strftime('%d/%m/%Y')}"
 
     lines: list[str] = []
     lines.append("Αναφορά Παραγωγής (WORKSHOP → CENTRAL)")
@@ -314,3 +314,122 @@ def send_vet_report_today(
     _send_email(subject=subject, body=body, to_addrs=to_addrs, cc_addrs=cc_addrs, sender=sender)
 
     return RedirectResponse(url="/dashboard?vet_report=sent", status_code=303)
+
+
+@router.post("/admin/vet-report/send-weekly")
+def send_vet_report_weekly(
+    request: Request,
+    user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Send weekly production totals (Mon–Sat) for the *last completed* week.
+
+    Period logic (Europe/Athens):
+    - Find the most recent Saturday <= today.
+    - Report Monday..Saturday for that week.
+    """
+
+    # Load production items (bind to product IDs)
+    prod_products: list[Product] = (
+        db.query(Product)
+        .filter(Product.is_production_item == True)  # noqa: E712
+        .filter(Product.is_active == True)  # noqa: E712
+        .order_by(Product.name.asc())
+        .all()
+    )
+    prod_ids = [p.id for p in prod_products]
+
+    # Athens "today"
+    today_gr = db.execute(text("SELECT (NOW() AT TIME ZONE 'Europe/Athens')::date"))
+    today_gr_val = today_gr.scalar() or date.today()
+
+    wd = int(today_gr_val.weekday())  # Mon=0 .. Sun=6
+    if wd >= 5:
+        last_sat = today_gr_val - timedelta(days=(wd - 5))
+    else:
+        last_sat = today_gr_val - timedelta(days=(wd + 2))
+    start_mon = last_sat - timedelta(days=5)
+
+    rows: list[tuple[int, object]] = []
+    if prod_ids:
+        rows = (
+            db.execute(
+                text(
+                    """
+                    SELECT product_id, SUM(qty) AS total_qty
+                    FROM stock_movements
+                    WHERE
+                      product_id = ANY(:pids)
+                      AND transfer_id IS NOT NULL
+                      AND movement_type = 'IN'
+                      AND location_id = (SELECT id FROM locations WHERE code='CENTRAL' LIMIT 1)
+                      AND (created_at AT TIME ZONE 'Europe/Athens')::date BETWEEN :d1 AND :d2
+                    GROUP BY product_id
+                    ORDER BY product_id;
+                    """
+                ),
+                {"pids": prod_ids, "d1": start_mon, "d2": last_sat},
+            )
+            .fetchall()
+        )
+
+    totals_by_pid = {int(pid): total for (pid, total) in rows}
+
+    # Recipients for vet report (fallback to production report recipients)
+    to_addrs = _normalize_list(_env("VET_REPORT_TO", _env("PRODUCTION_REPORT_TO", "")))
+    cc_addrs = _normalize_list(_env("VET_REPORT_CC", _env("PRODUCTION_REPORT_CC", "")))
+    sender = _env("VET_REPORT_FROM", _env("PRODUCTION_REPORT_FROM", "info@sklavounosmeat.gr"))
+
+    if not to_addrs:
+        raise HTTPException(status_code=400, detail="Missing VET_REPORT_TO (or PRODUCTION_REPORT_TO)")
+
+    subject = (
+        f"Εβδομαδιαία Αναφορά Παραγωγής – "
+        f"{start_mon.strftime('%d/%m/%Y')} έως {last_sat.strftime('%d/%m/%Y')}"
+    )
+
+    lines: list[str] = []
+    lines.append("Εβδομαδιαία Αναφορά Παραγωγής (WORKSHOP → CENTRAL)")
+    lines.append(
+        f"Περίοδος: {start_mon.strftime('%d/%m/%Y')} – {last_sat.strftime('%d/%m/%Y')} (Δευτέρα–Σάββατο)"
+    )
+    lines.append("")
+
+    if not prod_products:
+        lines.append("⚠️ Δεν έχουν επιλεγεί προϊόντα για το report.")
+        lines.append("Σημείωση: Στα Products → Edit Product, ενεργοποίησε το checkbox 'Daily Production Report'.")
+    else:
+        show_zero = _env("PRODUCTION_REPORT_SHOW_ZERO", "0") == "1"
+        printable = []
+        for p in prod_products:
+            total = totals_by_pid.get(p.id)
+            if (total is None or float(total) == 0.0) and not show_zero:
+                continue
+            unit = p.unit
+            if unit == "box":
+                unit_lbl = "Κιβ"
+            elif unit == "pcs":
+                unit_lbl = "Τεμ"
+            elif unit == "kg":
+                unit_lbl = "Kg"
+            else:
+                unit_lbl = unit
+            printable.append((p.name, _fmt_qty(total), unit_lbl))
+
+        if not printable:
+            lines.append("Δεν καταγράφηκε παραγωγή στην περίοδο (για τα επιλεγμένα προϊόντα).")
+        else:
+            name_w = max(len(x[0]) for x in printable)
+            qty_w = max(len(x[1]) for x in printable)
+            lines.append(f"{'Προϊόν'.ljust(name_w)}  {'Σύνολο'.rjust(qty_w)}  Μονάδα")
+            lines.append(f"{'-'*name_w}  {'-'*qty_w}  {'-'*6}")
+            for name, qty, unit_lbl in printable:
+                lines.append(f"{name.ljust(name_w)}  {qty.rjust(qty_w)}  {unit_lbl}")
+
+    lines.append("")
+    lines.append("(WH report)")
+    body = "\n".join(lines)
+
+    _send_email(subject=subject, body=body, to_addrs=to_addrs, cc_addrs=cc_addrs, sender=sender)
+
+    return RedirectResponse(url="/dashboard?vet_report_weekly=sent", status_code=303)
