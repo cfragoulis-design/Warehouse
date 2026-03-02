@@ -269,7 +269,7 @@ def send_vet_report_today(
 
     today_gr = db.execute(text("SELECT (NOW() AT TIME ZONE 'Europe/Athens')::date"))
     today_gr_val = today_gr.scalar() or date.today()
-    subject = f"Αναφορά Παραγωγής (Κτηνίατρος) – {today_gr_val.strftime('%d/%m/%Y')}"
+    subject = f"Αναφορά Παραγωγής – {today_gr_val.strftime('%d/%m/%Y')}"
 
     lines: list[str] = []
     lines.append("Αναφορά Παραγωγής (WORKSHOP → CENTRAL)")
