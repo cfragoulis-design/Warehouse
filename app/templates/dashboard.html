@@ -224,6 +224,11 @@
           <a class="qbtn" href="/stock">📦 View Stock <small>(live)</small></a>
           <a class="qbtn" href="/freezer">🧊 Freezer Stock <small>(frozen)</small></a>
           <a class="qbtn" href="/movements/new">🔄 New Movement <small>(IN/OUT/ADJ)</small></a>
+        {% if user.role == "admin" %}
+        <form method="post" action="/admin/vet-report/send" style="display:inline;">
+          <button class="qbtn" type="submit">🩺 Send Vet Report <small>(today)</small></button>
+        </form>
+        {% endif %}
         </div>
       </div>
 
