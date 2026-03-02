@@ -340,3 +340,107 @@ def send_weekly_vet_report_mon_sat_by_day(
 
     # Redirect back to dashboard so it feels like a button action (ERP style)
     return RedirectResponse(url="/dashboard?weekly_vet=sent", status_code=303)
+@router.post("/admin/vet-report/send-weekly")
+def send_weekly_vet_report(
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("admin")),
+):
+    # Athens today
+    today = db.execute(
+        text("SELECT (NOW() AT TIME ZONE 'Europe/Athens')::date")
+    ).scalar()
+
+    # Last completed Saturday (strictly before today)
+    days_since_sat = (today.weekday() - 5) % 7
+    if days_since_sat == 0:
+        days_since_sat = 7
+    end_sat = today - timedelta(days=days_since_sat)
+    start_mon = end_sat - timedelta(days=5)
+
+    # Production products
+    products = (
+        db.query(Product)
+        .filter(Product.is_production_item == True)
+        .filter(Product.is_active == True)
+        .order_by(Product.name)
+        .all()
+    )
+
+    pids = [p.id for p in products]
+
+    totals = {}
+
+    if pids:
+        rows = db.execute(
+            text("""
+                SELECT
+                    (created_at AT TIME ZONE 'Europe/Athens')::date AS d,
+                    product_id,
+                    SUM(qty) AS total_qty
+                FROM stock_movements
+                WHERE product_id = ANY(:pids)
+                  AND transfer_id IS NOT NULL
+                  AND movement_type = 'IN'
+                  AND location_id = (SELECT id FROM locations WHERE code='CENTRAL' LIMIT 1)
+                  AND (created_at AT TIME ZONE 'Europe/Athens')::date BETWEEN :d1 AND :d2
+                GROUP BY d, product_id
+                ORDER BY d, product_id
+            """),
+            {"pids": pids, "d1": start_mon, "d2": end_sat},
+        ).fetchall()
+
+        for d, pid, total in rows:
+            totals.setdefault(d, {})[pid] = total
+
+    # Email
+    to_addrs = _normalize_list(_env("VET_REPORT_TO") or _env("PRODUCTION_REPORT_TO"))
+    cc_addrs = _normalize_list(_env("VET_REPORT_CC") or _env("PRODUCTION_REPORT_CC"))
+
+    subject = f"Εβδομαδιαία Παραγωγή – {start_mon.strftime('%d/%m/%Y')} έως {end_sat.strftime('%d/%m/%Y')}"
+
+    day_names = ["Δευτέρα","Τρίτη","Τετάρτη","Πέμπτη","Παρασκευή","Σάββατο"]
+
+    lines = []
+    lines.append("Εβδομαδιαία Αναφορά Παραγωγής (WORKSHOP → CENTRAL)")
+    lines.append(f"Περίοδος: {start_mon.strftime('%d/%m/%Y')} – {end_sat.strftime('%d/%m/%Y')}")
+    lines.append("")
+
+    for i in range(6):
+        d = start_mon + timedelta(days=i)
+        lines.append(day_names[i])
+        lines.append("-" * len(day_names[i]))
+
+        day_map = totals.get(d, {})
+
+        printable = []
+        for p in products:
+            v = day_map.get(p.id)
+            if v and float(v) > 0:
+                printable.append((p.name, _fmt_qty(v), _unit_label(p.unit)))
+
+        if not printable:
+            lines.append("—")
+        else:
+            name_w = max(len(x[0]) for x in printable)
+            qty_w = max(len(x[1]) for x in printable)
+
+            lines.append(f"{'Προϊόν'.ljust(name_w)}  {'Ποσότητα'.rjust(qty_w)}  Μονάδα")
+            lines.append(f"{'-'*name_w}  {'-'*qty_w}  {'-'*6}")
+
+            for name, qty, unit_lbl in printable:
+                lines.append(f"{name.ljust(name_w)}  {qty.rjust(qty_w)}  {unit_lbl}")
+
+        lines.append("")
+
+    body = "\n".join(lines)
+
+    _send_email(
+        subject=subject,
+        body=body,
+        to_addrs=to_addrs,
+        cc_addrs=cc_addrs,
+        sender_env_key="VET_REPORT_FROM",
+    )
+
+    return RedirectResponse("/dashboard?weekly=sent", status_code=303)
