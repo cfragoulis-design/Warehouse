@@ -40,7 +40,7 @@ def _normalize_list(addrs: str) -> list[str]:
     return [a for a in raw if a]
 
 
-def _send_email(
+ef _send_email(
     *,
     subject: str,
     body: str,
@@ -48,39 +48,31 @@ def _send_email(
     cc_addrs: list[str],
     sender_env_key: str = "PRODUCTION_REPORT_FROM",
 ) -> None:
-    api_key = _env("RESEND_API_KEY")
-    sender = _env(sender_env_key, "info@sklavounosmeat.gr")
+    sender = _env(sender_env_key, _env("SMTP_USER"))
+    smtp_host = _env("SMTP_HOST")
+    smtp_port = int(_env("SMTP_PORT", "465"))
+    smtp_user = _env("SMTP_USER")
+    smtp_pass = _env("SMTP_PASS")
 
-    if not api_key:
-        raise RuntimeError("Missing RESEND_API_KEY")
-    if not sender or not to_addrs:
-        raise RuntimeError("Missing sender/recipients")
+    if not smtp_host or not smtp_user or not smtp_pass:
+        raise RuntimeError("Missing SMTP configuration")
 
-    payload = {
-        "from": sender,
-        "to": to_addrs,
-        "subject": subject,
-        "text": body,
-    }
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = ", ".join(to_addrs)
+
     if cc_addrs:
-        payload["cc"] = cc_addrs
+        msg["Cc"] = ", ".join(cc_addrs)
 
-    req = urllib.request.Request(
-        "https://api.resend.com/emails",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
+    recipients = list(to_addrs) + list(cc_addrs or [])
 
     try:
-        with urllib.request.urlopen(req, timeout=25) as resp:
-            if resp.status not in (200, 201):
-                raise RuntimeError(f"Resend error status: {resp.status}")
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=25) as server:
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(sender, recipients, msg.as_string())
     except Exception as e:
-        raise RuntimeError(f"Resend send failed: {e}")
+        raise RuntimeError(f"SMTP send failed: {e}")
 
 
 def _unit_label(unit: str) -> str:
