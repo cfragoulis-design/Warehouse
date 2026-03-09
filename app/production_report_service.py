@@ -48,28 +48,26 @@ def _send_email(
     cc_addrs: list[str],
     sender_env_key: str = "PRODUCTION_REPORT_FROM",
 ) -> None:
-    api_key = _env("SENDGRID_API_KEY")
+    api_key = _env("RESEND_API_KEY")
     sender = _env(sender_env_key, "info@sklavounosmeat.gr")
 
     if not api_key:
-        raise RuntimeError("Missing SENDGRID_API_KEY")
+        raise RuntimeError("Missing RESEND_API_KEY")
     if not sender or not to_addrs:
         raise RuntimeError("Missing sender/recipients")
 
     payload = {
-        "personalizations": [
-            {
-                "to": [{"email": a} for a in to_addrs],
-                **({"cc": [{"email": a} for a in cc_addrs]} if cc_addrs else {}),
-            }
-        ],
-        "from": {"email": sender},
+        "from": sender,
+        "to": to_addrs,
         "subject": subject,
-        "content": [{"type": "text/plain", "value": body}],
+        "text": body,
     }
 
+    if cc_addrs:
+        payload["cc"] = cc_addrs
+
     req = urllib.request.Request(
-        "https://api.sendgrid.com/v3/mail/send",
+        "https://api.resend.com/emails",
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -80,10 +78,10 @@ def _send_email(
 
     try:
         with urllib.request.urlopen(req, timeout=25) as resp:
-            if resp.status not in (200, 202):
-                raise RuntimeError(f"SendGrid error status: {resp.status}")
+            if resp.status not in (200, 201):
+                raise RuntimeError(f"Resend error status: {resp.status}")
     except Exception as e:
-        raise RuntimeError(f"SendGrid send failed: {e}")
+        raise RuntimeError(f"Resend send failed: {e}")
 
 
 def _unit_label(unit: str) -> str:
@@ -340,6 +338,8 @@ def send_weekly_vet_report_mon_sat_by_day(
 
     # Redirect back to dashboard so it feels like a button action (ERP style)
     return RedirectResponse(url="/dashboard?weekly_vet=sent", status_code=303)
+
+
 @router.post("/admin/vet-report/send-weekly")
 def send_weekly_vet_report(
     request: Request,
@@ -399,7 +399,7 @@ def send_weekly_vet_report(
 
     subject = f"Εβδομαδιαία Παραγωγή – {start_mon.strftime('%d/%m/%Y')} έως {end_sat.strftime('%d/%m/%Y')}"
 
-    day_names = ["Δευτέρα","Τρίτη","Τετάρτη","Πέμπτη","Παρασκευή","Σάββατο"]
+    day_names = ["Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο"]
 
     lines = []
     lines.append("Εβδομαδιαία Αναφορά Παραγωγής (WORKSHOP → CENTRAL)")
