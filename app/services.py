@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+import subprocess
 from collections import defaultdict
 import unicodedata
 import os
@@ -13,7 +15,7 @@ import urllib.request
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case, exists
+from sqlalchemy import select, func, case, exists, text as sa_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -28,6 +30,64 @@ except Exception:
     from models import User, Product, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
 
 router = APIRouter()
+
+ATHENS_TZ = ZoneInfo("Europe/Athens")
+
+
+def _today_athens() -> datetime:
+    return datetime.now(ATHENS_TZ)
+
+
+def _station_for_user(user: User) -> str | None:
+    role = (user.role or "").lower()
+    if role == "admin":
+        return "CENTRAL"
+    if role == "workshop":
+        return "WORKSHOP"
+    return None
+
+
+def _build_lot_code(db: Session, product: Product, station: str, now_dt: datetime) -> str:
+    product_code = (product.sku or product.name or "PRD").upper()
+    product_code = "".join(ch for ch in product_code if ch.isalnum())[:8] or "PRD"
+    day_key = now_dt.strftime("%y%m%d")
+    station_code = "C" if station == "CENTRAL" else "W"
+    prefix = f"{product_code}-{day_key}-{station_code}"
+    count = db.execute(
+        select(func.count(ProductLot.id)).where(
+            ProductLot.product_id == product.id,
+            ProductLot.station == station,
+            func.date(ProductLot.production_date) == now_dt.date(),
+        )
+    ).scalar() or 0
+    return f"{prefix}-{int(count)+1:02d}"
+
+
+def _maybe_trigger_label_hook(product: Product, lot: ProductLot) -> tuple[bool, str | None]:
+    command_template = (os.getenv("LABEL_PRINT_COMMAND", "") or "").strip()
+    if not command_template:
+        return False, "No LABEL_PRINT_COMMAND configured; job saved as QUEUED."
+
+    replacements = {
+        "{product_id}": str(product.id),
+        "{product_name}": product.name,
+        "{sku}": product.sku or "",
+        "{station}": lot.station,
+        "{quantity}": str(lot.quantity_labels),
+        "{production_date}": lot.production_date.astimezone(ATHENS_TZ).strftime("%d/%m/%Y"),
+        "{expiry_date}": lot.expiry_date.astimezone(ATHENS_TZ).strftime("%d/%m/%Y"),
+        "{lot_code}": lot.lot_code,
+        "{storage_text}": product.storage_text or "",
+        "{label_template}": product.label_template or "",
+    }
+    command = command_template
+    for key, value in replacements.items():
+        command = command.replace(key, str(value))
+
+    completed = subprocess.run(command, shell=True, capture_output=True, text=True)
+    if completed.returncode != 0:
+        raise RuntimeError((completed.stderr or completed.stdout or "Print command failed").strip())
+    return True, None
 
 
 # --------------------
@@ -497,6 +557,9 @@ def product_create(
     min_stock: str = Form("0"),
     only_in_freezer: str | None = Form(None),
     is_production_item: str | None = Form(None),
+    shelf_life_days: str | None = Form(None),
+    storage_text: str | None = Form(None),
+    label_template: str | None = Form(None),
 ):
     ms = parse_qty(min_stock) or Decimal("0")
     p = Product(
@@ -507,6 +570,9 @@ def product_create(
         min_stock=float(ms),
         only_in_freezer=_truthy_flag(only_in_freezer),
         is_production_item=_truthy_flag(is_production_item),
+        shelf_life_days=int((shelf_life_days or "").strip()) if (shelf_life_days or "").strip() else None,
+        storage_text=(storage_text or "").strip() or None,
+        label_template=(label_template or "").strip() or None,
     )
     db.add(p)
     try:
@@ -552,6 +618,9 @@ def product_update(
     min_stock: str = Form("0"),
     only_in_freezer: str | None = Form(None),
     is_production_item: str | None = Form(None),
+    shelf_life_days: str | None = Form(None),
+    storage_text: str | None = Form(None),
+    label_template: str | None = Form(None),
 ):
     product = db.get(Product, pid)
     if not product:
@@ -563,6 +632,9 @@ def product_update(
     product.unit = unit
     product.only_in_freezer = _truthy_flag(only_in_freezer)
     product.is_production_item = _truthy_flag(is_production_item)
+    product.shelf_life_days = int((shelf_life_days or "").strip()) if (shelf_life_days or "").strip() else None
+    product.storage_text = (storage_text or "").strip() or None
+    product.label_template = (label_template or "").strip() or None
     ms = parse_qty(min_stock)
     product.min_stock = float(ms) if ms is not None else 0
     try:
@@ -1115,6 +1187,7 @@ def stock_view(
             "can_edit_target": (user.role == "admin"),
             "can_adjust_central": (user.role == "admin"),
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
+            "label_station": _station_for_user(user),
         },
     )
 
@@ -1226,6 +1299,70 @@ def api_central_ready_clear(
 
     f = _set_flag(db, _CENTRAL_READY_KEY, False, None)
     return {"ok": True, "ready": False, "updated_at": f.updated_at.isoformat()}
+
+
+@router.post("/labels/quick-print")
+def labels_quick_print(
+    request: Request,
+    product_id: int = Form(...),
+    quantity: str = Form("1"),
+    station: str = Form(...),
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    allowed_station = _station_for_user(user)
+    desired_station = (station or "").strip().upper()
+    if not allowed_station or desired_station != allowed_station:
+        raise HTTPException(status_code=403, detail="Not allowed for this station")
+
+    product = db.get(Product, product_id)
+    if not product or not product.is_active:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    qty_dec = parse_qty(quantity)
+    if qty_dec is None:
+        return RedirectResponse(url="/stock?msg=" + urllib.parse.quote("Μη έγκυρη ποσότητα label") + "&level=warning", status_code=303)
+
+    if not product.shelf_life_days or int(product.shelf_life_days) <= 0:
+        return RedirectResponse(url="/stock?msg=" + urllib.parse.quote(f"Το προϊόν '{product.name}' δεν έχει shelf life") + "&level=warning", status_code=303)
+
+    now_dt = _today_athens()
+    production_dt = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    expiry_dt = production_dt + timedelta(days=int(product.shelf_life_days))
+    lot_code = _build_lot_code(db, product, desired_station, now_dt)
+
+    lot = ProductLot(
+        product_id=product.id,
+        station=desired_station,
+        quantity_labels=int(qty_dec),
+        production_date=production_dt,
+        expiry_date=expiry_dt,
+        lot_code=lot_code,
+        status="QUEUED",
+        created_by_user_id=user.id,
+    )
+    db.add(lot)
+    db.commit()
+    db.refresh(lot)
+
+    msg = f"Label queued: {product.name} / {lot.lot_code}"
+    try:
+        executed, note = _maybe_trigger_label_hook(product, lot)
+        if executed:
+            lot.status = "SENT"
+            db.commit()
+            msg = f"Label sent: {product.name} / {lot.lot_code}"
+        elif note:
+            msg = note
+    except Exception as e:
+        lot.status = "ERROR"
+        db.commit()
+        msg = f"Print error: {str(e)}"
+
+    return RedirectResponse(
+        url="/stock?msg=" + urllib.parse.quote(msg) + "&level=info",
+        status_code=303,
+    )
 
 
 @router.post("/stock/need")

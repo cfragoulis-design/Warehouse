@@ -123,6 +123,37 @@ class Product(Base):
         nullable=False,
     )
 
+    shelf_life_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    storage_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label_template: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class ProductLot(Base):
+    __tablename__ = "product_lots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    station: Mapped[str] = mapped_column(String(32), nullable=False)
+    quantity_labels: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    production_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expiry_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lot_code: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="QUEUED")
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
 
 class Category(Base):
     __tablename__ = "categories"

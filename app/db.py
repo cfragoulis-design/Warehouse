@@ -147,6 +147,44 @@ def init_db() -> None:
     except Exception:
         pass
 
+
+    # Product label fields and lots (safe, idempotent).
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS shelf_life_days INTEGER"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS storage_text VARCHAR(255)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_template VARCHAR(64)"
+            )
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS product_lots (
+                    id SERIAL PRIMARY KEY,
+                    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+                    station VARCHAR(32) NOT NULL,
+                    quantity_labels INTEGER NOT NULL DEFAULT 1,
+                    production_date TIMESTAMPTZ NOT NULL,
+                    expiry_date TIMESTAMPTZ NOT NULL,
+                    lot_code VARCHAR(64) NOT NULL,
+                    status VARCHAR(32) NOT NULL DEFAULT 'QUEUED',
+                    created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_product_lots_product_id ON product_lots(product_id);"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_product_lots_lot_code ON product_lots(lot_code);"
+            )
+    except Exception:
+        pass
+
     # Consumables prices (safe, idempotent).
     # Added for the consumables module to support Cost €/pack.
     try:
