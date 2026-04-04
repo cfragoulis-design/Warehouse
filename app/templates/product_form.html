@@ -100,6 +100,21 @@
       <input name="min_stock" type="number" min="0" step="1" value="{{ product.min_stock if product and product.min_stock is not none else 0 }}">
       <div class="muted">Αν είναι &gt; 0 και το Κεντρικό πέσει κάτω, θα εμφανίζει ένδειξη LOW.</div>
 
+      <div class="grid2">
+        <div>
+          <label>Shelf Life (days)</label>
+          <input name="shelf_life_days" type="number" min="1" step="1" value="{{ product.shelf_life_days if product and product.shelf_life_days is not none else '' }}">
+        </div>
+        <div>
+          <label>Label Template</label>
+          <input name="label_template" value="{{ product.label_template if product and product.label_template else '' }}" placeholder="π.χ. default.btw">
+        </div>
+      </div>
+
+      <label>Storage text</label>
+      <input name="storage_text" value="{{ product.storage_text if product and product.storage_text else '' }}" placeholder="π.χ. Διατηρείται στους 0-4°C">
+      <div class="muted">Χρησιμοποιείται για το label όταν ενεργοποιηθεί η εκτύπωση.</div>
+
       <div class="checkrow">
         <input
           id="only_in_freezer"

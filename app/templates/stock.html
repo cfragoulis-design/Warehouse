@@ -100,6 +100,9 @@
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
+    .labelBtn{min-width:56px;height:34px;border-radius:10px;font-weight:900;cursor:pointer;border:1px solid rgba(36,48,85,.9);background:rgba(255,255,255,.04);color:#dfe6ff}
+    .labelBtn.central{background:rgba(47,124,246,.15);border-color:rgba(47,124,246,.45);color:#8ab4ff}
+    .labelBtn.workshop{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.45);color:#ffd28a}
     .readyBanner{
       margin:12px 0;
       padding:12px 14px;
@@ -279,29 +282,43 @@
 
                   {% if can_adjust_workshop %}
                     <form method="post" action="/stock/transfer_wc">
-                    <input type="hidden" name="product_id" value="{{ it.id }}" />
-                    <input type="hidden" name="qty" value="1" />
-                    <button class="transferBtn" type="submit" title="Μεταφορά 1 από Workshop σε Central">→</button>
-                  </form>
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <input type="hidden" name="qty" value="1" />
+                      <button class="transferBtn" type="submit" title="Μεταφορά 1 από Workshop σε Central">→</button>
+                    </form>
                   {% endif %}
 
-                  {# Telegram NEED (isolated form so it never triggers transfer) #}
-                  {% if user and user.role == 'admin' %}
-                  <form method="post" action="/stock/need" class="needForm">
-                    <input type="hidden" name="product_id" value="{{ it.id }}" />
-                    <input type="hidden" name="loc" value="{{ loc }}" />
-                    <input type="hidden" name="name" value="{{ it.name }}" />
-                    <input type="hidden" name="sku" value="{{ it.sku or '' }}" />
-                    <input type="hidden" name="unit_label" value="{{ it.unit_label }}" />
-                    <input type="hidden" name="central_qty" value="{{ it.central_qty|fmtqty(it.unit) }}" />
-                    <input type="hidden" name="workshop_qty" value="{{ it.workshop_qty|fmtqty(it.unit) }}" />
-                    <input class="needQty" name="qty" value="1" inputmode="decimal" />
-                    <button class="needBtn" type="submit" title="Παραγγελία ανάγκης (Telegram)">🆘</button>
-                  </form>
+                  {% if label_station == 'CENTRAL' %}
+                    <form method="post" action="/labels/quick-print" class="labelQuickForm">
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <input type="hidden" name="quantity" value="1" data-label-qty-hidden />
+                      <input type="hidden" name="station" value="CENTRAL" />
+                      <button class="labelBtn central" type="submit" title="Label CENTRAL">C🏷</button>
+                    </form>
+                  {% elif label_station == 'WORKSHOP' %}
+                    <form method="post" action="/labels/quick-print" class="labelQuickForm">
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <input type="hidden" name="quantity" value="1" data-label-qty-hidden />
+                      <input type="hidden" name="station" value="WORKSHOP" />
+                      <button class="labelBtn workshop" type="submit" title="Label WORKSHOP">W🏷</button>
+                    </form>
+                  {% endif %}
 
+                  {% if user and user.role == 'admin' %}
+                    <form method="post" action="/stock/need" class="needForm">
+                      <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <input type="hidden" name="loc" value="{{ loc }}" />
+                      <input type="hidden" name="name" value="{{ it.name }}" />
+                      <input type="hidden" name="sku" value="{{ it.sku or '' }}" />
+                      <input type="hidden" name="unit_label" value="{{ it.unit_label }}" />
+                      <input type="hidden" name="central_qty" value="{{ it.central_qty|fmtqty(it.unit) }}" />
+                      <input type="hidden" name="workshop_qty" value="{{ it.workshop_qty|fmtqty(it.unit) }}" />
+                      <input class="needQty" name="qty" value="1" inputmode="decimal" />
+                      <button class="needBtn" type="submit" title="Παραγγελία ανάγκης (Telegram)">🆘</button>
+                    </form>
+                  {% endif %}
                 </div>
               </td>
-                  {% endif %}
             </tr>
           {% endfor %}
         {% endfor %}
@@ -642,6 +659,23 @@
         buttons.forEach(b => b.disabled = false);
       }
     });
+  });
+
+  // Keep quick label quantity aligned with the row qty input already used for NEED.
+  function syncLabelQtyHidden(row){
+    if (!row) return;
+    const source = row.querySelector('input.needQty');
+    const hidden = row.querySelector('input[data-label-qty-hidden]');
+    if (!hidden) return;
+    hidden.value = source && String(source.value || '').trim() ? source.value : '1';
+  }
+  document.querySelectorAll('tr[data-product-id]').forEach((row)=>{
+    const source = row.querySelector('input.needQty');
+    syncLabelQtyHidden(row);
+    if (source){
+      source.addEventListener('input', ()=>syncLabelQtyHidden(row));
+      source.addEventListener('change', ()=>syncLabelQtyHidden(row));
+    }
   });
 
   // ----
