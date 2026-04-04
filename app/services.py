@@ -82,6 +82,73 @@ def admin_only_dialog(request: Request, user: User, next_url: str = "/dashboard"
 # compatibility alias (you used require_login later)
 require_login = require_user
 
+
+# --------------------
+# label helpers
+# --------------------
+def _normalize_station(station: str | None) -> str:
+    s = (station or '').strip().upper()
+    if s in {'C', 'CENTRAL'}:
+        return 'CENTRAL'
+    if s in {'W', 'WORKSHOP'}:
+        return 'WORKSHOP'
+    raise HTTPException(status_code=400, detail='Invalid station')
+
+
+def _station_allowed_for_user(user: User, station: str) -> bool:
+    role = (getattr(user, 'role', '') or '').lower()
+    if role == 'admin':
+        return station == 'CENTRAL'
+    if role == 'workshop':
+        return station == 'WORKSHOP'
+    return False
+
+
+def _today_athens():
+    return datetime.now(ZoneInfo('Europe/Athens')).date()
+
+
+def _product_code_for_lot(product: Product) -> str:
+    raw = (getattr(product, 'sku', None) or getattr(product, 'name', None) or 'PRD').strip().upper()
+    cleaned = ''.join(ch for ch in raw if ch.isalnum())
+    return (cleaned[:8] or 'PRD')
+
+
+def _build_lot_code(product: Product, station: str, production_date, db: Session) -> str:
+    day_code = production_date.strftime('%y%m%d')
+    product_code = _product_code_for_lot(product)
+    station_code = 'C' if station == 'CENTRAL' else 'W'
+    prefix = f'{product_code}-{day_code}-{station_code}-'
+    count = db.query(func.count(ProductLot.id)).filter(
+        ProductLot.product_id == product.id,
+        ProductLot.station == station,
+        ProductLot.production_date == production_date,
+    ).scalar() or 0
+    seq = int(count) + 1
+    return f'{prefix}{seq:02d}'
+
+
+def _run_label_print_hook(product: Product, lot: ProductLot) -> str:
+    command_tmpl = (os.getenv('LABEL_PRINT_COMMAND') or '').strip()
+    if not command_tmpl:
+        return 'QUEUED'
+
+    values = {
+        'product_id': str(product.id),
+        'product_name': product.name or '',
+        'sku': product.sku or '',
+        'station': lot.station or '',
+        'quantity': str(lot.quantity_labels),
+        'production_date': lot.production_date.isoformat() if lot.production_date else '',
+        'expiry_date': lot.expiry_date.isoformat() if lot.expiry_date else '',
+        'lot_code': lot.lot_code or '',
+        'storage_text': getattr(product, 'storage_text', None) or '',
+        'label_template': getattr(product, 'label_template', None) or '',
+    }
+    command = command_tmpl.format(**values)
+    subprocess.run(command, shell=True, check=True)
+    return 'PRINTED'
+
 # --------------------
 # workshop messaging (CENTRAL -> WORKSHOP)
 # --------------------
