@@ -77,6 +77,51 @@ def init_db() -> None:
     except Exception:
         pass
 
+
+    # Label printing columns on products (safe, idempotent).
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS shelf_life_days INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS storage_text VARCHAR(255)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_template VARCHAR(255)"
+            )
+    except Exception:
+        pass
+
+    # Product label lots (safe, idempotent).
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS product_lots (
+                    id SERIAL PRIMARY KEY,
+                    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+                    station VARCHAR(16) NOT NULL,
+                    quantity_labels NUMERIC(12,3) NOT NULL DEFAULT 0,
+                    production_date DATE NOT NULL,
+                    expiry_date DATE NOT NULL,
+                    lot_code VARCHAR(64) NOT NULL UNIQUE,
+                    status VARCHAR(32) NOT NULL DEFAULT 'CREATED',
+                    created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_product_lots_product_id ON product_lots(product_id);"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_product_lots_created_at ON product_lots(created_at);"
+            )
+        
+    except Exception:
+        pass
+
     # Report runs table (idempotency for cron retries).
     # Ensures we don't send the same report twice for the same day.
     try:
@@ -143,44 +188,6 @@ def init_db() -> None:
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
                 """
-            )
-    except Exception:
-        pass
-
-
-    # Product label fields and lots (safe, idempotent).
-    try:
-        with engine.begin() as conn:
-            conn.exec_driver_sql(
-                "ALTER TABLE products ADD COLUMN IF NOT EXISTS shelf_life_days INTEGER"
-            )
-            conn.exec_driver_sql(
-                "ALTER TABLE products ADD COLUMN IF NOT EXISTS storage_text VARCHAR(255)"
-            )
-            conn.exec_driver_sql(
-                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_template VARCHAR(64)"
-            )
-            conn.exec_driver_sql(
-                """
-                CREATE TABLE IF NOT EXISTS product_lots (
-                    id SERIAL PRIMARY KEY,
-                    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-                    station VARCHAR(32) NOT NULL,
-                    quantity_labels INTEGER NOT NULL DEFAULT 1,
-                    production_date TIMESTAMPTZ NOT NULL,
-                    expiry_date TIMESTAMPTZ NOT NULL,
-                    lot_code VARCHAR(64) NOT NULL,
-                    status VARCHAR(32) NOT NULL DEFAULT 'QUEUED',
-                    created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
-                """
-            )
-            conn.exec_driver_sql(
-                "CREATE INDEX IF NOT EXISTS ix_product_lots_product_id ON product_lots(product_id);"
-            )
-            conn.exec_driver_sql(
-                "CREATE INDEX IF NOT EXISTS ix_product_lots_lot_code ON product_lots(lot_code);"
             )
     except Exception:
         pass

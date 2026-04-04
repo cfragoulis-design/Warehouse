@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Numeric,
+    Date,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -117,15 +118,17 @@ class Product(Base):
     # If true, this product is included in the Daily Production Report email.
     # Bound to product IDs (not names), so renames won't break reporting.
     is_production_item: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Label printing metadata
+    shelf_life_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    storage_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label_template: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
     )
-
-    shelf_life_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    storage_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    label_template: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class ProductLot(Base):
@@ -137,12 +140,12 @@ class ProductLot(Base):
         index=True,
         nullable=False,
     )
-    station: Mapped[str] = mapped_column(String(32), nullable=False)
-    quantity_labels: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    production_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    expiry_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    lot_code: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="QUEUED")
+    station: Mapped[str] = mapped_column(String(16), nullable=False)
+    quantity_labels: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
+    production_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    expiry_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    lot_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="CREATED")
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         index=True,
