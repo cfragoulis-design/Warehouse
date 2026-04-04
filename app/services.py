@@ -149,6 +149,22 @@ def _run_label_print_hook(product: Product, lot: ProductLot) -> str:
     subprocess.run(command, shell=True, check=True)
     return 'PRINTED'
 
+
+def _expected_agent_token(station: str) -> str:
+    station = _normalize_station(station)
+    if station == 'CENTRAL':
+        return (os.getenv('PRINT_AGENT_TOKEN_CENTRAL') or os.getenv('PRINT_AGENT_TOKEN') or '').strip()
+    return (os.getenv('PRINT_AGENT_TOKEN_WORKSHOP') or os.getenv('PRINT_AGENT_TOKEN') or '').strip()
+
+
+def _validate_agent_token(station: str, token: str | None) -> None:
+    expected = _expected_agent_token(station)
+    provided = (token or '').strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail='Print agent token not configured')
+    if provided != expected:
+        raise HTTPException(status_code=403, detail='Invalid print agent token')
+
 # --------------------
 # workshop messaging (CENTRAL -> WORKSHOP)
 # --------------------
@@ -1199,6 +1215,113 @@ def stock_view(
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
         },
     )
+
+
+
+
+@router.get("/labels/queue", response_class=JSONResponse)
+def labels_queue(
+    station: str,
+    token: str,
+    limit: int = 10,
+    db: Session = Depends(get_db),
+):
+    station_norm = _normalize_station(station)
+    _validate_agent_token(station_norm, token)
+
+    limit = max(1, min(int(limit or 10), 50))
+
+    rows = (
+        db.query(ProductLot, Product)
+        .join(Product, Product.id == ProductLot.product_id)
+        .filter(ProductLot.station == station_norm, ProductLot.status == 'QUEUED')
+        .order_by(ProductLot.created_at.asc(), ProductLot.id.asc())
+        .limit(limit)
+        .all()
+    )
+
+    out = []
+    for lot, product in rows:
+        out.append({
+            'id': lot.id,
+            'product_id': product.id,
+            'product_name': product.name,
+            'sku': product.sku or '',
+            'station': lot.station,
+            'quantity': float(lot.quantity_labels or 0),
+            'production_date': lot.production_date.isoformat() if lot.production_date else '',
+            'expiry_date': lot.expiry_date.isoformat() if lot.expiry_date else '',
+            'lot_code': lot.lot_code or '',
+            'storage_text': getattr(product, 'storage_text', None) or '',
+            'label_template': getattr(product, 'label_template', None) or 'default.btw',
+        })
+    return JSONResponse(out)
+
+
+@router.post("/labels/done", response_class=JSONResponse)
+def labels_done(request: Request, db: Session = Depends(get_db)):
+    try:
+        payload = request._json if hasattr(request, '_json') else None
+    except Exception:
+        payload = None
+    if payload is None:
+        try:
+            import anyio
+            payload = anyio.run(request.json)
+        except Exception:
+            payload = None
+    if not isinstance(payload, dict):
+        payload = {}
+
+    job_id = payload.get('id')
+    token = payload.get('token')
+    station = payload.get('station')
+
+    lot = db.get(ProductLot, int(job_id or 0))
+    if not lot:
+        raise HTTPException(status_code=404, detail='Label job not found')
+
+    station_norm = _normalize_station(station or lot.station)
+    if station_norm != lot.station:
+        raise HTTPException(status_code=400, detail='Station mismatch')
+    _validate_agent_token(station_norm, token)
+
+    lot.status = 'PRINTED'
+    db.commit()
+    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
+
+
+@router.post("/labels/error", response_class=JSONResponse)
+def labels_error(request: Request, db: Session = Depends(get_db)):
+    try:
+        payload = request._json if hasattr(request, '_json') else None
+    except Exception:
+        payload = None
+    if payload is None:
+        try:
+            import anyio
+            payload = anyio.run(request.json)
+        except Exception:
+            payload = None
+    if not isinstance(payload, dict):
+        payload = {}
+
+    job_id = payload.get('id')
+    token = payload.get('token')
+    station = payload.get('station')
+
+    lot = db.get(ProductLot, int(job_id or 0))
+    if not lot:
+        raise HTTPException(status_code=404, detail='Label job not found')
+
+    station_norm = _normalize_station(station or lot.station)
+    if station_norm != lot.station:
+        raise HTTPException(status_code=400, detail='Station mismatch')
+    _validate_agent_token(station_norm, token)
+
+    lot.status = 'ERROR'
+    db.commit()
+    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
 
 
 @router.post("/labels/quick-print")
