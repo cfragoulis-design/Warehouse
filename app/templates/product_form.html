@@ -37,6 +37,9 @@
     {% if request.query_params.get('err') == 'sku' %}
       <div class="warn">⚠️ Το SKU υπάρχει ήδη. Διάλεξε διαφορετικό.</div>
     {% endif %}
+    {% if request.query_params.get('err') == 'label_shelf_life' %}
+      <div class="warn">⚠️ Βάλε Shelf Life (days) για να μπορεί να τυπωθεί ετικέτα.</div>
+    {% endif %}
 
     <form method="post" action="{{ action }}">
       <label>Όνομα</label>
@@ -103,17 +106,19 @@
       <div class="grid2">
         <div>
           <label>Shelf Life (days)</label>
-          <input name="shelf_life_days" type="number" min="1" step="1" value="{{ product.shelf_life_days if product and product.shelf_life_days is not none else '' }}">
+          <input name="shelf_life_days" type="number" min="0" step="1" value="{{ product.shelf_life_days if product and product.shelf_life_days is not none else 0 }}">
+          <div class="muted">Απαιτείται για αυτόματο υπολογισμό λήξης στις ετικέτες.</div>
         </div>
         <div>
           <label>Label Template</label>
-          <input name="label_template" value="{{ product.label_template if product and product.label_template else '' }}" placeholder="π.χ. default.btw">
+          <input name="label_template" value="{{ product.label_template if product and product.label_template else '' }}" placeholder="π.χ. meat_label.btw">
+          <div class="muted">Προαιρετικό. Όνομα/διαδρομή template Bartender.</div>
         </div>
       </div>
 
-      <label>Storage text</label>
-      <input name="storage_text" value="{{ product.storage_text if product and product.storage_text else '' }}" placeholder="π.χ. Διατηρείται στους 0-4°C">
-      <div class="muted">Χρησιμοποιείται για το label όταν ενεργοποιηθεί η εκτύπωση.</div>
+      <label>Storage Text</label>
+      <input name="storage_text" value="{{ product.storage_text if product and product.storage_text else '' }}" placeholder="π.χ. Διατηρείται στους 0–4°C">
+      <div class="muted">Προαιρετικό κείμενο συντήρησης για την ετικέτα.</div>
 
       <div class="checkrow">
         <input
