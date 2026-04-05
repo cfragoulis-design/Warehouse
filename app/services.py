@@ -165,6 +165,29 @@ def _validate_agent_token(station: str, token: str | None) -> None:
     if provided != expected:
         raise HTTPException(status_code=403, detail='Invalid print agent token')
 
+
+def _fmt_label_date(value) -> str:
+    if not value:
+        return ''
+    try:
+        return value.strftime('%d/%m/%Y')
+    except Exception:
+        return str(value)
+
+
+def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
+    return {
+        'id': lot.id,
+        'label_key': 'TEST',
+        'copies': int(float(lot.quantity_labels or 0) or 0),
+        'station': lot.station,
+        'product_id': product.id,
+        'product_name': product.name or '',
+        'production_date': _fmt_label_date(lot.production_date),
+        'expiry_date': _fmt_label_date(lot.expiry_date),
+        'lot_code': lot.lot_code or '',
+    }
+
 # --------------------
 # workshop messaging (CENTRAL -> WORKSHOP)
 # --------------------
@@ -1322,6 +1345,87 @@ def labels_error(request: Request, db: Session = Depends(get_db)):
     lot.status = 'ERROR'
     db.commit()
     return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
+
+
+
+
+@router.get("/api/print-jobs/next", response_class=JSONResponse)
+def api_print_jobs_next(
+    station: str,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    station_norm = _normalize_station(station)
+    token = ''
+    if request is not None:
+        token = request.headers.get('x-agent-token', '')
+    _validate_agent_token(station_norm, token)
+
+    row = (
+        db.query(ProductLot, Product)
+        .join(Product, Product.id == ProductLot.product_id)
+        .filter(ProductLot.station == station_norm, ProductLot.status == 'QUEUED')
+        .order_by(ProductLot.created_at.asc(), ProductLot.id.asc())
+        .first()
+    )
+    if not row:
+        return JSONResponse({'job': None})
+
+    lot, product = row
+    return JSONResponse({'job': _sr_job_payload(lot, product)})
+
+
+@router.post("/api/print-jobs/{job_id}/done", response_class=JSONResponse)
+def api_print_jobs_done(
+    job_id: int,
+    station: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    station_norm = _normalize_station(station)
+    _validate_agent_token(station_norm, request.headers.get('x-agent-token', ''))
+
+    lot = db.get(ProductLot, int(job_id or 0))
+    if not lot:
+        raise HTTPException(status_code=404, detail='Print job not found')
+    if lot.station != station_norm:
+        raise HTTPException(status_code=400, detail='Station mismatch')
+
+    lot.status = 'PRINTED'
+    db.commit()
+    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
+
+
+@router.post("/api/print-jobs/{job_id}/fail", response_class=JSONResponse)
+def api_print_jobs_fail(
+    job_id: int,
+    station: str,
+    request: Request,
+    error_message: str = Form(''),
+    db: Session = Depends(get_db),
+):
+    station_norm = _normalize_station(station)
+    _validate_agent_token(station_norm, request.headers.get('x-agent-token', ''))
+
+    lot = db.get(ProductLot, int(job_id or 0))
+    if not lot:
+        raise HTTPException(status_code=404, detail='Print job not found')
+    if lot.station != station_norm:
+        raise HTTPException(status_code=400, detail='Station mismatch')
+
+    lot.status = 'ERROR'
+    db.commit()
+    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status, 'error_message': (error_message or '')[:500]})
+
+
+@router.post("/api/print-agent/labels", response_class=JSONResponse)
+def api_print_agent_labels(
+    station: str,
+    request: Request,
+):
+    station_norm = _normalize_station(station)
+    _validate_agent_token(station_norm, request.headers.get('x-agent-token', ''))
+    return JSONResponse({'ok': True, 'station': station_norm})
 
 
 @router.post("/labels/quick-print")
