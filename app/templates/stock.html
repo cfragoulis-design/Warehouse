@@ -136,7 +136,28 @@
 
     /* Sticky category headers (keeps context while scrolling) */
     tr.catrow td{position:sticky;top:0;z-index:10}
-</style>
+
+.labelToast{
+  position:fixed;
+  right:16px;
+  bottom:16px;
+  z-index:9999;
+  min-width:220px;
+  max-width:360px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid rgba(36,48,85,.9);
+  background:rgba(15,22,45,.96);
+  color:var(--text);
+  box-shadow:0 12px 28px rgba(0,0,0,.35);
+  font-size:13px;
+  display:none;
+}
+.labelToast.ok{border-color:rgba(46,204,113,.55); color:#d8ffe9}
+.labelToast.err{border-color:rgba(255,107,107,.55); color:#ffd2d2}
+.labelBtn.isBusy{opacity:.65; pointer-events:none}
+
+ </style>
 </head>
 <body>
   <div class="top wrap" style="padding-bottom:10px">
@@ -310,7 +331,7 @@
                       <input class="needQty" name="qty" value="1" inputmode="decimal" />
                       <button class="needBtn" type="submit" title="Παραγγελία ανάγκης (Telegram)">🆘</button>
                     </form>
-                    <form method="post" action="/labels/quick-print" style="display:inline">
+                    <form method="post" action="/labels/quick-print" class="js-label-print-form" data-product-id="{{ it.id }}" data-station="CENTRAL" style="display:inline">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input type="hidden" name="station" value="CENTRAL" />
                       <input type="hidden" name="quantity" value="{{ it.central_qty|fmtqty(it.unit) }}" />
@@ -319,7 +340,7 @@
                   {% endif %}
 
                   {% if user and user.role == 'workshop' %}
-                    <form method="post" action="/labels/quick-print" style="display:inline">
+                    <form method="post" action="/labels/quick-print" class="js-label-print-form" data-product-id="{{ it.id }}" data-station="WORKSHOP" style="display:inline">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input type="hidden" name="station" value="WORKSHOP" />
                       <input type="hidden" name="quantity" value="{{ it.workshop_qty|fmtqty(it.unit) }}" />
@@ -336,9 +357,66 @@
     </div>
   </div>
 
+<div id="label-toast" class="labelToast"></div>
+
 <script>
 (function(){
   const POLL_MS = 4000;
+
+
+const labelToast = document.getElementById("label-toast");
+
+function showLabelToast(message, kind){
+  if (!labelToast) return;
+  labelToast.textContent = message;
+  labelToast.className = `labelToast ${kind || "ok"}`;
+  labelToast.style.display = "block";
+  clearTimeout(showLabelToast._t);
+  showLabelToast._t = setTimeout(() => {
+    labelToast.style.display = "none";
+  }, 2200);
+}
+
+async function submitLabelFormAjax(form){
+  const btn = form.querySelector('button[type="submit"]');
+  const original = btn ? btn.textContent : "";
+  const body = new URLSearchParams(new FormData(form));
+  try{
+    if (btn){
+      btn.classList.add("isBusy");
+      btn.textContent = "...";
+    }
+    const res = await fetch(form.action, {
+      method: "POST",
+      headers: {
+        "X-Requested-With": "fetch",
+        "Accept": "application/json"
+      },
+      body,
+      credentials: "same-origin"
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok){
+      throw new Error(data.error || "Η εκτύπωση label απέτυχε.");
+    }
+    showLabelToast(data.message || "Το label στάλθηκε.", "ok");
+  }catch(err){
+    showLabelToast(err.message || "Η εκτύπωση label απέτυχε.", "err");
+  }finally{
+    if (btn){
+      btn.classList.remove("isBusy");
+      btn.textContent = original;
+    }
+  }
+}
+
+document.querySelectorAll(".js-label-print-form").forEach(form => {
+  form.addEventListener("submit", function(ev){
+    ev.preventDefault();
+    submitLabelFormAjax(form);
+  });
+});
+
 
   // ----
   // Workshop-only view filter: show only rows with Pending > 0 (UI-only, no DB/logic changes)
