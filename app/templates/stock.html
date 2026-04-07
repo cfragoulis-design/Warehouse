@@ -100,43 +100,7 @@
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
-    .labelBtn{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:34px;border-radius:10px;font-weight:900;cursor:pointer;border:1px solid transparent}
-    .labelBtn.central{background:rgba(47,124,246,.16);border-color:rgba(47,124,246,.45);color:#8ab4ff}
-    .labelBtn.workshop{background:rgba(202,162,74,.16);border-color:rgba(202,162,74,.45);color:#f1d694}
-    .labelBtn:hover{filter:brightness(1.08)}
-    .readyBanner{
-      margin:12px 0;
-      padding:12px 14px;
-      border-radius:16px;
-      border:1px solid rgba(47,124,246,.35);
-      background:rgba(47,124,246,.10);
-      display:none;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-    }
-    .readyBanner.show{display:flex}
-    .readyBanner .msg{font-weight:900}
-    .readyBanner .note{color:var(--muted);font-size:12px;margin-top:2px}
-    .readyBanner .left{display:flex;flex-direction:column}
-  
-    /* Tooltips */
-    .tt{position:relative;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:999px;border:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1;cursor:help;margin-left:6px;background:rgba(255,255,255,.03)}
-    .tt::after{content:attr(data-tip);position:absolute;left:50%;top:calc(100% + 10px);transform:translateX(-50%);min-width:220px;max-width:320px;white-space:normal;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:rgba(15,22,45,.98);color:var(--text);font-size:12px;line-height:1.35;box-shadow:0 16px 40px rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .12s ease;z-index:50}
-    .tt::before{content:"";position:absolute;left:50%;top:calc(100% + 4px);transform:translateX(-50%);border:6px solid transparent;border-bottom-color:var(--line);opacity:0;transition:opacity .12s ease;z-index:51}
-    .tt:hover::after,.tt:hover::before{opacity:1}
-
-    /* Visual hierarchy */
-    tr.rowPending td{box-shadow:inset 0 0 0 9999px rgba(202,162,74,.06)}
-    tr.rowLow td{box-shadow:inset 0 0 0 9999px rgba(255,107,107,.08)}
-    tr.rowPending td:first-child, tr.rowLow td:first-child{border-left:3px solid rgba(202,162,74,.65)}
-    tr.rowLow td:first-child{border-left-color: rgba(255,107,107,.8)}
-    tr.rowPending td{border-top:1px solid rgba(202,162,74,.25);border-bottom:1px solid rgba(202,162,74,.25)}
-    tr.rowLow td{border-top:1px solid rgba(255,107,107,.22);border-bottom:1px solid rgba(255,107,107,.22)}
-
-    /* Sticky category headers (keeps context while scrolling) */
-    tr.catrow td{position:sticky;top:0;z-index:10}
-</style>
+  </style>
 </head>
 <body>
   <div class="top wrap" style="padding-bottom:10px">
@@ -157,25 +121,6 @@
   </div>
 
   <div class="wrap">
-    {% if request.query_params.get('ok') == 'label' %}
-      <div style="margin:0 0 12px 0;padding:10px 14px;border-radius:12px;border:1px solid rgba(46,204,113,.35);background:rgba(46,204,113,.12);font-weight:800;">✅ Το label job καταχωρήθηκε.</div>
-    {% endif %}
-    {% if request.query_params.get('err') == 'label_qty' %}
-      <div style="margin:0 0 12px 0;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,107,107,.35);background:rgba(255,107,107,.12);font-weight:800;">⚠️ Δεν υπάρχει διαθέσιμη ποσότητα για εκτύπωση ετικέτας.</div>
-    {% endif %}
-    {% if request.query_params.get('err') == 'label_product' %}
-      <div style="margin:0 0 12px 0;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,107,107,.35);background:rgba(255,107,107,.12);font-weight:800;">⚠️ Το προϊόν για το label δεν βρέθηκε.</div>
-    {% endif %}
-    {% if user and user.role == "workshop" %}
-      <div id="centralReadyBanner" class="readyBanner {% if central_ready %}show{% endif %}">
-        <div class="left">
-          <div class="msg">✅ Ready to Load</div>
-          <div class="note" id="centralReadyNote">{% if central_ready_note %}{{ central_ready_note }}{% else %}Central marked the load as ready.{% endif %}</div>
-        </div>
-        <button class="btn btnGhost btnTiny" id="btnReadyAcknowledge" type="button">Loaded</button>
-      </div>
-    {% endif %}
-
     <div class="card">
       <div class="cardHead">
         <div class="filters">
@@ -191,19 +136,6 @@
         </div>
 
         <div class="rightHead">
-          {% if user and user.role == "admin" %}
-            <button class="btn btnBlue btnTiny" id="btnReadyToLoad" type="button">✅ Ready to Load</button>
-            <button class="btn btnGhost btnTiny" id="btnReadyClear" type="button">Clear</button>
-          {% endif %}
-
-          {% if user and user.role == "workshop" %}
-            <label style="display:inline-flex;align-items:center;gap:8px;white-space:nowrap;margin-right:8px;color:var(--muted);font-size:12px;">
-              <input type="checkbox" id="only-pending-toggle" />
-              Only Pending
-            </label>
-          {% endif %}
-
-
           <a class="btn btnGhost btnTiny" href="/stock/print?scope=pending" target="_blank">🖨️ Εκτύπωση (Εργαστήριο)</a>
           <a class="btn btnGhost btnTiny" href="/stock/print?scope=all" target="_blank">🖨️ Εκτύπωση (Όλα)</a>
 
@@ -220,16 +152,16 @@
             <th style="width:10%">Unit</th>
             <th style="width:10%">Central</th>
             <th style="width:10%">Workshop</th>
-            <th style="width:16%">Target (Central)<span class="tt" data-tip="Target is the desired CENTRAL stock level you set manually. Pending is calculated from this target.">i</span></th>
-            <th style="width:10%">Pending<span class="tt" data-tip="Pending = Target (Central) − Central stock. Tap the +Pending pill to fulfill by transferring from WORKSHOP to CENTRAL.">i</span></th>
+            <th style="width:16%">Target (Central)</th>
+            <th style="width:10%">Pending</th>
             <th style="width:20%">Actions</th>
           </tr>
         </thead>
         <tbody>
         {% for cat, items in grouped.items() %}
-          <tr class="catrow category-row"><td colspan="8">{{ cat }}</td></tr>
+          <tr class="catrow"><td colspan="8">{{ cat }}</td></tr>
           {% for it in items %}
-            <tr data-product-id="{{ it.id }}" data-pending="{{ it.pending }}" class="stock-row {% if it.is_low %}rowLow {% endif %}{% if it.pending > 0 %}rowPending{% endif %}">
+            <tr data-product-id="{{ it.id }}">
               <td>
                 <div class="prodRow">
                   {% if user and user.role == 'admin' %}
@@ -292,40 +224,49 @@
 
                   {% if can_adjust_workshop %}
                     <form method="post" action="/stock/transfer_wc">
-                      <input type="hidden" name="product_id" value="{{ it.id }}" />
-                      <input type="hidden" name="qty" value="1" />
-                      <button class="transferBtn" type="submit" title="Μεταφορά 1 από Workshop σε Central">→</button>
-                    </form>
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
+                    <input type="hidden" name="qty" value="1" />
+                    <button class="transferBtn" type="submit" title="Μεταφορά 1 από Workshop σε Central">→</button>
+                  </form>
+                  {% endif %}
+
+                  {# Telegram NEED (isolated form so it never triggers transfer) #}
+                  {% if user and user.role == 'admin' %}
+                  <form method="post" action="/stock/need" class="needForm">
+                    <input type="hidden" name="product_id" value="{{ it.id }}" />
+                    <input type="hidden" name="loc" value="{{ loc }}" />
+                    <input type="hidden" name="name" value="{{ it.name }}" />
+                    <input type="hidden" name="sku" value="{{ it.sku or '' }}" />
+                    <input type="hidden" name="unit_label" value="{{ it.unit_label }}" />
+                    <input type="hidden" name="central_qty" value="{{ it.central_qty|fmtqty(it.unit) }}" />
+                    <input type="hidden" name="workshop_qty" value="{{ it.workshop_qty|fmtqty(it.unit) }}" />
+                    <input class="needQty" name="qty" value="1" inputmode="decimal" />
+                    <button class="needBtn" type="submit" title="Παραγγελία ανάγκης (Telegram)">🆘</button>
+                  </form>
                   {% endif %}
 
                   {% if user and user.role == 'admin' %}
-                    <form method="post" action="/stock/need" class="needForm">
-                      <input type="hidden" name="product_id" value="{{ it.id }}" />
-                      <input type="hidden" name="loc" value="{{ loc }}" />
-                      <input type="hidden" name="name" value="{{ it.name }}" />
-                      <input type="hidden" name="sku" value="{{ it.sku or '' }}" />
-                      <input type="hidden" name="unit_label" value="{{ it.unit_label }}" />
-                      <input type="hidden" name="central_qty" value="{{ it.central_qty|fmtqty(it.unit) }}" />
-                      <input type="hidden" name="workshop_qty" value="{{ it.workshop_qty|fmtqty(it.unit) }}" />
-                      <input class="needQty" name="qty" value="1" inputmode="decimal" />
-                      <button class="needBtn" type="submit" title="Παραγγελία ανάγκης (Telegram)">🆘</button>
-                    </form>
-                    <form method="post" action="/labels/quick-print" style="display:inline">
-                      <input type="hidden" name="product_id" value="{{ it.id }}" />
-                      <input type="hidden" name="station" value="CENTRAL" />
-                      <input type="hidden" name="quantity" value="{{ it.central_qty|fmtqty(it.unit) }}" />
-                      <button class="labelBtn central" type="submit" title="Εκτύπωση labels με ποσότητα Central stock">C🏷</button>
-                    </form>
+                  <button
+                    class="btnTiny plus labelBtn js-label-print"
+                    type="button"
+                    data-product-id="{{ it.id }}"
+                    data-station="C"
+                    data-quantity="{{ it.central_qty|fmtqty(it.unit) }}"
+                    title="Εκτύπωση ετικέτας Central">
+                    C🏷
+                  </button>
+                  {% elif user and user.role == 'workshop' %}
+                  <button
+                    class="btnTiny plus labelBtn js-label-print"
+                    type="button"
+                    data-product-id="{{ it.id }}"
+                    data-station="W"
+                    data-quantity="{{ it.workshop_qty|fmtqty(it.unit) }}"
+                    title="Εκτύπωση ετικέτας Workshop">
+                    W🏷
+                  </button>
                   {% endif %}
 
-                  {% if user and user.role == 'workshop' %}
-                    <form method="post" action="/labels/quick-print" style="display:inline">
-                      <input type="hidden" name="product_id" value="{{ it.id }}" />
-                      <input type="hidden" name="station" value="WORKSHOP" />
-                      <input type="hidden" name="quantity" value="{{ it.workshop_qty|fmtqty(it.unit) }}" />
-                      <button class="labelBtn workshop" type="submit" title="Εκτύπωση labels με ποσότητα Workshop stock">W🏷</button>
-                    </form>
-                  {% endif %}
                 </div>
               </td>
             </tr>
@@ -340,43 +281,79 @@
 (function(){
   const POLL_MS = 4000;
 
-  // ----
-  // Workshop-only view filter: show only rows with Pending > 0 (UI-only, no DB/logic changes)
-  // ----
-  const onlyPendingToggle = document.getElementById("only-pending-toggle");
-  const ONLY_PENDING_KEY = "wh_only_pending_workshop";
+  function showLabelToast(message, isError){
+    let el = document.getElementById('labelToast');
+    if (!el){
+      el = document.createElement('div');
+      el.id = 'labelToast';
+      el.style.position = 'fixed';
+      el.style.right = '18px';
+      el.style.bottom = '18px';
+      el.style.zIndex = '9999';
+      el.style.maxWidth = '420px';
+      el.style.padding = '10px 14px';
+      el.style.borderRadius = '12px';
+      el.style.fontWeight = '800';
+      el.style.boxShadow = '0 10px 30px rgba(0,0,0,.35)';
+      el.style.border = '1px solid rgba(255,255,255,.12)';
+      document.body.appendChild(el);
+    }
+    el.style.background = isError ? '#3b1118' : '#0f2d22';
+    el.style.color = '#fff';
+    el.textContent = message;
+    el.style.display = 'block';
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(()=>{ el.style.display = 'none'; }, 2200);
+  }
 
-  function applyOnlyPendingFilter(){
-    if (!onlyPendingToggle) return; // not workshop (toggle not rendered)
-    const on = !!onlyPendingToggle.checked;
+  async function postLabelPrint(btn){
+    if (!btn || btn.dataset.busy === '1') return;
+    const productId = btn.dataset.productId;
+    const station = btn.dataset.station;
+    const quantity = btn.dataset.quantity || '0';
+    const body = new URLSearchParams();
+    body.set('product_id', productId);
+    body.set('station', station);
+    body.set('quantity', quantity);
 
-    document.querySelectorAll("tr.stock-row").forEach(tr => {
-      const p = parseFloat(tr.getAttribute("data-pending") || "0") || 0;
-      tr.style.display = (on && !(p > 0)) ? "none" : "";
-    });
+    const prevHtml = btn.innerHTML;
+    btn.dataset.busy = '1';
+    btn.disabled = true;
+    btn.innerHTML = '...';
 
-    // Hide category headers that have no visible rows when filter is ON
-    document.querySelectorAll("tr.category-row").forEach(header => {
-      let next = header.nextElementSibling;
-      let hasVisible = false;
-      while (next && !next.classList.contains("category-row")) {
-        if (next.classList.contains("stock-row") && next.style.display !== "none") {
-          hasVisible = true;
-          break;
-        }
-        next = next.nextElementSibling;
+    try {
+      const resp = await fetch('/labels/quick-print', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+          'X-Requested-With': 'fetch'
+        },
+        body: body.toString(),
+        credentials: 'same-origin'
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.ok){
+        throw new Error(data.error || 'Η εκτύπωση απέτυχε');
       }
-      header.style.display = (on && !hasVisible) ? "none" : "";
-    });
-
-    try { localStorage.setItem(ONLY_PENDING_KEY, on ? "1" : "0"); } catch(e) {}
+      showLabelToast('Το label job καταχωρήθηκε.', false);
+      btn.innerHTML = 'OK';
+      setTimeout(()=>{ btn.innerHTML = prevHtml; }, 900);
+    } catch (err) {
+      showLabelToast(err.message || 'Η εκτύπωση απέτυχε', true);
+      btn.innerHTML = 'ERR';
+      setTimeout(()=>{ btn.innerHTML = prevHtml; }, 1200);
+    } finally {
+      btn.dataset.busy = '0';
+      btn.disabled = false;
+    }
   }
 
-  if (onlyPendingToggle){
-    try { onlyPendingToggle.checked = (localStorage.getItem(ONLY_PENDING_KEY) === "1"); } catch(e) {}
-    onlyPendingToggle.addEventListener("change", applyOnlyPendingFilter);
-  }
-
+  document.addEventListener('click', function(ev){
+    const btn = ev.target.closest('.js-label-print');
+    if (!btn) return;
+    ev.preventDefault();
+    postLabelPrint(btn);
+  });
 
   function setText(el, text){
     if (!el) return;
@@ -432,7 +409,6 @@
         const btn = form ? form.querySelector('button') : null;
 
         const pVal = Number(item.pending_value || 0);
-        row.setAttribute("data-pending", String(pVal));
         if (pVal > 0){
           if (form) form.style.display = "";
           if (zero) zero.style.display = "none";
@@ -442,13 +418,7 @@
           if (zero) zero.style.display = "";
           if (zero) setText(zero, "0");
         }
-        // Live row state (no refresh)
-        const isLow = !!item.is_low;
-        row.classList.toggle("rowLow", isLow);
-        row.classList.toggle("rowPending", pVal > 0);
       }
-
-      applyOnlyPendingFilter();
     }catch(e){
       const dot = document.getElementById("liveDot");
       const txt = document.getElementById("liveText");
@@ -457,7 +427,6 @@
       // silent
     }
   }
-  applyOnlyPendingFilter();
 
   refreshStockLive();
   setInterval(refreshStockLive, POLL_MS);
@@ -481,7 +450,6 @@
     const btn = form ? form.querySelector('button') : null;
 
     const pVal = Number(data.pending_value || 0);
-    row.setAttribute("data-pending", String(pVal));
     if (pVal > 0){
       if (form) form.style.display = "";
       if (zero) zero.style.display = "none";
@@ -491,8 +459,6 @@
       if (zero) zero.style.display = "";
       if (zero) setText(zero, "0");
     }
-
-    applyOnlyPendingFilter();
   }
 
   // ----
@@ -714,94 +680,8 @@
     });
   });
 
-
-  // --------------------
-  // CENTRAL Ready-to-load banner + controls
-  // --------------------
-  async function fetchCentralReady(){
-    try{
-      const res = await fetch("/api/central_ready", {cache:"no-store"});
-      const data = await res.json();
-      if(!data || !data.ok) return null;
-      return data;
-    }catch(e){ return null; }
-  }
-
-  async function setCentralReady(isReady){
-    const fd = new FormData();
-    fd.append("ready", isReady ? "1" : "0");
-    if(isReady){
-      const note = prompt("Optional note for Workshop (leave empty for none):", "") || "";
-      fd.append("note", note);
-    }
-    const res = await fetch("/api/central_ready", {method:"POST", body: fd, headers: {"X-Requested-With":"XMLHttpRequest"}});
-    return res.ok;
-  }
-
-  async function clearCentralReady(){
-    const res = await fetch("/api/central_ready/clear", {method:"POST", headers: {"X-Requested-With":"XMLHttpRequest"}});
-    return res.ok;
-  }
-
-  const banner = document.getElementById("centralReadyBanner");
-  const noteEl = document.getElementById("centralReadyNote");
-  const ackBtn = document.getElementById("btnReadyAcknowledge");
-  const adminSetBtn = document.getElementById("btnReadyToLoad");
-  const adminClearBtn = document.getElementById("btnReadyClear");
-
-  if(adminSetBtn){
-    adminSetBtn.addEventListener("click", async ()=>{
-      adminSetBtn.disabled = true;
-      try{
-        const ok = await setCentralReady(true);
-        if(!ok) alert("Failed to set Ready to Load.");
-      }finally{
-        adminSetBtn.disabled = false;
-      }
-    });
-  }
-  if(adminClearBtn){
-    adminClearBtn.addEventListener("click", async ()=>{
-      adminClearBtn.disabled = true;
-      try{
-        const ok = await clearCentralReady();
-        if(!ok) alert("Failed to clear.");
-      }finally{
-        adminClearBtn.disabled = false;
-      }
-    });
-  }
-
-  if(ackBtn && banner){
-    ackBtn.addEventListener("click", async ()=>{
-      ackBtn.disabled = true;
-      try{
-        const ok = await clearCentralReady();
-        if(ok) banner.classList.remove("show");
-      }finally{
-        ackBtn.disabled = false;
-      }
-    });
-  }
-
-  // Workshop polling (kept lightweight)
-  if(banner){
-    setInterval(async ()=>{
-      const data = await fetchCentralReady();
-      if(!data) return;
-      if(data.ready){
-        banner.classList.add("show");
-        if(noteEl) noteEl.textContent = data.note || "Central marked the load as ready.";
-      }else{
-        banner.classList.remove("show");
-      }
-    }, 15000);
-  }
-
-
 })();</script>
 
 {% include "_dialog.html" %}
-{% include "_workshop_message_modal.html" %}
 </body>
 </html>
