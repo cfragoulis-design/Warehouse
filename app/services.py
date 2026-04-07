@@ -1437,20 +1437,35 @@ def labels_quick_print(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    wants_json = (request.headers.get("x-requested-with", "").lower() == "fetch") or ("application/json" in (request.headers.get("accept", "").lower()))
+
+    def _json_error(message: str, status_code: int = 400):
+        if wants_json:
+            return JSONResponse({"ok": False, "error": message}, status_code=status_code)
+        if message == "label_product":
+            return RedirectResponse(url="/stock?err=label_product", status_code=303)
+        if message == "label_qty":
+            return RedirectResponse(url="/stock?err=label_qty", status_code=303)
+        if message == "label_shelf_life":
+            return RedirectResponse(url=f"/products/{product.id}/edit?err=label_shelf_life", status_code=303)
+        return RedirectResponse(url="/stock?err=label", status_code=303)
+
     product = db.get(Product, product_id)
     if not product:
-        return RedirectResponse(url="/stock?err=label_product", status_code=303)
+        return _json_error("Το προϊόν δεν βρέθηκε.", 404) if wants_json else RedirectResponse(url="/stock?err=label_product", status_code=303)
 
     station_norm = _normalize_station(station)
     if not _station_allowed_for_user(user, station_norm):
+        if wants_json:
+            return JSONResponse({"ok": False, "error": "Μη έγκυρος σταθμός για αυτόν τον χρήστη."}, status_code=403)
         raise HTTPException(status_code=403, detail="Invalid station for this user")
 
     qty_dec = parse_qty(quantity) or Decimal("0")
     if qty_dec <= 0:
-        return RedirectResponse(url="/stock?err=label_qty", status_code=303)
+        return JSONResponse({"ok": False, "error": "Δεν υπάρχει διαθέσιμη ποσότητα για εκτύπωση ετικέτας."}, status_code=400) if wants_json else RedirectResponse(url="/stock?err=label_qty", status_code=303)
 
     if int(product.shelf_life_days or 0) <= 0:
-        return RedirectResponse(url=f"/products/{product.id}/edit?err=label_shelf_life", status_code=303)
+        return JSONResponse({"ok": False, "error": "Λείπει το shelf life του προϊόντος."}, status_code=400) if wants_json else RedirectResponse(url=f"/products/{product.id}/edit?err=label_shelf_life", status_code=303)
 
     production_date = _today_athens()
     expiry_date = production_date + timedelta(days=int(product.shelf_life_days or 0))
@@ -1475,6 +1490,16 @@ def labels_quick_print(
         lot.status = "QUEUED"
 
     db.commit()
+
+    if wants_json:
+        return JSONResponse({
+            "ok": True,
+            "message": f"Το label στάλθηκε: {product.name}",
+            "product_id": product.id,
+            "lot_code": lot_code,
+            "status": lot.status,
+            "station": station_norm,
+        })
     return RedirectResponse(url="/stock?ok=label", status_code=303)
 
 
