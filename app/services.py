@@ -1437,30 +1437,20 @@ def labels_quick_print(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    wants_json = (request.headers.get("x-requested-with", "").lower() == "fetch")
-
-    def _json_error(message: str, status: int = 400):
-        return JSONResponse({"ok": False, "error": message}, status_code=status)
-
-    def _redirect_error(url: str):
-        return RedirectResponse(url=url, status_code=303)
-
     product = db.get(Product, product_id)
     if not product:
-        return _json_error("Το προϊόν δεν βρέθηκε.", 404) if wants_json else _redirect_error("/stock?err=label_product")
+        return RedirectResponse(url="/stock?err=label_product", status_code=303)
 
     station_norm = _normalize_station(station)
     if not _station_allowed_for_user(user, station_norm):
-        if wants_json:
-            return _json_error("Μη έγκυρος σταθμός για αυτόν τον χρήστη.", 403)
         raise HTTPException(status_code=403, detail="Invalid station for this user")
 
     qty_dec = parse_qty(quantity) or Decimal("0")
     if qty_dec <= 0:
-        return _json_error("Δεν υπάρχει διαθέσιμη ποσότητα για εκτύπωση ετικέτας.", 400) if wants_json else _redirect_error("/stock?err=label_qty")
+        return RedirectResponse(url="/stock?err=label_qty", status_code=303)
 
     if int(product.shelf_life_days or 0) <= 0:
-        return _json_error("Δεν έχει οριστεί shelf life για το προϊόν.", 400) if wants_json else _redirect_error(f"/products/{product.id}/edit?err=label_shelf_life")
+        return RedirectResponse(url=f"/products/{product.id}/edit?err=label_shelf_life", status_code=303)
 
     production_date = _today_athens()
     expiry_date = production_date + timedelta(days=int(product.shelf_life_days or 0))
@@ -1485,16 +1475,6 @@ def labels_quick_print(
         lot.status = "QUEUED"
 
     db.commit()
-
-    if wants_json:
-        return JSONResponse({
-            "ok": True,
-            "message": "Το label job καταχωρήθηκε.",
-            "lot_id": lot.id,
-            "lot_code": lot.lot_code,
-            "status": lot.status,
-        })
-
     return RedirectResponse(url="/stock?ok=label", status_code=303)
 
 
