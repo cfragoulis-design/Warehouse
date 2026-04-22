@@ -9,6 +9,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
+    from app.routes_labels import router as labels_router
     from app.db import init_db, SessionLocal
     from app.auth import seed_admins
     from app.services import router as services_router
@@ -77,6 +78,7 @@ app.include_router(services_router)
 app.include_router(consumables_router)
 app.include_router(digest_router)
 app.include_router(production_report_router)
+app.include_router(labels_router)
 
 
 @app.get("/health")
