@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Label Center</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--warn:#caa24a;--danger:#ff6b6b;--ok:#2ecc71;}
+    *{box-sizing:border-box}
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0}
+    a{color:#8ab4ff;text-decoration:none}
+    .top{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;background:linear-gradient(180deg,#0b1020 0%, #0b1020 20%, rgba(11,16,32,0) 100%)}
+    .brand{font-weight:900;font-size:26px}
+    .sub{color:var(--muted);font-size:12px;margin-top:2px}
+    .nav{display:flex;gap:16px;align-items:center}
+    .wrap{max-width:1320px;margin:0 auto;padding:0 16px 24px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0 14px}
+    .toolbar input,.toolbar select,.toolbar button{background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:10px 12px;border-radius:12px;outline:none}
+    .toolbar input{min-width:260px}
+    .toolbar button{cursor:pointer;font-weight:800}
+    .toolbar .primary{background:var(--blue);border-color:rgba(47,124,246,.7);color:#fff}
+    .toolbar .ghost{background:rgba(11,16,32,.45)}
+    .layout{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
+    .card{background:rgba(17,25,54,.75);border:1px solid rgba(36,48,85,.75);border-radius:16px;box-shadow:0 12px 45px rgba(0,0,0,.35);overflow:hidden}
+    .card h2{margin:0;padding:14px 16px;border-bottom:1px solid rgba(36,48,85,.75);background:rgba(15,22,45,.55);font-size:16px}
+    .tableWrap{max-height:70vh;overflow:auto}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px 12px;border-bottom:1px solid rgba(36,48,85,.65);text-align:left;vertical-align:middle}
+    th{font-size:12px;color:#c9d1ea}
+    .prod{font-weight:800}
+    .muted{color:var(--muted);font-size:12px}
+    .qtyBox{display:flex;gap:8px;align-items:center}
+    .qtyBox input{width:84px;background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:8px 10px;border-radius:10px}
+    .tag{display:inline-flex;padding:4px 10px;border-radius:999px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55);font-size:12px}
+    .btnMini{padding:8px 10px;border-radius:10px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.45);color:var(--text);font-weight:800;cursor:pointer}
+    .btnMini.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45);color:#8ab4ff}
+    .btnMini.danger{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.45);color:#ffb2b2}
+    .panel{padding:14px 16px}
+    .row{display:grid;grid-template-columns:1fr 92px 110px 100px 112px 112px 120px 92px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(36,48,85,.45)}
+    .row.header{font-size:12px;color:#c9d1ea;font-weight:800}
+    .row input,.row select{width:100%;background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:8px 10px;border-radius:10px}
+    .empty{padding:18px;color:var(--muted)}
+    .sum{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-top:1px solid rgba(36,48,85,.75);background:rgba(15,22,45,.35)}
+    .toast{position:fixed;right:16px;bottom:16px;z-index:9999;min-width:220px;max-width:420px;padding:10px 12px;border-radius:12px;border:1px solid rgba(36,48,85,.9);background:rgba(15,22,45,.96);display:none}
+    .toast.ok{border-color:rgba(46,204,113,.55);color:#d8ffe9}
+    .toast.err{border-color:rgba(255,107,107,.55);color:#ffd2d2}
+    @media (max-width: 1200px){.layout{grid-template-columns:1fr}.tableWrap{max-height:none}.row{grid-template-columns:1.3fr 80px 100px 90px 108px 108px 110px 88px}}
+  </style>
+</head>
+<body>
+  <div class="top wrap" style="padding-bottom:10px">
+    <div>
+      <div class="brand">Label Center</div>
+      <div class="sub">Batch labels • shelf life auto • queue ready</div>
+    </div>
+    <div class="nav">
+      <span id="app-datetime" class="app-datetime"></span>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/stock">Stock</a>
+      <a href="/products">Products</a>
+      <a href="/movements">Movements</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="toolbar">
+      <input id="searchBox" type="text" placeholder="Search προϊόντος / SKU / κατηγορίας..." />
+      <select id="categoryFilter">
+        <option value="">Όλες οι κατηγορίες</option>
+      </select>
+      <select id="stationSelect">
+        <option value="CENTRAL" {% if default_station == "CENTRAL" %}selected{% endif %}>CENTRAL</option>
+        <option value="WORKSHOP" {% if default_station == "WORKSHOP" %}selected{% endif %}>WORKSHOP</option>
+      </select>
+      <input id="extraCodeDefault" type="text" placeholder="Extra code π.χ. PE 620" />
+      <button id="clearBatchBtn" class="ghost">Clear batch</button>
+      <button id="printBatchBtn" class="primary">🖨 Print Batch</button>
+    </div>
+
+    <div class="layout">
+      <div class="card">
+        <h2>Προϊόντα με ενεργό labeling</h2>
+        <div class="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Προϊόν</th>
+                <th>Κατηγορία</th>
+                <th>Template</th>
+                <th>Shelf Life</th>
+                <th>Storage</th>
+                <th style="width:150px">Qty labels</th>
+                <th style="width:110px"></th>
+              </tr>
+            </thead>
+            <tbody id="productsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Batch προς εκτύπωση</h2>
+        <div class="panel">
+          <div class="row header">
+            <div>Προϊόν</div>
+            <div>Copies</div>
+            <div>Lot</div>
+            <div>SL days</div>
+            <div>Prod</div>
+            <div>Expiry</div>
+            <div>Extra</div>
+            <div></div>
+          </div>
+          <div id="batchRows"></div>
+          <div id="emptyBatch" class="empty">Δεν υπάρχουν items στο batch.</div>
+        </div>
+        <div class="sum">
+          <div>
+            <div><b id="batchCount">0</b> items</div>
+            <div class="muted"><span id="totalCopies">0</span> συνολικά labels</div>
+          </div>
+          <div class="muted">Το shelf life τραβιέται αυτόματα από την καρτέλα προϊόντος.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+<script>
+const PRODUCTS = {{ products_json | safe }};
+const productsBody = document.getElementById('productsBody');
+const batchRows = document.getElementById('batchRows');
+const emptyBatch = document.getElementById('emptyBatch');
+const batchCountEl = document.getElementById('batchCount');
+const totalCopiesEl = document.getElementById('totalCopies');
+const searchBox = document.getElementById('searchBox');
+const categoryFilter = document.getElementById('categoryFilter');
+const stationSelect = document.getElementById('stationSelect');
+const extraCodeDefault = document.getElementById('extraCodeDefault');
+const toast = document.getElementById('toast');
+const batch = [];
+
+function showToast(message, kind='ok'){
+  toast.textContent = message;
+  toast.className = `toast ${kind}`;
+  toast.style.display = 'block';
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=> toast.style.display = 'none', 2600);
+}
+
+function fmtDate(d){
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const yy = d.getFullYear();
+  return `${dd}/${mm}/${yy}`;
+}
+
+function yymmdd(d){
+  return String(d.getFullYear()).slice(-2) + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+}
+
+function buildDefaultLot(product){
+  const d = new Date();
+  const raw = (product.sku || product.name || 'PRD').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0,8) || 'PRD';
+  const st = stationSelect.value === 'CENTRAL' ? 'C' : 'W';
+  return `${raw}-${yymmdd(d)}-${st}`;
+}
+
+function calcExpiry(days){
+  const p = new Date();
+  const e = new Date();
+  e.setDate(e.getDate() + Number(days || 0));
+  return {production: fmtDate(p), expiry: fmtDate(e)};
+}
+
+function categories(){
+  const set = new Set(PRODUCTS.map(p => p.category || 'Διάφορα'));
+  return [...set].sort((a,b)=> a.localeCompare(b,'el'));
+}
+
+function renderCategoryFilter(){
+  categories().forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    categoryFilter.appendChild(opt);
+  });
+}
+
+function filteredProducts(){
+  const q = (searchBox.value || '').trim().toLowerCase();
+  const cat = categoryFilter.value || '';
+  return PRODUCTS.filter(p => {
+    if (cat && (p.category || 'Διάφορα') !== cat) return false;
+    if (!q) return true;
+    return (p.name || '').toLowerCase().includes(q)
+      || (p.sku || '').toLowerCase().includes(q)
+      || (p.category || '').toLowerCase().includes(q)
+      || (p.label_template || '').toLowerCase().includes(q);
+  });
+}
+
+function renderProducts(){
+  productsBody.innerHTML = '';
+  filteredProducts().forEach(product => {
+    const tr = document.createElement('tr');
+    const storage = product.storage_text ? product.storage_text : '—';
+    const template = product.label_template ? product.label_template : '—';
+    tr.innerHTML = `
+      <td><div class="prod">${product.name}</div><div class="muted">${product.sku || ''}</div></td>
+      <td>${product.category || 'Διάφορα'}</td>
+      <td><span class="tag">${template}</span></td>
+      <td>${product.shelf_life_days} days</td>
+      <td class="muted">${storage}</td>
+      <td>
+        <div class="qtyBox">
+          <input type="number" min="1" step="1" value="1" data-qty-for="${product.id}">
+        </div>
+      </td>
+      <td><button class="btnMini primary" data-add="${product.id}">Add</button></td>
+    `;
+    productsBody.appendChild(tr);
+  });
+
+  productsBody.querySelectorAll('[data-add]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.getAttribute('data-add'));
+      const product = PRODUCTS.find(p => p.id === id);
+      const qtyInput = productsBody.querySelector(`[data-qty-for="${id}"]`);
+      const copies = Math.max(1, Number(qtyInput?.value || 1));
+      const dates = calcExpiry(product.shelf_life_days);
+      batch.push({
+        uid: String(Date.now()) + String(Math.random()),
+        product_id: product.id,
+        name: product.name,
+        sku: product.sku || '',
+        copies,
+        shelf_life_days: product.shelf_life_days,
+        lot_code: buildDefaultLot(product),
+        production_date: dates.production,
+        expiry_date: dates.expiry,
+        extra_code: (extraCodeDefault.value || '').trim(),
+      });
+      renderBatch();
+      showToast(`Προστέθηκε: ${product.name}`);
+    });
+  });
+}
+
+function renderBatch(){
+  batchRows.innerHTML = '';
+  emptyBatch.style.display = batch.length ? 'none' : 'block';
+  batchCountEl.textContent = String(batch.length);
+  totalCopiesEl.textContent = String(batch.reduce((s, x) => s + Number(x.copies || 0), 0));
+
+  batch.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `
+      <div><div class="prod">${item.name}</div><div class="muted">${item.sku}</div></div>
+      <div><input type="number" min="1" step="1" value="${item.copies}" data-k="copies"></div>
+      <div><input type="text" value="${item.lot_code}" data-k="lot_code"></div>
+      <div><input type="number" min="1" step="1" value="${item.shelf_life_days}" data-k="shelf_life_days"></div>
+      <div><input type="text" value="${item.production_date}" data-k="production_date" disabled></div>
+      <div><input type="text" value="${item.expiry_date}" data-k="expiry_date" disabled></div>
+      <div><input type="text" value="${item.extra_code || ''}" data-k="extra_code"></div>
+      <div><button class="btnMini danger" data-remove="${item.uid}">✕</button></div>
+    `;
+    batchRows.appendChild(row);
+
+    row.querySelectorAll('input[data-k]').forEach(input => {
+      input.addEventListener('input', () => {
+        const key = input.getAttribute('data-k');
+        item[key] = input.type === 'number' ? Number(input.value || 0) : input.value;
+        if (key === 'shelf_life_days') {
+          const dates = calcExpiry(item.shelf_life_days);
+          item.production_date = dates.production;
+          item.expiry_date = dates.expiry;
+          renderBatch();
+        } else {
+          totalCopiesEl.textContent = String(batch.reduce((s, x) => s + Number(x.copies || 0), 0));
+        }
+      });
+    });
+
+    row.querySelector(`[data-remove="${item.uid}"]`).addEventListener('click', () => {
+      const idx = batch.findIndex(x => x.uid === item.uid);
+      if (idx >= 0) batch.splice(idx, 1);
+      renderBatch();
+    });
+  });
+}
+
+document.getElementById('clearBatchBtn').addEventListener('click', () => {
+  batch.splice(0, batch.length);
+  renderBatch();
+});
+
+document.getElementById('printBatchBtn').addEventListener('click', async () => {
+  if (!batch.length) {
+    showToast('Δεν υπάρχουν items στο batch.', 'err');
+    return;
+  }
+  const payload = {
+    station: stationSelect.value,
+    items: batch.map(x => ({
+      product_id: x.product_id,
+      copies: Number(x.copies || 0),
+      lot_code: (x.lot_code || '').trim(),
+      extra_code: (x.extra_code || '').trim()
+    }))
+  };
+  try {
+    const res = await fetch('/admin/labels/create-batch', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', 'Accept':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || data.error || 'Η καταχώρηση batch απέτυχε.');
+    batch.splice(0, batch.length);
+    renderBatch();
+    showToast(`Το batch καταχωρήθηκε: ${data.created_count} labels`, 'ok');
+  } catch (err) {
+    showToast(err.message || 'Η καταχώρηση batch απέτυχε.', 'err');
+  }
+});
+
+searchBox.addEventListener('input', renderProducts);
+categoryFilter.addEventListener('change', renderProducts);
+stationSelect.addEventListener('change', () => {
+  batch.forEach(item => {
+    const product = PRODUCTS.find(p => p.id === item.product_id);
+    if (product) item.lot_code = buildDefaultLot(product);
+  });
+  renderBatch();
+});
+
+renderCategoryFilter();
+renderProducts();
+renderBatch();
+</script>
+</body>
+</html>
