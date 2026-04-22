@@ -178,14 +178,19 @@ def _fmt_label_date(value) -> str:
 def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
     return {
         'id': lot.id,
-        'label_key': 'TEST',
+        'batch_ref': getattr(lot, 'batch_ref', None) or '',
+        'label_key': (getattr(product, 'label_template', None) or 'default.btw'),
         'copies': int(float(lot.quantity_labels or 0) or 0),
         'station': lot.station,
         'product_id': product.id,
         'product_name': product.name or '',
+        'sku': product.sku or '',
         'production_date': _fmt_label_date(lot.production_date),
         'expiry_date': _fmt_label_date(lot.expiry_date),
         'lot_code': lot.lot_code or '',
+        'storage_text': getattr(product, 'storage_text', None) or '',
+        'shelf_life_days': int(getattr(product, 'shelf_life_days', 0) or 0),
+        'extra_code': getattr(lot, 'extra_code', None) or '',
     }
 
 # --------------------
@@ -1238,6 +1243,213 @@ def stock_view(
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
         },
     )
+
+
+
+def _eligible_label_products(db: Session):
+    rows = (
+        db.query(Product)
+        .filter(Product.is_active == True)
+        .filter(Product.only_in_freezer == False)
+        .filter(Product.shelf_life_days > 0)
+        .order_by(Product.category.asc().nullslast(), Product.name.asc())
+        .all()
+    )
+    out = []
+    for p in rows:
+        out.append({
+            "id": p.id,
+            "name": p.name,
+            "sku": p.sku or "",
+            "category": (p.category or "Διάφορα"),
+            "unit": p.unit or "",
+            "shelf_life_days": int(p.shelf_life_days or 0),
+            "storage_text": p.storage_text or "",
+            "label_template": p.label_template or "",
+        })
+    return out
+
+
+@router.get("/admin/labels", response_class=HTMLResponse)
+def labels_center(
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    products = _eligible_label_products(db)
+    if (user.role or "").lower() not in {"admin", "workshop"}:
+        return admin_only_dialog(request, user, next_url="/dashboard")
+    default_station = "CENTRAL" if (user.role or "").lower() == "admin" else "WORKSHOP"
+    return templates.TemplateResponse(
+        "labels_center.html",
+        {
+            "request": request,
+            "user": user,
+            "products": products,
+            "products_json": json.dumps(products, ensure_ascii=False),
+            "default_station": default_station,
+        },
+    )
+
+
+@router.post("/admin/labels/create-batch", response_class=JSONResponse)
+def labels_create_batch(
+    request: Request,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        import anyio
+        payload = anyio.run(request.json)
+    except Exception:
+        payload = None
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid payload")
+
+    items = payload.get("items") or []
+    station_norm = _normalize_station(payload.get("station"))
+    if not _station_allowed_for_user(user, station_norm):
+        raise HTTPException(status_code=403, detail="Invalid station for this user")
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="No batch items provided")
+
+    batch_ref = f"LB-{uuid4().hex[:10].upper()}"
+    created = []
+    today = _today_athens()
+
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        product_id = int(raw.get("product_id") or 0)
+        copies = int(raw.get("copies") or 0)
+        if product_id <= 0 or copies <= 0:
+            continue
+
+        product = db.get(Product, product_id)
+        if not product:
+            continue
+        if not product.is_active or product.only_in_freezer:
+            continue
+        if int(product.shelf_life_days or 0) <= 0:
+            continue
+
+        production_date = today
+        expiry_date = production_date + timedelta(days=int(product.shelf_life_days or 0))
+        lot_code_raw = (str(raw.get("lot_code") or "")).strip()
+        extra_code = (str(raw.get("extra_code") or "")).strip()[:64]
+        lot_code = lot_code_raw or _build_lot_code(product, station_norm, production_date, db)
+
+        exists_same = db.query(ProductLot.id).filter(ProductLot.lot_code == lot_code).first()
+        if exists_same:
+            lot_code = _build_lot_code(product, station_norm, production_date, db)
+
+        lot = ProductLot(
+            product_id=product.id,
+            station=station_norm,
+            quantity_labels=float(copies),
+            production_date=production_date,
+            expiry_date=expiry_date,
+            lot_code=lot_code,
+            status="QUEUED",
+            created_by_user_id=user.id,
+        )
+        if hasattr(lot, "batch_ref"):
+            lot.batch_ref = batch_ref
+        if hasattr(lot, "extra_code"):
+            lot.extra_code = extra_code
+
+        db.add(lot)
+        db.flush()
+
+        created.append({
+            "id": lot.id,
+            "product_id": product.id,
+            "product_name": product.name,
+            "copies": copies,
+            "lot_code": lot.lot_code,
+            "production_date": _fmt_label_date(lot.production_date),
+            "expiry_date": _fmt_label_date(lot.expiry_date),
+            "shelf_life_days": int(product.shelf_life_days or 0),
+            "label_template": product.label_template or "",
+            "extra_code": extra_code,
+        })
+
+    if not created:
+        raise HTTPException(status_code=400, detail="No valid label items were created")
+
+    db.commit()
+    return JSONResponse({"ok": True, "batch_ref": batch_ref, "created_count": len(created), "items": created, "station": station_norm})
+
+
+@router.get("/api/print-jobs/next-batch", response_class=JSONResponse)
+def api_print_jobs_next_batch(
+    station: str,
+    db: Session = Depends(get_db),
+    request: Request = None,
+):
+    station_norm = _normalize_station(station)
+    token = ''
+    if request is not None:
+        token = request.headers.get('x-agent-token', '')
+    _validate_agent_token(station_norm, token)
+
+    first_row = (
+        db.query(ProductLot)
+        .filter(ProductLot.station == station_norm, ProductLot.status == 'QUEUED')
+        .order_by(ProductLot.created_at.asc(), ProductLot.id.asc())
+        .first()
+    )
+    if not first_row:
+        return JSONResponse({'batch': None})
+
+    batch_ref = getattr(first_row, 'batch_ref', None) or ''
+    q = (
+        db.query(ProductLot, Product)
+        .join(Product, Product.id == ProductLot.product_id)
+        .filter(ProductLot.station == station_norm, ProductLot.status == 'QUEUED')
+    )
+    if batch_ref:
+        q = q.filter(ProductLot.batch_ref == batch_ref)
+    else:
+        q = q.filter(ProductLot.id == first_row.id)
+    rows = q.order_by(ProductLot.created_at.asc(), ProductLot.id.asc()).all()
+    return JSONResponse({
+        'batch': {
+            'batch_ref': batch_ref,
+            'station': station_norm,
+            'jobs': [_sr_job_payload(lot, product) for lot, product in rows],
+        }
+    })
+
+
+@router.post("/api/print-jobs/batch-done", response_class=JSONResponse)
+def api_print_jobs_batch_done(
+    request: Request,
+    station: str,
+    db: Session = Depends(get_db),
+):
+    station_norm = _normalize_station(station)
+    _validate_agent_token(station_norm, request.headers.get('x-agent-token', ''))
+
+    try:
+        import anyio
+        payload = anyio.run(request.json)
+    except Exception:
+        payload = {}
+    ids = payload.get("ids") or []
+    done = []
+    for raw_id in ids:
+        try:
+            lot = db.get(ProductLot, int(raw_id))
+        except Exception:
+            lot = None
+        if not lot or lot.station != station_norm:
+            continue
+        lot.status = "PRINTED"
+        done.append(lot.id)
+    db.commit()
+    return JSONResponse({"ok": True, "station": station_norm, "done_ids": done})
+
 
 
 

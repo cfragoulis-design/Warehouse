@@ -118,6 +118,15 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "CREATE INDEX IF NOT EXISTS ix_product_lots_created_at ON product_lots(created_at);"
             )
+            conn.exec_driver_sql(
+                "ALTER TABLE product_lots ADD COLUMN IF NOT EXISTS batch_ref VARCHAR(64)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE product_lots ADD COLUMN IF NOT EXISTS extra_code VARCHAR(64)"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_product_lots_batch_ref ON product_lots(batch_ref);"
+            )
         
     except Exception:
         pass

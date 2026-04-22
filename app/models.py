@@ -145,6 +145,8 @@ class ProductLot(Base):
     production_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     expiry_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     lot_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    batch_ref: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    extra_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="CREATED")
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
