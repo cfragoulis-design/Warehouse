@@ -22,11 +22,11 @@ from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
-    from app.auth import require_user
+    from app.auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from app.db import get_db
     from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
 except Exception:
-    from auth import require_user
+    from auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from db import get_db
     from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
 
@@ -535,8 +535,8 @@ def missing_add_shortfall(db: Session, product_id: int, shortfall_qty: Decimal) 
 # ROOT / DASHBOARD
 # --------------------
 @router.get("/", include_in_schema=False)
-def root() -> RedirectResponse:
-    return RedirectResponse(url="/dashboard", status_code=303)
+def root(request: Request, user: User | None = Depends(get_current_user)) -> RedirectResponse:
+    return RedirectResponse(url=home_for_user(user), status_code=303)
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -545,6 +545,8 @@ def dashboard(
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    if is_warehouse_only(user):
+        return RedirectResponse(url="/consumables/take", status_code=303)
     stats = get_dashboard_stats(db)
     return templates.TemplateResponse(
         "dashboard.html",

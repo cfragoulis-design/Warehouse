@@ -11,7 +11,7 @@ from sqlalchemy import func
 
 try:
     from app.db import get_db
-    from app.auth import require_user, require_role
+    from app.auth import require_user, require_role, is_warehouse_only
     from app.models import (
         User,
         Supplier,
@@ -23,7 +23,7 @@ try:
     )
 except Exception:
     from db import get_db
-    from auth import require_user, require_role
+    from auth import require_user, require_role, is_warehouse_only
     from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement
 
 router = APIRouter()
@@ -34,12 +34,17 @@ WORKSHOP_CODE = "WORKSHOP"
 
 
 def require_consumables_editor(user: User = Depends(require_user)) -> User:
-    # Allow both admin and workshop users to create consumable items.
-    # Other admin-only actions (edit/disable/suppliers/POs) stay protected.
-    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop"}:
-        raise HTTPException(status_code=303, headers={"Location": "/dashboard"})
+    """Users allowed to maintain consumable master data."""
+    if (getattr(user, "role", "") or "").lower() != "admin":
+        raise HTTPException(status_code=303, headers={"Location": "/consumables/take" if is_warehouse_only(user) else "/dashboard"})
     return user
 
+
+def require_consumables_stock_user(user: User = Depends(require_user)) -> User:
+    """Users allowed to perform day-to-day consumable stock movements."""
+    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop", "warehouse"}:
+        raise HTTPException(status_code=303, headers={"Location": "/dashboard"})
+    return user
 
 def _d(x) -> Decimal:
     if x is None:
@@ -124,6 +129,8 @@ def _log_consumable_movement(
 
 @router.get("/consumables")
 def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    if is_warehouse_only(user):
+        return RedirectResponse(url="/consumables/take", status_code=303)
     # stocks (workshop only)
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
         ConsumableStock.location_code == WORKSHOP_CODE
@@ -231,7 +238,7 @@ def consumable_new(
 
 
 @router.get("/consumables/take")
-def consumables_take_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+def consumables_take_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
         ConsumableStock.location_code == WORKSHOP_CODE
     ).all()
@@ -324,7 +331,7 @@ def consumable_take_submit(
 
 
 @router.get("/consumables/movements")
-def consumables_movements(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+def consumables_movements(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
     rows = (
         db.query(ConsumableMovement, Consumable.name, Consumable.unit, User.username)
         .join(Consumable, Consumable.id == ConsumableMovement.consumable_id)
@@ -403,35 +410,42 @@ def consumable_toggle(cid: int, db: Session = Depends(get_db), user: User = Depe
 def consumable_adjust(
     cid: int,
     db: Session = Depends(get_db),
-    user: User = Depends(require_role("admin")),
+    user: User = Depends(require_consumables_stock_user),
     delta: str = Form(...),
 ):
     c = db.get(Consumable, cid)
-    if not c:
+    if not c or not c.is_active:
         raise HTTPException(404)
+
     amount = _d(delta)
+    if amount == 0:
+        return RedirectResponse("/consumables", status_code=303)
+
     st = _stock_for_update(db, cid)
     before = _d(st.qty)
     st.qty = before + amount
     if st.qty < 0:
         st.qty = Decimal("0")
+
     actual = _d(st.qty) - before
     if actual != 0:
+        movement_type = "IN" if actual > 0 else "OUT"
+        note = "Quick stock add" if actual > 0 else "Quick stock remove"
         _log_consumable_movement(
             db,
             consumable_id=cid,
-            movement_type="ADJUST",
+            movement_type=movement_type,
             qty=actual,
             stock_after=_d(st.qty),
             user=user,
-            note="Manual admin adjustment",
+            note=note,
         )
     db.commit()
     return RedirectResponse("/consumables", status_code=303)
 
 
 @router.get("/suppliers")
-def suppliers_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+def suppliers_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
     suppliers = db.query(Supplier).order_by(Supplier.is_active.desc(), Supplier.name.asc()).all()
     return templates.TemplateResponse("suppliers.html", {"request": request, "user": user, "suppliers": suppliers})
 
@@ -496,7 +510,7 @@ def supplier_toggle(sid: int, db: Session = Depends(get_db), user: User = Depend
 
 
 @router.get("/purchase-orders")
-def po_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+def po_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
     orders = (
         db.query(PurchaseOrder, Supplier.name)
         .join(Supplier, Supplier.id == PurchaseOrder.supplier_id)
@@ -560,7 +574,7 @@ def po_generate(db: Session = Depends(get_db), user: User = Depends(require_role
 
 
 @router.get("/purchase-orders/{po_id}")
-def po_view(po_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+def po_view(po_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
     po = db.get(PurchaseOrder, po_id)
     if not po:
         raise HTTPException(404)

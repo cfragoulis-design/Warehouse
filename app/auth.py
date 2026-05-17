@@ -41,16 +41,44 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User | 
     return db.get(User, int(uid))
 
 
-def require_user(user: User | None = Depends(get_current_user)) -> User:
+WAREHOUSE_ALLOWED_PATHS = (
+    "/consumables/take",
+    "/consumables/movements",
+    "/logout",
+    "/health",
+)
+
+
+def is_warehouse_only(user: User | None) -> bool:
+    return ((getattr(user, "role", "") or "").lower() == "warehouse")
+
+
+def home_for_user(user: User | None) -> str:
+    if is_warehouse_only(user):
+        return "/consumables/take"
+    return "/dashboard"
+
+
+def _warehouse_path_allowed(path: str) -> bool:
+    if path.startswith("/static/"):
+        return True
+    if path.startswith("/consumables/") and path.endswith("/take"):
+        return True
+    return path in WAREHOUSE_ALLOWED_PATHS
+
+
+def require_user(request: Request, user: User | None = Depends(get_current_user)) -> User:
     if not user:
         raise HTTPException(status_code=303, headers={"Location": "/login"})
+    if is_warehouse_only(user) and not _warehouse_path_allowed(request.url.path):
+        raise HTTPException(status_code=303, headers={"Location": "/consumables/take"})
     return user
 
 
 def require_role(role: str):
     def _dep(user: User = Depends(require_user)) -> User:
         if user.role != role:
-            raise HTTPException(status_code=303, headers={"Location": "/dashboard"})
+            raise HTTPException(status_code=303, headers={"Location": home_for_user(user)})
         return user
 
     return _dep
@@ -76,7 +104,7 @@ def login(
         return RedirectResponse(url="/login?err=1", status_code=303)
 
     request.session["uid"] = user.id
-    return RedirectResponse(url="/dashboard", status_code=303)
+    return RedirectResponse(url=home_for_user(user), status_code=303)
 
 
 @router.post("/logout")
@@ -85,25 +113,41 @@ def logout(request: Request):
     return RedirectResponse(url="/login", status_code=303)
 
 
+def _ensure_user(db: Session, username: str, role: str, pin: str) -> bool:
+    username = (username or "").strip()
+    pin = (pin or "").strip()
+    if not username or not pin:
+        return False
+    existing = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+    if existing:
+        return False
+    db.add(User(username=username, role=role, pin_hash=hash_pin(pin)))
+    return True
+
+
 def seed_admins(db: Session) -> None:
-    """Create initial admin users if table is empty.
+    """Create initial users non-destructively from env vars.
 
     Env vars:
-      INITIAL_ADMIN_PIN
-      INITIAL_ADMIN2_PIN
+      INITIAL_ADMIN_PIN       -> username admin, role admin
+      INITIAL_ADMIN2_PIN      -> username admin2, role admin
+      INITIAL_WAREHOUSE_PIN   -> username warehouse, role warehouse
+
+    Optional:
+      INITIAL_WAREHOUSE_USERNAME / WAREHOUSE_USERNAME
+      WAREHOUSE_PIN (alias for INITIAL_WAREHOUSE_PIN)
     """
-    admin_pin1 = os.getenv("INITIAL_ADMIN_PIN", "").strip()
-    admin_pin2 = os.getenv("INITIAL_ADMIN2_PIN", "").strip()
+    changed = False
+    changed |= _ensure_user(db, "admin", "admin", os.getenv("INITIAL_ADMIN_PIN", ""))
+    changed |= _ensure_user(db, "admin2", "admin", os.getenv("INITIAL_ADMIN2_PIN", ""))
 
-    if not admin_pin1 and not admin_pin2:
-        return
+    warehouse_username = (
+        os.getenv("INITIAL_WAREHOUSE_USERNAME", "")
+        or os.getenv("WAREHOUSE_USERNAME", "")
+        or "warehouse"
+    )
+    warehouse_pin = os.getenv("INITIAL_WAREHOUSE_PIN", "") or os.getenv("WAREHOUSE_PIN", "")
+    changed |= _ensure_user(db, warehouse_username, "warehouse", warehouse_pin)
 
-    existing = db.execute(select(User.id)).first()
-    if existing:
-        return
-
-    if admin_pin1:
-        db.add(User(username="admin", role="admin", pin_hash=hash_pin(admin_pin1)))
-    if admin_pin2:
-        db.add(User(username="admin2", role="admin", pin_hash=hash_pin(admin_pin2)))
-    db.commit()
+    if changed:
+        db.commit()
