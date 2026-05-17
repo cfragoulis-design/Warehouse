@@ -4,7 +4,7 @@ from decimal import Decimal
 from collections import defaultdict
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -103,6 +103,57 @@ def _stock_for_update(db: Session, consumable_id: int) -> ConsumableStock:
         db.flush()
     return st
 
+
+
+
+def _fmt_qty(x: Decimal) -> str:
+    value = _d(x)
+    if value == value.to_integral_value():
+        return str(int(value))
+    return format(value.normalize(), 'f')
+
+
+def _wants_json(request: Request) -> bool:
+    return (
+        request.headers.get('x-requested-with', '').lower() == 'xmlhttprequest'
+        or 'application/json' in request.headers.get('accept', '').lower()
+    )
+
+
+def _consumable_ui_state(db: Session, c: Consumable, stock_after: Decimal) -> dict:
+    on_order = _d(
+        db.query(func.coalesce(func.sum(PurchaseOrderItem.qty_ordered - PurchaseOrderItem.qty_received), 0))
+        .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.purchase_order_id)
+        .filter(PurchaseOrder.status.in_(list(OPEN_PO_STATUSES)))
+        .filter(PurchaseOrderItem.consumable_id == c.id)
+        .scalar()
+    )
+    desired = _d(c.desired_qty)
+    minimum = _d(c.min_qty)
+    pack = _d(c.pack_size) if c.pack_size is not None else Decimal('1')
+    suggested_raw = desired - (_d(stock_after) + on_order)
+    suggested_units = _round_to_pack(suggested_raw, pack) if suggested_raw > 0 else Decimal('0')
+    suggested_packs = _packs_for(suggested_units, pack) if suggested_units > 0 else 0
+    cost_pack = _d(getattr(c, 'cost_per_pack', None))
+    suggested_value = (Decimal(suggested_packs) * cost_pack) if cost_pack > 0 and suggested_packs > 0 else Decimal('0')
+    is_low = minimum > 0 and _d(stock_after) < minimum
+    return {
+        'ok': True,
+        'id': c.id,
+        'name': c.name,
+        'unit': c.unit or 'units',
+        'stock': _fmt_qty(stock_after),
+        'stock_numeric': float(_d(stock_after)),
+        'min_qty': _fmt_qty(minimum),
+        'desired_qty': _fmt_qty(desired),
+        'on_order': _fmt_qty(on_order),
+        'is_low': bool(is_low),
+        'suggested_units': _fmt_qty(suggested_units),
+        'suggested_packs': int(suggested_packs),
+        'suggested_value_eur': _money(suggested_value),
+        'has_suggested': bool(suggested_packs > 0),
+        'message': 'Stock updated',
+    }
 
 def _log_consumable_movement(
     db: Session,
@@ -296,6 +347,7 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
 @router.post("/consumables/{cid}/take")
 def consumable_take_submit(
     cid: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_user),
     qty: str = Form(...),
@@ -314,6 +366,8 @@ def consumable_take_submit(
     if amount > before:
         amount = before
     if amount <= 0:
+        if _wants_json(request):
+            return JSONResponse({'ok': False, 'message': 'No available stock'}, status_code=409)
         return RedirectResponse("/consumables/take?empty=1", status_code=303)
 
     st.qty = before - amount
@@ -327,6 +381,11 @@ def consumable_take_submit(
         note=note or "Taken from mobile stock page",
     )
     db.commit()
+    if _wants_json(request):
+        data = _consumable_ui_state(db, c, _d(st.qty))
+        data['movement_type'] = 'OUT'
+        data['qty'] = _fmt_qty(amount)
+        return JSONResponse(data)
     return RedirectResponse("/consumables/take?ok=1", status_code=303)
 
 
@@ -409,6 +468,7 @@ def consumable_toggle(cid: int, db: Session = Depends(get_db), user: User = Depe
 @router.post("/consumables/{cid}/adjust")
 def consumable_adjust(
     cid: int,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_consumables_stock_user),
     delta: str = Form(...),
@@ -419,6 +479,8 @@ def consumable_adjust(
 
     amount = _d(delta)
     if amount == 0:
+        if _wants_json(request):
+            return JSONResponse({'ok': False, 'message': 'No change'}, status_code=400)
         return RedirectResponse("/consumables", status_code=303)
 
     st = _stock_for_update(db, cid)
@@ -441,6 +503,13 @@ def consumable_adjust(
             note=note,
         )
     db.commit()
+    if _wants_json(request):
+        data = _consumable_ui_state(db, c, _d(st.qty))
+        data['movement_type'] = 'IN' if actual > 0 else 'OUT'
+        data['qty'] = _fmt_qty(abs(actual))
+        if actual == 0:
+            data['message'] = 'Stock is already zero'
+        return JSONResponse(data)
     return RedirectResponse("/consumables", status_code=303)
 
 
