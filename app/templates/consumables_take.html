@@ -16,6 +16,8 @@
     .takeform{display:grid;gap:10px}.qtyline{display:grid;grid-template-columns:1fr auto auto auto;gap:8px}.qtyline input{min-width:0;font-size:20px;font-weight:800;text-align:center;border-radius:14px;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:12px}.smallbtn,.takebtn{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.04);color:var(--text);font-weight:900;padding:12px 14px;cursor:pointer}.smallbtn:active,.takebtn:active{transform:translateY(1px)}.takebtn{width:100%;background:var(--blue);border-color:rgba(47,124,246,.65);font-size:16px}.note{width:100%;border:1px solid var(--line);border-radius:14px;background:var(--panel2);color:var(--text);padding:11px 12px}.muted{color:var(--muted)}.history{margin-top:18px;border:1px solid var(--line);background:var(--panel);border-radius:18px;overflow:hidden}.history h2{font-size:16px;margin:0;padding:14px;border-bottom:1px solid var(--line)}.move{display:flex;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(36,48,85,.65)}.move:last-child{border-bottom:0}.move b{font-size:14px}.move small{display:block;color:var(--muted);margin-top:3px}.out{color:#ffd6d6}.in{color:#c8f7dd}.empty{padding:20px;border:1px dashed var(--line);border-radius:18px;color:var(--muted);text-align:center}
     .toast{margin-bottom:12px;border:1px solid rgba(53,194,125,.45);background:rgba(53,194,125,.10);color:#c8f7dd;border-radius:14px;padding:10px 12px;font-weight:700}.toast.warn{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.10);color:#ffe7b7}
     @media(max-width:720px){.hero{grid-template-columns:1fr 1fr}.hero .stat:first-child{grid-column:span 2}.cards{grid-template-columns:1fr}.title{font-size:16px}.searchbar{top:102px}.qtyline{grid-template-columns:1fr repeat(3,58px)}.smallbtn{padding:12px 8px}.toprow{align-items:flex-start}.app-datetime{font-size:12px}}
+
+    .ajaxToast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;min-width:240px;max-width:calc(100vw - 28px);padding:12px 14px;border-radius:14px;border:1px solid rgba(53,194,125,.45);background:rgba(17,25,54,.96);box-shadow:0 10px 30px rgba(0,0,0,.35);color:#c8f7dd;font-weight:900;text-align:center;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease}.ajaxToast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}.ajaxToast.err{border-color:rgba(239,68,68,.55);color:#ffd3d3}.updating{opacity:.65;pointer-events:none}.flashStock{animation:flashStock .75s ease}@keyframes flashStock{0%{background:rgba(47,124,246,.28);border-radius:12px}100%{background:transparent}}
   </style>
 </head>
 <body>
@@ -39,6 +41,7 @@
   </div>
 
   <main class="wrap">
+    <div id="ajaxToast" class="ajaxToast" aria-live="polite"></div>
     {% if request.query_params.get('ok') %}<div class="toast">Done. Stock updated.</div>{% endif %}
     {% if request.query_params.get('empty') %}<div class="toast warn">This item has no available stock.</div>{% endif %}
 
@@ -61,14 +64,14 @@
     {% else %}
     <section class="cards" id="cards">
       {% for r in rows %}
-      <article class="item{% if r.is_low %} low{% endif %}" data-name="{{ (r.name ~ ' ' ~ r.category)|lower }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}">
+      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ (r.name ~ ' ' ~ r.category)|lower }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}">
         <h3>{{ r.name }}</h3>
         <div class="meta">{{ r.category or 'No category' }} • pack {{ r.pack_size|int }} {{ r.unit }}/pack</div>
         <div class="stockrow">
-          <div><div class="stock">{{ r.on_hand|int if r.on_hand == r.on_hand|int else r.on_hand }}</div><div class="meta">{{ r.unit }} available</div></div>
-          {% if r.is_low %}<span class="badge low">LOW • min {{ r.min_qty }}</span>{% else %}<span class="badge ok">OK</span>{% endif %}
+          <div><div class="stock stockValue">{{ r.on_hand|int if r.on_hand == r.on_hand|int else r.on_hand }}</div><div class="meta">{{ r.unit }} available</div></div>
+          <span class="badge statusBadge {% if r.is_low %}low{% else %}ok{% endif %}">{% if r.is_low %}LOW • min {{ r.min_qty }}{% else %}OK{% endif %}</span>
         </div>
-        <form class="takeform" method="post" action="/consumables/{{ r.id }}/take">
+        <form class="takeform ajaxTake" method="post" action="/consumables/{{ r.id }}/take">
           <div class="qtyline">
             <input class="qty" name="qty" type="number" min="1" step="1" value="1" inputmode="decimal" aria-label="Quantity" />
             <button class="smallbtn" type="button" data-set="1">1</button>
@@ -111,11 +114,49 @@
     });
   }
   [q,onlyLow,onlyAvailable].forEach(el=>el&&el.addEventListener('input',filter));
+  const toast=document.getElementById('ajaxToast');
+  let toastTimer=null;
+  function showToast(message,isError){
+    if(!toast) return;
+    toast.textContent=message || (isError?'Something went wrong':'Stock updated');
+    toast.classList.toggle('err',!!isError);
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer=setTimeout(()=>toast.classList.remove('show'),1800);
+  }
+  function updateCard(data){
+    const card=document.querySelector('.item[data-id="'+data.id+'"]');
+    if(!card) return;
+    card.dataset.low=data.is_low?'1':'0';
+    card.dataset.available=data.stock_numeric>0?'1':'0';
+    card.classList.toggle('low',!!data.is_low);
+    const stock=card.querySelector('.stockValue');
+    if(stock){stock.textContent=data.stock;stock.classList.remove('flashStock');void stock.offsetWidth;stock.classList.add('flashStock');}
+    const badge=card.querySelector('.statusBadge');
+    if(badge){badge.className='badge statusBadge '+(data.is_low?'low':'ok');badge.textContent=data.is_low?'LOW • min '+data.min_qty:'OK';}
+    const btn=card.querySelector('.takebtn');
+    if(btn){btn.disabled=data.stock_numeric<=0;btn.style.opacity=data.stock_numeric<=0?'.5':'1';}
+    filter();
+  }
   document.querySelectorAll('.takeform').forEach(form=>{
     const input=form.querySelector('.qty');
     form.querySelectorAll('[data-set]').forEach(btn=>btn.addEventListener('click',()=>{input.value=btn.dataset.set;}));
     form.querySelectorAll('[data-add]').forEach(btn=>btn.addEventListener('click',()=>{input.value=String((parseFloat(input.value)||0)+parseFloat(btn.dataset.add));}));
-    form.addEventListener('submit',e=>{ if((parseFloat(input.value)||0)<=0){e.preventDefault(); input.focus();} });
+    form.addEventListener('submit',async e=>{
+      e.preventDefault();
+      if((parseFloat(input.value)||0)<=0){input.focus();return;}
+      form.classList.add('updating');
+      try{
+        const res=await fetch(form.action,{method:'POST',body:new FormData(form),headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
+        if(!res.ok || !data.ok){throw new Error(data.message || 'Could not update stock');}
+        updateCard(data);
+        input.value='1';
+        const note=form.querySelector('.note'); if(note) note.value='';
+        showToast('Done: -'+data.qty+' '+(data.unit || ''),false);
+      }catch(err){showToast(err.message || 'Could not update stock',true);}
+      finally{form.classList.remove('updating');}
+    });
   });
 })();
 </script>

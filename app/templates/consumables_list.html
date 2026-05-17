@@ -66,6 +66,17 @@
   .empty h3{margin:0 0 6px 0;font-size:15px}
   .empty p{margin:0;color:var(--muted);font-size:13px;line-height:1.4}
   .footer{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+  .ajaxToast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;min-width:240px;max-width:calc(100vw - 28px);padding:12px 14px;border-radius:14px;border:1px solid rgba(34,197,94,.45);background:rgba(17,25,54,.96);box-shadow:0 10px 30px rgba(0,0,0,.35);color:#c8f7dd;font-weight:800;text-align:center;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease}
+  .ajaxToast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+  .ajaxToast.err{border-color:rgba(239,68,68,.55);color:#ffd3d3}
+  .updating{opacity:.65;pointer-events:none}
+  .flashCell{animation:flashCell .7s ease}
+  @keyframes flashCell{0%{background:rgba(47,124,246,.28)}100%{background:transparent}}
+  @media (max-width: 760px){
+    .top{align-items:flex-start;position:sticky}.nav{gap:7px;overflow:auto;flex-wrap:nowrap;max-width:100%;padding-bottom:4px}.pill{white-space:nowrap;font-size:13px;padding:8px 10px}.wrap{padding:12px}.card{border-radius:18px}.card-h{display:block}.filters{margin-top:12px}.filters input{width:100%;font-size:16px;padding:12px}.toggle{flex:1;justify-content:center}.grid{grid-template-columns:1fr}.grid > div{width:100%}table,thead,tbody,tr,td{display:block;width:100%}thead{display:none}tbody{display:grid;grid-template-columns:1fr;gap:12px;padding:12px}tr.r{border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,var(--panel),#0f1732);padding:12px}tr.r:hover td{background:transparent}td{border-bottom:0;padding:6px 0}td::before{content:attr(data-label);display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}.name{font-size:18px}.actions{display:grid;grid-template-columns:1fr 56px 56px;gap:8px;margin-top:8px}.mini{display:grid;grid-template-columns:1fr auto;gap:8px}.mini input{width:100%;font-size:18px;padding:12px}.btn2,.btn{padding:12px}.btnIcon{width:100%}.footer{padding-bottom:22px}
+  }
+
 </style>
 
 </head>
@@ -89,6 +100,9 @@
   </div>
 
   <div class="wrap">
+    <div id="ajaxToast" class="ajaxToast" aria-live="polite"></div>
+    {% set role = (user.role or "")|lower %}
+    {% set is_admin = role == "admin" %}
 
     <div class="card">
       <div class="card-h">
@@ -194,10 +208,11 @@
           {% set is_low = (r.min_qty > 0 and r.on_hand < r.min_qty) %}
           {% set has_suggested = (r.suggested_packs > 0) %}
           <tr class="r"
+              data-id="{{ r.id }}"
               data-name="{{ r.name|lower }}"
               data-low="{{ 1 if is_low else 0 }}"
               data-suggested="{{ 1 if has_suggested else 0 }}">
-            <td>
+            <td data-label="Name">
               <div class="name">{{ r.name }}</div>
               <div class="meta">
                 {% if r.unit %}{{ r.unit }}{% else %}<span class="muted">unit</span>{% endif %}
@@ -205,18 +220,18 @@
                 {% if r.unit %} {{ r.unit }}{% endif %}/pack
               </div>
             </td>
-            <td class="muted">{{ r.category }}</td>
-            <td>{{ r.supplier_name }}</td>
-            <td class="num">
+            <td data-label="Category" class="muted">{{ r.category }}</td>
+            <td data-label="Supplier">{{ r.supplier_name }}</td>
+            <td data-label="Stock" class="num stockCell">
               {% if is_low %}
-                <span class="badge bDanger">LOW</span>
+                <span class="badge bDanger lowBadge">LOW</span>
               {% endif %}
-              <span class="badge">{{ r.on_hand }}</span>
+              <span class="badge stockBadge">{{ r.on_hand }}</span>
             </td>
-            <td class="num muted">{{ r.on_order }}</td>
-            <td class="num muted">{{ r.min_qty }}</td>
-            <td class="num muted">{{ r.desired_qty }}</td>
-            <td class="num">
+            <td data-label="On-order" class="num muted onOrderCell">{{ r.on_order }}</td>
+            <td data-label="Min" class="num muted minCell">{{ r.min_qty }}</td>
+            <td data-label="Desired" class="num muted desiredCell">{{ r.desired_qty }}</td>
+            <td data-label="Suggested" class="num suggestedCell">
               {% if has_suggested %}
                 <div class="kpi">
                   <span class="badge bWarn">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
@@ -229,24 +244,26 @@
                 {% if r.cost_per_pack is defined and r.cost_per_pack and (r.cost_per_pack|float) > 0 %}<span class="muted">€{{ '%.2f'|format(r.cost_per_pack|float) }} / pack</span>{% else %}<span class="muted">—</span>{% endif %}
               {% endif %}
             </td>
-            <td>
+            <td data-label="Actions">
               <div class="actions">
-                <form method="post" action="/consumables/{{ r.id }}/adjust" class="mini">
+                <form method="post" action="/consumables/{{ r.id }}/adjust" class="mini ajaxAdjust">
                   <input name="delta" type="number" step="1" value="1" aria-label="Adjust delta" />
                   <button class="btn2" type="submit">Adjust</button>
                 </form>
-                <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
+                <form method="post" action="/consumables/{{ r.id }}/adjust" class="ajaxAdjust" style="display:inline;">
                   <input type="hidden" name="delta" value="1" />
                   <button class="btn2 btnIcon" type="submit" title="Add 1">+1</button>
                 </form>
-                <form method="post" action="/consumables/{{ r.id }}/adjust" style="display:inline;">
+                <form method="post" action="/consumables/{{ r.id }}/adjust" class="ajaxAdjust" style="display:inline;">
                   <input type="hidden" name="delta" value="-1" />
                   <button class="btn2 btnIcon" type="submit" title="Remove 1">-1</button>
                 </form>
+                {% if is_admin %}
                 <a class="btn2" href="/consumables/{{ r.id }}/edit">Edit</a>
                 <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
                   <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
                 </form>
+                {% endif %}
               </div>
             </td>
           </tr>
@@ -257,12 +274,19 @@
     </div>
 
     <div class="footer">
+      {% if is_admin %}
       <form method="post" action="/purchase-orders/generate">
         <button class="btn" type="submit">Generate POs by supplier</button>
       </form>
       <div class="muted" style="font-size:12px;">
         Creates Draft purchase orders from <b>Suggested &gt; 0</b> (only items that have a Supplier).
       </div>
+      {% else %}
+      <a class="btn" href="/consumables/take">Mobile Take Stock</a>
+      <div class="muted" style="font-size:12px;">
+        Quick stock changes are enabled for workshop users. Edit, disable and purchase orders remain admin-only.
+      </div>
+      {% endif %}
     </div>
 
   </div>
@@ -309,6 +333,77 @@
   if (name) name.addEventListener('input', guard);
   if (unit) unit.addEventListener('input', guard);
   guard();
+
+  const toast = document.getElementById('ajaxToast');
+  let toastTimer = null;
+  function showToast(message, isError){
+    if(!toast) return;
+    toast.textContent = message || (isError ? 'Something went wrong' : 'Stock updated');
+    toast.classList.toggle('err', !!isError);
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>toast.classList.remove('show'), 1800);
+  }
+
+  function renderSuggested(data){
+    if(!data.has_suggested){
+      return '<span class="muted">—</span>';
+    }
+    const packWord = data.suggested_packs === 1 ? 'pack' : 'packs';
+    let html = '<div class="kpi"><span class="badge bWarn">Order • '+data.suggested_packs+' '+packWord+'</span>'+
+      '<span class="small">= '+data.suggested_units+' '+(data.unit || 'units')+'</span></div>';
+    if(data.suggested_value_eur && data.suggested_value_eur !== '0.00'){
+      html += '<div class="small muted">≈ €'+data.suggested_value_eur+'</div>';
+    }
+    return html;
+  }
+
+  function updateRow(data){
+    const tr = document.querySelector('tr.r[data-id="'+data.id+'"]');
+    if(!tr) return;
+    tr.dataset.low = data.is_low ? '1' : '0';
+    tr.dataset.suggested = data.has_suggested ? '1' : '0';
+    const stockCell = tr.querySelector('.stockCell');
+    if(stockCell){
+      const oldLow = stockCell.querySelector('.lowBadge');
+      if(oldLow) oldLow.remove();
+      if(data.is_low){
+        stockCell.insertAdjacentHTML('afterbegin','<span class="badge bDanger lowBadge">LOW</span> ');
+      }
+      const badge = stockCell.querySelector('.stockBadge');
+      if(badge) badge.textContent = data.stock;
+      stockCell.classList.remove('flashCell'); void stockCell.offsetWidth; stockCell.classList.add('flashCell');
+    }
+    const onOrder = tr.querySelector('.onOrderCell'); if(onOrder) onOrder.textContent = data.on_order;
+    const minCell = tr.querySelector('.minCell'); if(minCell) minCell.textContent = data.min_qty;
+    const desiredCell = tr.querySelector('.desiredCell'); if(desiredCell) desiredCell.textContent = data.desired_qty;
+    const suggested = tr.querySelector('.suggestedCell'); if(suggested) suggested.innerHTML = renderSuggested(data);
+    apply();
+  }
+
+  document.querySelectorAll('form.ajaxAdjust').forEach(form => {
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const tr = form.closest('tr');
+      form.classList.add('updating');
+      try{
+        const res = await fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form),
+          headers: {'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}
+        });
+        const data = await res.json().catch(()=>({ok:false,message:'Invalid response'}));
+        if(!res.ok || !data.ok){ throw new Error(data.message || 'Could not update stock'); }
+        updateRow(data);
+        showToast(data.message || 'Stock updated', false);
+      }catch(err){
+        showToast(err.message || 'Could not update stock', true);
+      }finally{
+        form.classList.remove('updating');
+        if(tr) tr.scrollIntoView({block:'nearest'});
+      }
+    });
+  });
 })();
 </script>
 
