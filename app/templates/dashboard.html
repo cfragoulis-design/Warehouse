@@ -224,6 +224,7 @@
           <a class="qbtn" href="/stock">📦 View Stock <small>(live)</small></a>
           <a class="qbtn" href="/freezer">🧊 Freezer Stock <small>(frozen)</small></a>
           <a class="qbtn" href="/movements/new">🔄 New Movement <small>(IN/OUT/ADJ)</small></a>
+          <a class="qbtn" href="/consumables/take">📱 Take Consumables <small>(mobile)</small></a>
         {% if user.role == "admin" %}
         <form method="post" action="/admin/vet-report/send" style="display:inline;">
           <button class="qbtn" type="submit">🩺 Send Vet Report <small>(today)</small></button>
@@ -243,9 +244,17 @@
           
 
 <!-- Consumables module -->
+<a class="action" href="/consumables/take">
+  <strong>Take Consumables</strong>
+  <span class="muted">Mobile-friendly page for using workshop supplies</span>
+</a>
 <a class="action" href="/consumables">
   <strong>Consumables (WORKSHOP)</strong>
   <span class="muted">Manage consumables stock / min-desired</span>
+</a>
+<a class="action" href="/consumables/movements">
+  <strong>Consumable History</strong>
+  <span class="muted">See who took/received/adjusted each item</span>
 </a>
 <a class="action" href="/suppliers">
   <strong>Suppliers</strong>

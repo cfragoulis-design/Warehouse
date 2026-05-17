@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Take Consumables</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--panel2:#0e1530;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--good:#35c27d;--warn:#f59e0b;--danger:#ef4444;}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;} a{color:#a9c7ff;text-decoration:none}
+    .top{position:sticky;top:0;z-index:30;background:rgba(11,16,32,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:12px max(14px,env(safe-area-inset-left));}
+    .toprow{display:flex;align-items:center;justify-content:space-between;gap:10px;max-width:1100px;margin:0 auto}.title{font-weight:900;font-size:18px}.sub{color:var(--muted);font-size:12px;margin-top:2px}.nav{display:flex;gap:8px;overflow:auto;padding-top:10px;max-width:1100px;margin:0 auto}.pill{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:8px 11px;background:rgba(255,255,255,.03);color:var(--text);font-weight:700;font-size:13px}.pill.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45)}
+    .wrap{max-width:1100px;margin:0 auto;padding:14px 14px 90px}.hero{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}.stat{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:12px}.stat b{display:block;font-size:24px}.stat span{color:var(--muted);font-size:12px}.searchbar{position:sticky;top:104px;z-index:20;background:linear-gradient(180deg,var(--bg) 70%,rgba(11,16,32,0));padding:0 0 12px}.searchbar input{width:100%;font-size:17px;padding:14px 16px;border-radius:16px;border:1px solid var(--line);background:var(--panel2);color:var(--text);outline:none}.toggles{display:flex;gap:8px;margin-top:8px;overflow:auto}.toggle{white-space:nowrap;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:8px 10px;color:var(--muted);font-size:13px}.toggle input{width:auto;margin-right:6px}
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}.item{border:1px solid var(--line);background:linear-gradient(180deg,var(--panel),#0f1732);border-radius:18px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,.14)}.item.low{border-color:rgba(239,68,68,.55)}.item h3{margin:0;font-size:18px;line-height:1.2}.meta{color:var(--muted);font-size:13px;margin-top:4px}.stockrow{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0}.stock{font-size:28px;font-weight:900}.badge{display:inline-flex;align-items:center;border-radius:999px;padding:4px 9px;border:1px solid var(--line);font-size:12px;color:var(--muted)}.badge.low{color:#ffd6d6;border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.10)}.badge.ok{color:#c8f7dd;border-color:rgba(53,194,125,.45);background:rgba(53,194,125,.10)}
+    .takeform{display:grid;gap:10px}.qtyline{display:grid;grid-template-columns:1fr auto auto auto;gap:8px}.qtyline input{min-width:0;font-size:20px;font-weight:800;text-align:center;border-radius:14px;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:12px}.smallbtn,.takebtn{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.04);color:var(--text);font-weight:900;padding:12px 14px;cursor:pointer}.smallbtn:active,.takebtn:active{transform:translateY(1px)}.takebtn{width:100%;background:var(--blue);border-color:rgba(47,124,246,.65);font-size:16px}.note{width:100%;border:1px solid var(--line);border-radius:14px;background:var(--panel2);color:var(--text);padding:11px 12px}.muted{color:var(--muted)}.history{margin-top:18px;border:1px solid var(--line);background:var(--panel);border-radius:18px;overflow:hidden}.history h2{font-size:16px;margin:0;padding:14px;border-bottom:1px solid var(--line)}.move{display:flex;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(36,48,85,.65)}.move:last-child{border-bottom:0}.move b{font-size:14px}.move small{display:block;color:var(--muted);margin-top:3px}.out{color:#ffd6d6}.in{color:#c8f7dd}.empty{padding:20px;border:1px dashed var(--line);border-radius:18px;color:var(--muted);text-align:center}
+    .toast{margin-bottom:12px;border:1px solid rgba(53,194,125,.45);background:rgba(53,194,125,.10);color:#c8f7dd;border-radius:14px;padding:10px 12px;font-weight:700}.toast.warn{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.10);color:#ffe7b7}
+    @media(max-width:720px){.hero{grid-template-columns:1fr 1fr}.hero .stat:first-child{grid-column:span 2}.cards{grid-template-columns:1fr}.title{font-size:16px}.searchbar{top:102px}.qtyline{grid-template-columns:1fr repeat(3,58px)}.smallbtn{padding:12px 8px}.toprow{align-items:flex-start}.app-datetime{font-size:12px}}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="toprow">
+      <div><div class="title">Take from stock</div><div class="sub">Logged in as {{ user.username }} • WORKSHOP</div></div>
+      <span id="app-datetime" class="app-datetime"></span>
+    </div>
+    <div class="nav">
+      <a class="pill" href="/dashboard">Dashboard</a>
+      <a class="pill primary" href="/consumables/take">Take</a>
+      <a class="pill" href="/consumables/movements">History</a>
+      <a class="pill" href="/consumables">Admin</a>
+      <a class="pill" href="/purchase-orders">POs</a>
+    </div>
+  </div>
+
+  <main class="wrap">
+    {% if request.query_params.get('ok') %}<div class="toast">Done. Stock updated.</div>{% endif %}
+    {% if request.query_params.get('empty') %}<div class="toast warn">This item has no available stock.</div>{% endif %}
+
+    <section class="hero">
+      <div class="stat"><b>{{ rows|length }}</b><span>active consumables</span></div>
+      <div class="stat"><b>{{ low_count }}</b><span>low stock</span></div>
+      <div class="stat"><b>{{ recent|length }}</b><span>recent moves shown</span></div>
+    </section>
+
+    <div class="searchbar">
+      <input id="q" autocomplete="off" placeholder="Search item..." />
+      <div class="toggles">
+        <label class="toggle"><input id="onlyLow" type="checkbox">Only low</label>
+        <label class="toggle"><input id="onlyAvailable" type="checkbox">Only available</label>
+      </div>
+    </div>
+
+    {% if rows|length == 0 %}
+      <div class="empty">No consumables yet. Add them from the Admin page first.</div>
+    {% else %}
+    <section class="cards" id="cards">
+      {% for r in rows %}
+      <article class="item{% if r.is_low %} low{% endif %}" data-name="{{ (r.name ~ ' ' ~ r.category)|lower }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}">
+        <h3>{{ r.name }}</h3>
+        <div class="meta">{{ r.category or 'No category' }} • pack {{ r.pack_size|int }} {{ r.unit }}/pack</div>
+        <div class="stockrow">
+          <div><div class="stock">{{ r.on_hand|int if r.on_hand == r.on_hand|int else r.on_hand }}</div><div class="meta">{{ r.unit }} available</div></div>
+          {% if r.is_low %}<span class="badge low">LOW • min {{ r.min_qty }}</span>{% else %}<span class="badge ok">OK</span>{% endif %}
+        </div>
+        <form class="takeform" method="post" action="/consumables/{{ r.id }}/take">
+          <div class="qtyline">
+            <input class="qty" name="qty" type="number" min="1" step="1" value="1" inputmode="decimal" aria-label="Quantity" />
+            <button class="smallbtn" type="button" data-set="1">1</button>
+            <button class="smallbtn" type="button" data-add="1">+1</button>
+            <button class="smallbtn" type="button" data-add="5">+5</button>
+          </div>
+          <input class="note" name="note" placeholder="Note / who took it (optional)" />
+          <button class="takebtn" type="submit" {% if r.on_hand <= 0 %}disabled style="opacity:.5"{% endif %}>Πήρα / Take</button>
+        </form>
+      </article>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    <section class="history">
+      <h2>Recent consumable movements</h2>
+      {% if recent|length == 0 %}
+        <div class="move"><span class="muted">No movements yet.</span></div>
+      {% else %}
+        {% for m, cname, username in recent %}
+        <div class="move">
+          <div><b>{{ cname }}</b><small>{{ m.created_at }}{% if username %} • {{ username }}{% endif %}{% if m.note %} • {{ m.note }}{% endif %}</small></div>
+          <div class="{% if m.movement_type == 'OUT' %}out{% elif m.movement_type == 'IN' %}in{% endif %}"><b>{{ m.movement_type }} {{ m.qty }}</b><small>after {{ m.stock_after }}</small></div>
+        </div>
+        {% endfor %}
+      {% endif %}
+    </section>
+  </main>
+
+<script>
+(function(){
+  const q=document.getElementById('q'), onlyLow=document.getElementById('onlyLow'), onlyAvailable=document.getElementById('onlyAvailable');
+  function filter(){
+    const term=(q.value||'').trim().toLowerCase();
+    document.querySelectorAll('.item').forEach(card=>{
+      const okText=!term || card.dataset.name.includes(term);
+      const okLow=!onlyLow.checked || card.dataset.low==='1';
+      const okAvail=!onlyAvailable.checked || card.dataset.available==='1';
+      card.style.display=(okText&&okLow&&okAvail)?'':'none';
+    });
+  }
+  [q,onlyLow,onlyAvailable].forEach(el=>el&&el.addEventListener('input',filter));
+  document.querySelectorAll('.takeform').forEach(form=>{
+    const input=form.querySelector('.qty');
+    form.querySelectorAll('[data-set]').forEach(btn=>btn.addEventListener('click',()=>{input.value=btn.dataset.set;}));
+    form.querySelectorAll('[data-add]').forEach(btn=>btn.addEventListener('click',()=>{input.value=String((parseFloat(input.value)||0)+parseFloat(btn.dataset.add));}));
+    form.addEventListener('submit',e=>{ if((parseFloat(input.value)||0)<=0){e.preventDefault(); input.focus();} });
+  });
+})();
+</script>
+</body>
+</html>
