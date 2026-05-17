@@ -33,6 +33,14 @@ OPEN_PO_STATUSES = {"DRAFT", "SUBMITTED", "PARTIAL"}
 WORKSHOP_CODE = "WORKSHOP"
 
 
+def require_consumables_editor(user: User = Depends(require_user)) -> User:
+    # Allow both admin and workshop users to create consumable items.
+    # Other admin-only actions (edit/disable/suppliers/POs) stay protected.
+    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop"}:
+        raise HTTPException(status_code=303, headers={"Location": "/dashboard"})
+    return user
+
+
 def _d(x) -> Decimal:
     if x is None:
         return Decimal("0")
@@ -192,7 +200,7 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
 def consumable_new(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_role("admin")),
+    user: User = Depends(require_consumables_editor),
     name: str = Form(...),
     category: str = Form(""),
     unit: str = Form(""),
