@@ -308,6 +308,23 @@ class ConsumableStock(Base):
     qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("0"))
 
 
+class ConsumableMovement(Base):
+    __tablename__ = "consumable_movements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), index=True, nullable=False)
+    location_code: Mapped[str] = mapped_column(String(30), nullable=False, default="WORKSHOP")
+
+    # OUT = user took from stock, IN = received/added, ADJUST = manual correction
+    movement_type: Mapped[str] = mapped_column(String(12), nullable=False)
+    qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    stock_after: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
+
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class PurchaseOrder(Base):
     __tablename__ = "purchase_orders"
 

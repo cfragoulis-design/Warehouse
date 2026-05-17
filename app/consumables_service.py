@@ -19,11 +19,12 @@ try:
         ConsumableStock,
         PurchaseOrder,
         PurchaseOrderItem,
+        ConsumableMovement,
     )
 except Exception:
     from db import get_db
     from auth import require_user, require_role
-    from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem
+    from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -79,6 +80,38 @@ def _optional_int(raw: str) -> int | None:
 def _positive_decimal(raw: str, default: str = "1") -> Decimal:
     value = _d(raw or default)
     return value if value > 0 else Decimal(default)
+
+
+def _stock_for_update(db: Session, consumable_id: int) -> ConsumableStock:
+    st = db.query(ConsumableStock).filter_by(consumable_id=consumable_id, location_code=WORKSHOP_CODE).first()
+    if not st:
+        st = ConsumableStock(consumable_id=consumable_id, location_code=WORKSHOP_CODE, qty=Decimal("0"))
+        db.add(st)
+        db.flush()
+    return st
+
+
+def _log_consumable_movement(
+    db: Session,
+    *,
+    consumable_id: int,
+    movement_type: str,
+    qty: Decimal,
+    stock_after: Decimal,
+    user: User | None,
+    note: str | None = None,
+) -> None:
+    db.add(
+        ConsumableMovement(
+            consumable_id=consumable_id,
+            location_code=WORKSHOP_CODE,
+            movement_type=movement_type,
+            qty=_d(qty),
+            stock_after=_d(stock_after),
+            created_by_user_id=getattr(user, "id", None),
+            note=(note or "").strip() or None,
+        )
+    )
 
 
 @router.get("/consumables")
@@ -189,6 +222,115 @@ def consumable_new(
 
 
 
+@router.get("/consumables/take")
+def consumables_take_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
+        ConsumableStock.location_code == WORKSHOP_CODE
+    ).all()
+    stock_map = {cid: _d(qty) for cid, qty in stock_rows}
+
+    consumables = (
+        db.query(Consumable)
+        .filter(Consumable.is_active == True)
+        .order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc())
+        .all()
+    )
+
+    rows = []
+    low_count = 0
+    for c in consumables:
+        on_hand = stock_map.get(c.id, Decimal("0"))
+        min_qty = _d(c.min_qty)
+        is_low = min_qty > 0 and on_hand < min_qty
+        if is_low:
+            low_count += 1
+        rows.append({
+            "id": c.id,
+            "name": c.name,
+            "category": c.category or "",
+            "unit": c.unit or "units",
+            "pack_size": _d(c.pack_size) if c.pack_size is not None else Decimal("1"),
+            "min_qty": min_qty,
+            "desired_qty": _d(c.desired_qty),
+            "on_hand": on_hand,
+            "is_low": is_low,
+            "notes": c.notes or "",
+        })
+
+    recent = (
+        db.query(ConsumableMovement, Consumable.name, User.username)
+        .join(Consumable, Consumable.id == ConsumableMovement.consumable_id)
+        .outerjoin(User, User.id == ConsumableMovement.created_by_user_id)
+        .order_by(ConsumableMovement.id.desc())
+        .limit(12)
+        .all()
+    )
+
+    return templates.TemplateResponse(
+        "consumables_take.html",
+        {
+            "request": request,
+            "user": user,
+            "rows": rows,
+            "low_count": low_count,
+            "recent": recent,
+        },
+    )
+
+
+@router.post("/consumables/{cid}/take")
+def consumable_take_submit(
+    cid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+    qty: str = Form(...),
+    note: str = Form(""),
+):
+    c = db.get(Consumable, cid)
+    if not c or not c.is_active:
+        raise HTTPException(404)
+
+    amount = _d(qty)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
+
+    st = _stock_for_update(db, cid)
+    before = _d(st.qty)
+    if amount > before:
+        amount = before
+    if amount <= 0:
+        return RedirectResponse("/consumables/take?empty=1", status_code=303)
+
+    st.qty = before - amount
+    _log_consumable_movement(
+        db,
+        consumable_id=cid,
+        movement_type="OUT",
+        qty=amount,
+        stock_after=_d(st.qty),
+        user=user,
+        note=note or "Taken from mobile stock page",
+    )
+    db.commit()
+    return RedirectResponse("/consumables/take?ok=1", status_code=303)
+
+
+@router.get("/consumables/movements")
+def consumables_movements(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    rows = (
+        db.query(ConsumableMovement, Consumable.name, Consumable.unit, User.username)
+        .join(Consumable, Consumable.id == ConsumableMovement.consumable_id)
+        .outerjoin(User, User.id == ConsumableMovement.created_by_user_id)
+        .order_by(ConsumableMovement.id.desc())
+        .limit(200)
+        .all()
+    )
+    return templates.TemplateResponse(
+        "consumable_movements.html",
+        {"request": request, "user": user, "rows": rows},
+    )
+
+
 @router.get("/consumables/{cid}/edit")
 def consumable_edit_page(
     cid: int,
@@ -259,14 +401,23 @@ def consumable_adjust(
     c = db.get(Consumable, cid)
     if not c:
         raise HTTPException(404)
-    st = db.query(ConsumableStock).filter_by(consumable_id=cid, location_code=WORKSHOP_CODE).first()
-    if not st:
-        st = ConsumableStock(consumable_id=cid, location_code=WORKSHOP_CODE, qty=Decimal("0"))
-        db.add(st)
-        db.flush()
-    st.qty = _d(st.qty) + _d(delta)
+    amount = _d(delta)
+    st = _stock_for_update(db, cid)
+    before = _d(st.qty)
+    st.qty = before + amount
     if st.qty < 0:
         st.qty = Decimal("0")
+    actual = _d(st.qty) - before
+    if actual != 0:
+        _log_consumable_movement(
+            db,
+            consumable_id=cid,
+            movement_type="ADJUST",
+            qty=actual,
+            stock_after=_d(st.qty),
+            user=user,
+            note="Manual admin adjustment",
+        )
     db.commit()
     return RedirectResponse("/consumables", status_code=303)
 
@@ -487,12 +638,17 @@ async def po_receive(
         any_received = True
 
         # Update WORKSHOP stock
-        st = db.query(ConsumableStock).filter_by(consumable_id=it.consumable_id, location_code=WORKSHOP_CODE).first()
-        if not st:
-            st = ConsumableStock(consumable_id=it.consumable_id, location_code=WORKSHOP_CODE, qty=Decimal("0"))
-            db.add(st)
-            db.flush()
+        st = _stock_for_update(db, it.consumable_id)
         st.qty = _d(st.qty) + add
+        _log_consumable_movement(
+            db,
+            consumable_id=it.consumable_id,
+            movement_type="IN",
+            qty=add,
+            stock_after=_d(st.qty),
+            user=user,
+            note=f"Received from PO #{po.id}",
+        )
 
         if _d(it.qty_received) < ordered:
             all_fully_received = False
