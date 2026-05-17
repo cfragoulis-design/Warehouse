@@ -25,11 +25,16 @@
       <span id="app-datetime" class="app-datetime"></span>
     </div>
     <div class="nav">
-      <a class="pill" href="/dashboard">Dashboard</a>
-      <a class="pill primary" href="/consumables/take">Take</a>
-      <a class="pill" href="/consumables/movements">History</a>
-      <a class="pill" href="/consumables">Admin</a>
-      <a class="pill" href="/purchase-orders">POs</a>
+      <a class="pill primary" href="/consumables/take">Αποθήκη</a>
+      <a class="pill" href="/consumables/movements">Ιστορικό</a>
+      {% if user.role != 'warehouse' %}
+        <a class="pill" href="/dashboard">Dashboard</a>
+        <a class="pill" href="/consumables">Admin</a>
+        {% if user.role == 'admin' %}<a class="pill" href="/purchase-orders">POs</a>{% endif %}
+      {% endif %}
+      <form method="post" action="/logout" style="margin:0;display:inline;">
+        <button class="pill" type="submit" style="cursor:pointer;">Logout</button>
+      </form>
     </div>
   </div>
 
