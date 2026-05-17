@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Numeric,
     Date,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -297,6 +298,7 @@ class Consumable(Base):
 
 class ConsumableStock(Base):
     __tablename__ = "consumable_stock"
+    __table_args__ = (UniqueConstraint("consumable_id", "location_code", name="uq_consumable_stock_item_location"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=False)

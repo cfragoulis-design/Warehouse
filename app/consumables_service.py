@@ -66,6 +66,20 @@ def _money(x: Decimal) -> str:
         return "0.00"
 
 
+def _optional_int(raw: str) -> int | None:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid supplier id")
+
+
+def _positive_decimal(raw: str, default: str = "1") -> Decimal:
+    value = _d(raw or default)
+    return value if value > 0 else Decimal(default)
+
 
 @router.get("/consumables")
 def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
@@ -156,12 +170,12 @@ def consumable_new(
     cost_per_pack: str = Form("0"),
     notes: str = Form(""),
 ):
-    sid = int(supplier_id) if supplier_id.strip() else None
+    sid = _optional_int(supplier_id)
     c = Consumable(
         name=name.strip(),
         category=category.strip() or None,
         unit=unit.strip() or None,
-        pack_size=_d(pack_size),
+        pack_size=_positive_decimal(pack_size),
         min_qty=_d(min_qty),
         desired_qty=_d(desired_qty),
         supplier_id=sid,
@@ -211,11 +225,11 @@ def consumable_edit_save(
     c = db.get(Consumable, cid)
     if not c:
         raise HTTPException(404)
-    sid = int(supplier_id) if supplier_id.strip() else None
+    sid = _optional_int(supplier_id)
     c.name = name.strip()
     c.category = category.strip() or None
     c.unit = unit.strip() or None
-    c.pack_size = _d(pack_size)
+    c.pack_size = _positive_decimal(pack_size)
     c.min_qty = _d(min_qty)
     c.desired_qty = _d(desired_qty)
     c.cost_per_pack = _d(cost_per_pack)
@@ -274,6 +288,40 @@ def supplier_new(
 ):
     s = Supplier(name=name.strip(), phone=phone.strip() or None, email=email.strip() or None, notes=notes.strip() or None, is_active=True)
     db.add(s)
+    db.commit()
+    return RedirectResponse("/suppliers", status_code=303)
+
+
+@router.get("/suppliers/{sid}/edit")
+def supplier_edit_page(
+    sid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    s = db.get(Supplier, sid)
+    if not s:
+        raise HTTPException(404)
+    return templates.TemplateResponse("supplier_edit.html", {"request": request, "user": user, "s": s})
+
+
+@router.post("/suppliers/{sid}/edit")
+def supplier_edit_save(
+    sid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+    name: str = Form(...),
+    phone: str = Form(""),
+    email: str = Form(""),
+    notes: str = Form(""),
+):
+    s = db.get(Supplier, sid)
+    if not s:
+        raise HTTPException(404)
+    s.name = name.strip()
+    s.phone = phone.strip() or None
+    s.email = email.strip() or None
+    s.notes = notes.strip() or None
     db.commit()
     return RedirectResponse("/suppliers", status_code=303)
 
