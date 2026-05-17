@@ -49,3 +49,18 @@ CREATE TABLE IF NOT EXISTS purchase_order_items (
   min_snapshot NUMERIC,
   desired_snapshot NUMERIC
 );
+
+-- Consumable movement history for mobile take/receive/adjust actions.
+CREATE TABLE IF NOT EXISTS consumable_movements (
+  id SERIAL PRIMARY KEY,
+  consumable_id INTEGER NOT NULL REFERENCES consumables(id),
+  location_code VARCHAR(30) NOT NULL DEFAULT 'WORKSHOP',
+  movement_type VARCHAR(12) NOT NULL,
+  qty NUMERIC(12,3) NOT NULL,
+  stock_after NUMERIC(12,3) NOT NULL DEFAULT 0,
+  note VARCHAR(500),
+  created_by_user_id INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_consumable_movements_consumable_id ON consumable_movements(consumable_id);
+CREATE INDEX IF NOT EXISTS ix_consumable_movements_created_at ON consumable_movements(created_at);
