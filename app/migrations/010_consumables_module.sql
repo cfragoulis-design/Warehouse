@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS consumables (
   min_qty NUMERIC DEFAULT 0,
   desired_qty NUMERIC DEFAULT 0,
   supplier_id INTEGER REFERENCES suppliers(id),
+  cost_per_pack NUMERIC DEFAULT 0,
   notes TEXT,
   is_active BOOLEAN DEFAULT TRUE
 );
