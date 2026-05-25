@@ -72,7 +72,7 @@
           <div><div class="stock stockValue">{{ r.on_hand|int if r.on_hand == r.on_hand|int else r.on_hand }}</div><div class="meta">{{ r.unit }} available</div></div>
           <span class="badge statusBadge {% if r.is_low %}low{% else %}ok{% endif %}">{% if r.is_low %}LOW • min {{ r.min_qty }}{% else %}OK{% endif %}</span>
         </div>
-        <form class="takeform ajaxStock" method="post" action="/consumables/{{ r.id }}/adjust" data-take-action="/consumables/{{ r.id }}/take" data-adjust-action="/consumables/{{ r.id }}/adjust">
+        <form class="takeform ajaxStock" method="post" action="/consumables/{{ r.id }}/adjust" data-take-action="/consumables/{{ r.id }}/take" data-add-action="/consumables/{{ r.id }}/add" data-adjust-action="/consumables/{{ r.id }}/adjust">
           <div class="qtyline stockQtyLine">
             <input class="qty" name="qty_display" type="number" min="1" step="1" value="1" inputmode="decimal" aria-label="Quantity" />
             <button class="smallbtn" type="button" data-set="1">1</button>
@@ -83,7 +83,7 @@
           <input class="note" name="note" placeholder="Σημείωση / ποιος το έκανε (προαιρετικό)" />
           <div class="actionRow">
             <button class="stockBtn outBtn" type="submit" data-mode="take" {% if r.on_hand <= 0 %}disabled style="opacity:.5"{% endif %}>− Πήρα</button>
-            <button class="stockBtn inBtn" type="submit" data-mode="add">+ Έβαλα</button>
+            <button class="stockBtn inBtn" type="submit" data-mode="add" formaction="/consumables/{{ r.id }}/add">+ Έβαλα</button>
           </div>
         </form>
       </article>
@@ -151,29 +151,29 @@
     form.querySelectorAll('button[data-mode]').forEach(btn=>{btn.addEventListener('click',()=>{submitMode=btn.dataset.mode || 'take';});});
     form.addEventListener('submit',async e=>{
       e.preventDefault();
+      const clicked=e.submitter;
+      const mode=(clicked && clicked.dataset && clicked.dataset.mode) ? clicked.dataset.mode : submitMode;
       const amount=parseFloat(input.value)||0;
       if(amount<=0){input.focus();return;}
       form.classList.add('updating');
       try{
         const fd=new FormData(form);
-        let url=form.dataset.adjustAction || form.action;
-        if(submitMode==='take'){
-          url=form.dataset.takeAction;
-          fd.delete('delta');
-          fd.set('qty', String(amount));
-        }else{
-          url=form.dataset.adjustAction || form.action;
-          fd.delete('qty');
-          fd.set('delta', String(amount));
-        }
+        let url=form.dataset.takeAction;
+        fd.delete('delta');
         fd.delete('qty_display');
+        fd.set('qty', String(amount));
+        if(mode==='add'){
+          url=form.dataset.addAction;
+        }else{
+          url=form.dataset.takeAction;
+        }
         const res=await fetch(url,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
         const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
         if(!res.ok || !data.ok){throw new Error(data.message || 'Could not update stock');}
         updateCard(data);
         input.value='1';
         const note=form.querySelector('.note'); if(note) note.value='';
-        const sign=submitMode==='add'?'+':'-';
+        const sign=mode==='add'?'+':'-';
         showToast('Done: '+sign+data.qty+' '+(data.unit || ''),false);
       }catch(err){showToast(err.message || 'Could not update stock',true);}
       finally{form.classList.remove('updating');}
