@@ -423,6 +423,48 @@ def consumable_take_submit(
     return RedirectResponse("/consumables/take?ok=1", status_code=303)
 
 
+@router.post("/consumables/{cid}/add")
+def consumable_add_submit(
+    cid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+    qty: str = Form(...),
+    note: str = Form(""),
+):
+    c = db.get(Consumable, cid)
+    if not c or not c.is_active:
+        raise HTTPException(404)
+
+    amount = _d(qty)
+    if amount <= 0:
+        if _wants_json(request):
+            return JSONResponse({'ok': False, 'message': 'Quantity must be greater than zero'}, status_code=400)
+        raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
+
+    st = _stock_for_update(db, cid)
+    before = _d(st.qty)
+    st.qty = before + amount
+
+    _log_consumable_movement(
+        db,
+        consumable_id=cid,
+        movement_type="IN",
+        qty=amount,
+        stock_after=_d(st.qty),
+        user=user,
+        note=note or "Added from mobile stock page",
+    )
+    db.commit()
+
+    if _wants_json(request):
+        data = _consumable_ui_state(db, c, _d(st.qty))
+        data['movement_type'] = 'IN'
+        data['qty'] = _fmt_qty(amount)
+        return JSONResponse(data)
+    return RedirectResponse("/consumables/take?added=1", status_code=303)
+
+
 @router.get("/consumables/movements")
 def consumables_movements(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
     rows = (
