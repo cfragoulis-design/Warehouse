@@ -41,9 +41,9 @@ def require_consumables_editor(user: User = Depends(require_user)) -> User:
 
 
 def require_consumables_creator(user: User = Depends(require_user)) -> User:
-    """Users allowed to create new consumables. Warehouse can create simple items from mobile UI."""
-    if (getattr(user, "role", "") or "").lower() not in {"admin", "warehouse"}:
-        raise HTTPException(status_code=303, headers={"Location": "/dashboard"})
+    """Users allowed to create new consumable master items."""
+    if (getattr(user, "role", "") or "").lower() != "admin":
+        raise HTTPException(status_code=303, headers={"Location": "/consumables/take" if is_warehouse_only(user) else "/dashboard"})
     return user
 
 
@@ -284,17 +284,9 @@ def consumable_new(
 
     pack = _positive_decimal(pack_size)
     minimum = _d(min_qty)
-
-    # Warehouse users get a deliberately simple create flow. They can create the item
-    # and starting stock, but they cannot attach suppliers/costs/PO settings.
-    if role == "warehouse":
-        sid = None
-        cost = Decimal("0")
-        desired = minimum
-    else:
-        sid = _optional_int(supplier_id)
-        cost = _d(cost_per_pack)
-        desired = _d(desired_qty)
+    sid = _optional_int(supplier_id)
+    cost = _d(cost_per_pack)
+    desired = _d(desired_qty)
 
     c = Consumable(
         name=clean_name,
@@ -326,7 +318,7 @@ def consumable_new(
         )
 
     db.commit()
-    return RedirectResponse("/consumables/take" if role == "warehouse" else "/consumables", status_code=303)
+    return RedirectResponse("/consumables", status_code=303)
 
 
 
@@ -514,6 +506,7 @@ def consumable_adjust(
     db: Session = Depends(get_db),
     user: User = Depends(require_consumables_stock_user),
     delta: str = Form(...),
+    note: str = Form(""),
 ):
     c = db.get(Consumable, cid)
     if not c or not c.is_active:
@@ -534,7 +527,7 @@ def consumable_adjust(
     actual = _d(st.qty) - before
     if actual != 0:
         movement_type = "IN" if actual > 0 else "OUT"
-        note = "Quick stock add" if actual > 0 else "Quick stock remove"
+        default_note = "Added from warehouse card" if actual > 0 else "Removed from warehouse card"
         _log_consumable_movement(
             db,
             consumable_id=cid,
@@ -542,7 +535,7 @@ def consumable_adjust(
             qty=actual,
             stock_after=_d(st.qty),
             user=user,
-            note=note,
+            note=(note or default_note),
         )
     db.commit()
     if _wants_json(request):
