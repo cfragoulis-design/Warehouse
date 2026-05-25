@@ -40,6 +40,13 @@ def require_consumables_editor(user: User = Depends(require_user)) -> User:
     return user
 
 
+def require_consumables_creator(user: User = Depends(require_user)) -> User:
+    """Users allowed to create new consumables. Warehouse can create simple items from mobile UI."""
+    if (getattr(user, "role", "") or "").lower() not in {"admin", "warehouse"}:
+        raise HTTPException(status_code=303, headers={"Location": "/dashboard"})
+    return user
+
+
 def require_consumables_stock_user(user: User = Depends(require_user)) -> User:
     """Users allowed to perform day-to-day consumable stock movements."""
     if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop", "warehouse"}:
@@ -258,7 +265,7 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
 def consumable_new(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_consumables_editor),
+    user: User = Depends(require_consumables_creator),
     name: str = Form(...),
     category: str = Form(""),
     unit: str = Form(""),
@@ -267,24 +274,59 @@ def consumable_new(
     desired_qty: str = Form("0"),
     supplier_id: str = Form(""),
     cost_per_pack: str = Form("0"),
+    initial_qty: str = Form("0"),
     notes: str = Form(""),
 ):
-    sid = _optional_int(supplier_id)
+    role = (getattr(user, "role", "") or "").lower()
+    clean_name = (name or "").strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    pack = _positive_decimal(pack_size)
+    minimum = _d(min_qty)
+
+    # Warehouse users get a deliberately simple create flow. They can create the item
+    # and starting stock, but they cannot attach suppliers/costs/PO settings.
+    if role == "warehouse":
+        sid = None
+        cost = Decimal("0")
+        desired = minimum
+    else:
+        sid = _optional_int(supplier_id)
+        cost = _d(cost_per_pack)
+        desired = _d(desired_qty)
+
     c = Consumable(
-        name=name.strip(),
+        name=clean_name,
         category=category.strip() or None,
         unit=unit.strip() or None,
-        pack_size=_positive_decimal(pack_size),
-        min_qty=_d(min_qty),
-        desired_qty=_d(desired_qty),
+        pack_size=pack,
+        min_qty=minimum,
+        desired_qty=desired,
         supplier_id=sid,
-        cost_per_pack=_d(cost_per_pack),
+        cost_per_pack=cost,
         notes=notes.strip() or None,
         is_active=True,
     )
     db.add(c)
+    db.flush()
+
+    starting = _d(initial_qty)
+    if starting > 0:
+        st = _stock_for_update(db, c.id)
+        st.qty = _d(st.qty) + starting
+        _log_consumable_movement(
+            db,
+            consumable_id=c.id,
+            movement_type="IN",
+            qty=starting,
+            stock_after=_d(st.qty),
+            user=user,
+            note="Initial stock when item was created",
+        )
+
     db.commit()
-    return RedirectResponse("/consumables", status_code=303)
+    return RedirectResponse("/consumables/take" if role == "warehouse" else "/consumables", status_code=303)
 
 
 
@@ -349,7 +391,7 @@ def consumable_take_submit(
     cid: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_user),
+    user: User = Depends(require_consumables_stock_user),
     qty: str = Form(...),
     note: str = Form(""),
 ):
