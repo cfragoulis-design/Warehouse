@@ -62,7 +62,10 @@ def home_for_user(user: User | None) -> str:
 def _warehouse_path_allowed(path: str) -> bool:
     if path.startswith("/static/"):
         return True
-    if path.startswith("/consumables/") and path.endswith("/take"):
+    # Allow the warehouse-only user to open the mobile stock page and to use
+    # the card buttons that post to /consumables/{id}/take and /consumables/{id}/add.
+    # Other consumables/admin routes remain blocked by default.
+    if path.startswith("/consumables/") and (path.endswith("/take") or path.endswith("/add")):
         return True
     return path in WAREHOUSE_ALLOWED_PATHS
 
