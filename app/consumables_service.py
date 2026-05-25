@@ -574,7 +574,7 @@ def consumable_adjust(
             db,
             consumable_id=cid,
             movement_type=movement_type,
-            qty=actual,
+            qty=abs(actual),
             stock_after=_d(st.qty),
             user=user,
             note=(note or default_note),
@@ -587,7 +587,7 @@ def consumable_adjust(
         if actual == 0:
             data['message'] = 'Stock is already zero'
         return JSONResponse(data)
-    return RedirectResponse("/consumables", status_code=303)
+    return RedirectResponse("/consumables/take" if is_warehouse_only(user) else "/consumables", status_code=303)
 
 
 @router.get("/suppliers")
