@@ -1,0 +1,44 @@
+Weekly Vet Report email via Railway Cron
+----------------------------------------
+
+1) Set env vars in Railway:
+   - SMTP_HOST
+   - SMTP_PORT
+   - SMTP_USER
+   - SMTP_PASS
+   - VET_REPORT_TO              (vet email address)
+   - VET_REPORT_CC              (optional)
+   - VET_REPORT_FROM            (optional; falls back to PRODUCTION_REPORT_FROM or SMTP_USER)
+   - WEEKLY_VET_REPORT_TOKEN    (choose a random secret string)
+   - WEEKLY_VET_REPORT_HOUR     (optional; defaults to 8 Greece time)
+
+   Notes:
+   - If VET_REPORT_TO is missing, the app falls back to PRODUCTION_REPORT_TO
+     and then to the existing default.
+   - If WEEKLY_VET_REPORT_TOKEN is missing, the cron endpoint accepts
+     PRODUCTION_REPORT_TOKEN.
+
+2) Railway cron service for every Monday 08:00 Greece time:
+   - Start command:
+     python -m app.weekly_vet_report_cron
+
+   - Cron schedules:
+     0 5 * * 1
+     0 6 * * 1
+
+   Railway cron schedules run in UTC. Greece is UTC+3 during daylight saving
+   time and UTC+2 during winter time. Keep both schedules enabled: the cron
+   worker checks the Athens hour and only sends when it is exactly 08:00.
+   The report_runs table also prevents duplicate weekly emails.
+
+   Alternative HTTP trigger, if you use an external HTTP cron:
+   - /internal/weekly-vet-report-cron?token=<WEEKLY_VET_REPORT_TOKEN>
+
+3) Admin preview:
+   - /admin/vet-report/weekly/
+
+4) Manual send from the admin dashboard:
+   - Send Weekly Report
+
+The cron endpoint sends the last completed Monday-Saturday period and uses
+the report_runs table so Railway retries do not send the same weekly report twice.
