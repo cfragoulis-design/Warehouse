@@ -49,7 +49,7 @@ def _send_email(
     cc_addrs: list[str],
     sender_env_key: str = "PRODUCTION_REPORT_FROM",
 ) -> None:
-    sender = _env(sender_env_key, _env("SMTP_USER"))
+    sender = _env(sender_env_key, _env("PRODUCTION_REPORT_FROM", _env("SMTP_USER")))
     smtp_host = _env("SMTP_HOST")
     smtp_port = int(_env("SMTP_PORT", "465"))
     smtp_user = _env("SMTP_USER")
@@ -203,6 +203,71 @@ def _build_weekly_vet_report_text(db: Session) -> tuple[str, str]:
     return subject, body
 
 
+def _weekly_vet_report_recipients() -> tuple[list[str], list[str]]:
+    to_raw = _env("VET_REPORT_TO") or _env("PRODUCTION_REPORT_TO", "info@kentarxos.gr")
+    cc_raw = _env("VET_REPORT_CC") or _env("PRODUCTION_REPORT_CC", "")
+    to_addrs = _normalize_list(to_raw)
+    cc_addrs = _normalize_list(cc_raw)
+    if not to_addrs:
+        raise RuntimeError("Missing weekly vet report recipient. Set VET_REPORT_TO.")
+    return to_addrs, cc_addrs
+
+
+def _send_weekly_vet_report_email(db: Session) -> tuple[str, str]:
+    subject, body = _build_weekly_vet_report_text(db)
+    to_addrs, cc_addrs = _weekly_vet_report_recipients()
+    _send_email(
+        subject=subject,
+        body=body,
+        to_addrs=to_addrs,
+        cc_addrs=cc_addrs,
+        sender_env_key="VET_REPORT_FROM",
+    )
+    return subject, body
+
+
+def send_weekly_vet_report_once(db: Session) -> dict[str, object]:
+    today_gr_val = _get_athens_today(db)
+    start_mon, end_sat = _last_completed_mon_sat(today_gr_val)
+    report_key = "weekly_vet_report"
+
+    inserted = db.execute(
+        text(
+            """
+            INSERT INTO report_runs (report_key, run_date)
+            VALUES (:k, :d)
+            ON CONFLICT (report_key, run_date) DO NOTHING
+            RETURNING id;
+            """
+        ),
+        {"k": report_key, "d": end_sat},
+    ).fetchone()
+
+    if inserted is None:
+        db.rollback()
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "already-sent",
+            "period_start": str(start_mon),
+            "period_end": str(end_sat),
+        }
+
+    try:
+        _send_weekly_vet_report_email(db)
+    except Exception:
+        db.rollback()
+        raise
+
+    db.commit()
+    return {
+        "ok": True,
+        "sent": True,
+        "period_start": str(start_mon),
+        "period_end": str(end_sat),
+    }
+
+
 @router.get("/internal/daily-production-cron")
 def daily_production_cron(
     request: Request,
@@ -307,6 +372,27 @@ def daily_production_cron(
     return JSONResponse({"ok": True, "sent": True, "date": str(today_gr_val)})
 
 
+@router.get("/internal/weekly-vet-report-cron")
+def weekly_vet_report_cron(
+    request: Request,
+    token: str = "",
+    db: Session = Depends(get_db),
+):
+    expected = _env("WEEKLY_VET_REPORT_TOKEN") or _env("PRODUCTION_REPORT_TOKEN")
+    if not expected or token != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    return JSONResponse(send_weekly_vet_report_once(db))
+
+
+@router.get("/admin/vet-report/weekly/")
+def weekly_vet_report_page(
+    request: Request,
+    user=Depends(require_role("admin")),
+):
+    return RedirectResponse(url="/admin/vet-report/weekly/preview", status_code=303)
+
+
 @router.get("/admin/vet-report/weekly/preview")
 def weekly_vet_report_preview(
     request: Request,
@@ -367,7 +453,8 @@ def send_weekly_vet_report_mon_sat_by_day(
     db: Session = Depends(get_db),
     user=Depends(require_role("admin")),
 ):
-    return RedirectResponse(url="/admin/vet-report/weekly/preview", status_code=303)
+    _send_weekly_vet_report_email(db)
+    return RedirectResponse(url="/admin/vet-report/weekly/preview?sent=1", status_code=303)
 
 
 @router.post("/admin/vet-report/send-weekly")
@@ -376,4 +463,5 @@ def send_weekly_vet_report(
     db: Session = Depends(get_db),
     user=Depends(require_role("admin")),
 ):
-    return RedirectResponse(url="/admin/vet-report/weekly/preview", status_code=303)
+    _send_weekly_vet_report_email(db)
+    return RedirectResponse(url="/admin/vet-report/weekly/preview?sent=1", status_code=303)
