@@ -49,7 +49,12 @@ def _send_email(
     cc_addrs: list[str],
     sender_env_key: str = "PRODUCTION_REPORT_FROM",
 ) -> None:
-    sender = _env(sender_env_key, _env("PRODUCTION_REPORT_FROM", _env("SMTP_USER")))
+    sender = (
+        _env(sender_env_key)
+        or _env("PRODUCTION_REPORT_FROM")
+        or _env("EMAIL_FROM")
+        or _env("SMTP_USER")
+    )
     smtp_host = _env("SMTP_HOST")
     smtp_port = int(_env("SMTP_PORT", "465"))
     smtp_user = _env("SMTP_USER")
@@ -69,9 +74,15 @@ def _send_email(
     recipients = list(to_addrs) + list(cc_addrs or [])
 
     try:
-        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=25) as server:
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(sender, recipients, msg.as_string())
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=25) as server:
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(sender, recipients, msg.as_string())
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=25) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(sender, recipients, msg.as_string())
     except Exception as e:
         raise RuntimeError(f"SMTP send failed: {e}")
 
@@ -209,7 +220,7 @@ def _weekly_vet_report_recipients() -> tuple[list[str], list[str]]:
     to_addrs = _normalize_list(to_raw)
     cc_addrs = _normalize_list(cc_raw)
     if not to_addrs:
-        raise RuntimeError("Missing weekly vet report recipient. Set VET_REPORT_TO.")
+        raise RuntimeError("Missing weekly report recipient. Set PRODUCTION_REPORT_TO.")
     return to_addrs, cc_addrs
 
 
