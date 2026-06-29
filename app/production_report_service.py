@@ -41,6 +41,46 @@ def _normalize_list(addrs: str) -> list[str]:
     return [a for a in raw if a]
 
 
+def _send_email_brevo_api(
+    *,
+    subject: str,
+    body: str,
+    to_addrs: list[str],
+    cc_addrs: list[str],
+    sender: str,
+) -> None:
+    api_key = _env("BREVO_API_KEY")
+    if not api_key:
+        raise RuntimeError("Missing BREVO_API_KEY")
+
+    payload: dict[str, object] = {
+        "sender": {"email": sender},
+        "to": [{"email": addr} for addr in to_addrs],
+        "subject": subject,
+        "textContent": body,
+    }
+    if cc_addrs:
+        payload["cc"] = [{"email": addr} for addr in cc_addrs]
+
+    req = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "accept": "application/json",
+            "api-key": api_key,
+            "content-type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            if resp.status >= 300:
+                raise RuntimeError(f"Brevo API returned HTTP {resp.status}")
+    except Exception as e:
+        raise RuntimeError(f"Brevo API send failed: {e}")
+
+
 def _send_email(
     *,
     subject: str,
@@ -55,6 +95,16 @@ def _send_email(
         or _env("EMAIL_FROM")
         or _env("SMTP_USER")
     )
+    if _env("BREVO_API_KEY"):
+        _send_email_brevo_api(
+            subject=subject,
+            body=body,
+            to_addrs=to_addrs,
+            cc_addrs=cc_addrs,
+            sender=sender,
+        )
+        return
+
     smtp_host = _env("SMTP_HOST")
     smtp_port = int(_env("SMTP_PORT", "465"))
     smtp_user = _env("SMTP_USER")
