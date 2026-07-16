@@ -85,10 +85,12 @@
     .btnBlue{background:var(--blue);color:#fff}
     .btnGhost{background:rgba(11,16,32,.45);border:1px solid rgba(36,48,85,.9);color:var(--text)}
     .btnTiny{padding:6px 8px;border-radius:10px;font-size:12px}
-    .pm{display:inline-flex;gap:6px;align-items:center}
+    .pm{display:inline-flex;gap:5px;align-items:center}
     .pm button{width:34px;height:34px;border-radius:10px;font-weight:900}
     .pm .minus{background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2}
     .pm .plus{background:rgba(255,255,255,.04);border:1px solid rgba(36,48,85,.9);color:#dfe6ff}
+    .pmQty{width:52px;min-width:52px;height:34px;text-align:center;padding:5px 4px;border-radius:10px;font-weight:800}
+    .pmQty:focus{outline:2px solid rgba(47,124,246,.55);outline-offset:1px}
     .transferBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(47,124,246,.15); border:1px solid rgba(47,124,246,.45);color:#8ab4ff;cursor:pointer;}.transferBtn:hover{
       filter:brightness(1.1);}
     .actions{display:flex;gap:10px;align-items:center}
@@ -297,8 +299,9 @@
                     <form method="post" action="/stock/adjust" class="pm">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input type="hidden" name="location" value="central" />
-                      <button class="btnTiny minus" name="qty" value="-1" type="submit">−</button>
-                      <button class="btnTiny plus" name="qty" value="1" type="submit">+</button>
+                      <button class="btnTiny minus" name="direction" value="minus" type="submit" title="Αφαίρεση ποσότητας">−</button>
+                      <input class="pmQty" name="qty" value="1" inputmode="decimal" aria-label="Ποσότητα Central" title="Γράψτε την ποσότητα και πατήστε + ή −" />
+                      <button class="btnTiny plus" name="direction" value="plus" type="submit" title="Προσθήκη ποσότητας">+</button>
                     </form>
                   {% endif %}
 
@@ -307,8 +310,9 @@
                     <form method="post" action="/stock/adjust" class="pm">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input type="hidden" name="location" value="workshop" />
-                      <button class="btnTiny minus" name="qty" value="-1" type="submit">−</button>
-                      <button class="btnTiny plus" name="qty" value="1" type="submit">+</button>
+                      <button class="btnTiny minus" name="direction" value="minus" type="submit" title="Αφαίρεση ποσότητας">−</button>
+                      <input class="pmQty" name="qty" value="1" inputmode="decimal" aria-label="Ποσότητα Workshop" title="Γράψτε την ποσότητα και πατήστε + ή −" />
+                      <button class="btnTiny plus" name="direction" value="plus" type="submit" title="Προσθήκη ποσότητας">+</button>
                     </form>
                   {% endif %}
 
@@ -617,23 +621,36 @@ document.querySelectorAll(".js-label-print-form").forEach(form => {
 
   // Intercept ONLY the adjust forms to avoid full reload.
   document.querySelectorAll('form.pm[action="/stock/adjust"]').forEach((form) => {
-    form.addEventListener("click", async (ev) => {
-      const btn = ev.target && ev.target.closest('button[type="submit"]');
+    const qtyInput = form.querySelector('input[name="qty"]');
+    if (qtyInput){
+      qtyInput.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter"){
+          ev.preventDefault();
+          const plusBtn = form.querySelector('button[name="direction"][value="plus"]');
+          if (plusBtn) plusBtn.click();
+        }
+      });
+    }
+    form.addEventListener("submit", async (ev) => {
+      const btn = ev.submitter;
       if (!btn) return;
-      // Only handle +/- buttons
-      if (!btn.name || btn.name !== "qty") return;
+      if (btn.name !== "direction") return;
 
       ev.preventDefault();
+
+      const amount = Number(String(qtyInput ? qtyInput.value : "").replace(",", "."));
+      if (!Number.isFinite(amount) || amount <= 0){
+        if (qtyInput){ qtyInput.focus(); qtyInput.select(); }
+        return;
+      }
 
       // Disable both buttons briefly to avoid double clicks
       const buttons = Array.from(form.querySelectorAll('button[type="submit"]'));
       buttons.forEach(b => b.disabled = true);
 
       try{
-        // Ensure the clicked button's value is included (FormData uses successful controls)
-        // We add it explicitly to be safe.
         const fd = new FormData(form);
-        fd.set(btn.name, btn.value);
+        fd.set("direction", btn.value);
 
         const res = await fetch(form.action, {
           method: "POST",
