@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import asyncio
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -29,6 +31,8 @@ except Exception:
     from seed import seed_locations, seed_categories
 
 SECRET_KEY = os.getenv("SECRET_KEY", "change-me")
+logger = logging.getLogger(__name__)
+weekly_report_task = None
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR_CANDIDATES = [
@@ -38,6 +42,42 @@ STATIC_DIR_CANDIDATES = [
 static_dir = next((p for p in STATIC_DIR_CANDIDATES if p.exists()), None)
 
 app = FastAPI()
+
+
+async def weekly_report_scheduler() -> None:
+    """Check periodically; DB idempotency guarantees one email per report week."""
+    while True:
+        try:
+            try:
+                from app.weekly_vet_report_cron import run_if_due
+            except Exception:
+                from weekly_vet_report_cron import run_if_due
+            result = await asyncio.to_thread(run_if_due)
+            if result.get("sent"):
+                logger.info("Weekly vet report sent automatically: %s", result)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Automatic weekly vet report check failed")
+        await asyncio.sleep(300)
+
+
+@app.on_event("startup")
+async def start_weekly_report_scheduler() -> None:
+    global weekly_report_task
+    weekly_report_task = asyncio.create_task(weekly_report_scheduler())
+
+
+@app.on_event("shutdown")
+async def stop_weekly_report_scheduler() -> None:
+    global weekly_report_task
+    if weekly_report_task:
+        weekly_report_task.cancel()
+        try:
+            await weekly_report_task
+        except asyncio.CancelledError:
+            pass
+        weekly_report_task = None
 
 
 @app.on_event("startup")

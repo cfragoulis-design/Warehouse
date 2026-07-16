@@ -2179,6 +2179,7 @@ async def stock_adjust(
     product_id: int = Form(...),
     location: str = Form(...),
     qty: str = Form(...),
+    direction: str | None = Form(None),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
@@ -2197,9 +2198,16 @@ async def stock_adjust(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
-        q = Decimal(qty)
+        q = Decimal(str(qty).replace(",", ".").strip())
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid qty")
+    direction_norm = (direction or "").strip().lower()
+    if direction_norm in ("plus", "+"):
+        q = abs(q)
+    elif direction_norm in ("minus", "-"):
+        q = -abs(q)
+    elif direction_norm:
+        raise HTTPException(status_code=422, detail="Invalid direction")
     if q == 0:
         return RedirectResponse(url="/stock", status_code=303)
 
