@@ -27,7 +27,15 @@ Weekly Vet Report email via Railway Cron
      PRODUCTION_REPORT_TOKEN.
    - SMTP_PORT=587 is supported with STARTTLS, which matches Brevo.
 
-2) Railway cron service for every Monday 08:00 Greece time:
+2) Automatic schedule (included in the web app):
+   The web service checks every 5 minutes and sends once on Monday during
+   WEEKLY_VET_REPORT_HOUR (08:00 Greece time by default). The report_runs
+   table prevents duplicate emails, including when Railway runs more than
+   one web instance or restarts the service.
+
+   No separate Railway Cron Service is required.
+
+3) Optional Railway cron service as a backup:
    - Start command:
      python -m app.weekly_vet_report_cron
 
@@ -43,10 +51,10 @@ Weekly Vet Report email via Railway Cron
    Alternative HTTP trigger, if you use an external HTTP cron:
    - /internal/weekly-vet-report-cron?token=<WEEKLY_VET_REPORT_TOKEN>
 
-3) Admin preview:
+4) Admin preview:
    - /admin/vet-report/weekly/
 
-4) Manual send from the admin dashboard:
+5) Manual send from the admin dashboard:
    - Send Weekly Report
 
 The cron endpoint sends the last completed Monday-Saturday period and uses
