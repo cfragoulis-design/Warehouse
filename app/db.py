@@ -4,6 +4,11 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 
+try:
+    from app.runtime_config import load_runtime_settings
+except ImportError:
+    from runtime_config import load_runtime_settings
+
 
 def _normalize_database_url(url: str) -> str:
     # Railway often provides postgres:// ; SQLAlchemy prefers postgresql+psycopg://
@@ -41,6 +46,9 @@ def get_db():
 
 
 def init_db() -> None:
+    if not load_runtime_settings().startup_mutations_enabled:
+        return
+
     # import models so metadata is populated
     from . import models  # noqa: F401
 
@@ -211,36 +219,36 @@ def init_db() -> None:
     except Exception:
         pass
 
-# Workshop messages (CENTRAL -> WORKSHOP). Safe, idempotent.
-try:
-    with engine.begin() as conn:
-        conn.exec_driver_sql(
-            """
-            CREATE TABLE IF NOT EXISTS workshop_messages (
-                id SERIAL PRIMARY KEY,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                target_role VARCHAR(32) NOT NULL DEFAULT 'workshop',
-                title VARCHAR(120),
-                body VARCHAR(800) NOT NULL,
-                require_ack BOOLEAN NOT NULL DEFAULT TRUE,
-                is_active BOOLEAN NOT NULL DEFAULT TRUE
-            );
-            """
-        )
-        conn.exec_driver_sql(
-            """
-            CREATE TABLE IF NOT EXISTS workshop_message_acks (
-                id SERIAL PRIMARY KEY,
-                message_id INTEGER NOT NULL REFERENCES workshop_messages(id) ON DELETE CASCADE,
-                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                acked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-            """
-        )
-        conn.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS ix_workshop_message_acks_msg_user ON workshop_message_acks(message_id, user_id);"
-        )
-except Exception:
-    pass
+    # Workshop messages (CENTRAL -> WORKSHOP). Safe, idempotent.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS workshop_messages (
+                    id SERIAL PRIMARY KEY,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    target_role VARCHAR(32) NOT NULL DEFAULT 'workshop',
+                    title VARCHAR(120),
+                    body VARCHAR(800) NOT NULL,
+                    require_ack BOOLEAN NOT NULL DEFAULT TRUE,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE
+                );
+                """
+            )
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS workshop_message_acks (
+                    id SERIAL PRIMARY KEY,
+                    message_id INTEGER NOT NULL REFERENCES workshop_messages(id) ON DELETE CASCADE,
+                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    acked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_workshop_message_acks_msg_user ON workshop_message_acks(message_id, user_id);"
+            )
+    except Exception:
+        pass
 

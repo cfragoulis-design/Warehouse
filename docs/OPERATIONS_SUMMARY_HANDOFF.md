@@ -3,7 +3,9 @@
 Status date: 26 July 2026.
 
 This checkpoint adds the first aggregate-only Warehouse source contract required by Sklavounos
-Operations. It is local, disabled by default and has not been pushed or deployed.
+Operations. It is published only on the private `codex/warehouse-operations-summary` branch and
+draft PR #1. It remains disabled by default and has not been deployed to the live Warehouse
+service.
 
 ## Boundary
 
@@ -84,6 +86,10 @@ No Operations staging connection should be configured until the Warehouse stagin
 target, backup operator, credential rotation owner and explicit read-only connection approval are
 recorded. Production remains a separate decision.
 
+The approved non-production deployment procedure is documented in
+`docs/OPERATIONS_SOURCE_STAGING.md`. Source mode requires startup mutations and schedulers
+explicitly disabled and a SELECT-only database role.
+
 ## Changed/new files
 
 - `app/app.py`
@@ -92,6 +98,9 @@ recorded. Production remains a separate decision.
 - `requirements-dev.txt`
 - `README.md`
 - `docs/OPERATIONS_SUMMARY_HANDOFF.md`
+- `app/runtime_config.py`
+- `tests/test_runtime_config.py`
+- `docs/OPERATIONS_SOURCE_STAGING.md`
 
 Later local critical-flow characterization and stock consistency corrections are recorded in
 `docs/CRITICAL_FLOW_CHARACTERIZATION.md`.

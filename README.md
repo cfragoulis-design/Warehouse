@@ -22,6 +22,22 @@ The aggregate-only Operations endpoint stays hidden unless both variables are ex
 method and is unrelated to the session/PIN authentication used by the Warehouse UI. Keep the
 switch false and omit the token until a separate staging connection is approved.
 
+### Non-production Operations source mode
+
+The narrow source deployment must use a dedicated database clone and a SELECT-only PostgreSQL
+role. It also requires all three runtime boundaries below:
+
+- `WAREHOUSE_OPERATIONS_SOURCE_MODE=true`
+- `WAREHOUSE_STARTUP_MUTATIONS_ENABLED=false`
+- `WAREHOUSE_SCHEDULERS_ENABLED=false`
+
+Source mode fails startup unless mutations and schedulers are both explicitly disabled. It mounts
+only `/health`, the OpenAPI documentation endpoints and the Operations summary router; the
+Warehouse UI, session login, mutation routes, provider routes, label agents and report routes are
+not mounted. Production defaults remain unchanged when these variables are omitted.
+
+See `docs/OPERATIONS_SOURCE_STAGING.md` for the staged activation and rollback gates.
+
 ## Railway settings
 - Start command (if you prefer not using Procfile):
   `uvicorn app.app:app --host 0.0.0.0 --port $PORT`
