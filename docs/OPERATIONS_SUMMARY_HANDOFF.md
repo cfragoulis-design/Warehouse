@@ -5,7 +5,8 @@ Status date: 26 July 2026.
 This checkpoint adds the first aggregate-only Warehouse source contract required by Sklavounos
 Operations. It is published only on the private `codex/warehouse-operations-summary` branch and
 draft PR #1. It remains disabled by default and has not been deployed to the live Warehouse
-service.
+service. A separately isolated source-only deployment is active only in the approved
+non-production characterization environment.
 
 ## Boundary
 
@@ -21,6 +22,10 @@ service.
 
 The Warehouse UI, session/PIN authentication, schedulers, reports, print agents and all existing
 business routes are unchanged.
+
+The non-production source mounts none of those routes and connects with a PostgreSQL role that
+cannot write. Exact deployment, data-reconciliation and outage evidence is recorded in
+`docs/OPERATIONS_SOURCE_STAGING.md`.
 
 ## Closed response
 

@@ -74,3 +74,39 @@ an incident:
 
 Rollback never changes the live Warehouse service. The clone database and reader role can be
 dropped after evidence is retained and the staging checkpoint is closed.
+
+## Executed checkpoint
+
+Executed on 26 July 2026:
+
+- private source commit: `0240bcd13f41283ba507965e487204b074c72e97`;
+- Railway deployment: `4d00dab8-ad79-47de-8f04-d90e610d4622`, status `SUCCESS`;
+- non-production domain:
+  `https://warehouse-operations-source-characterization.up.railway.app`;
+- database clone: `warehouse_operations_staging`;
+- database reader: `warehouse_operations_reader`, with `default_transaction_read_only=on`,
+  `SELECT=true` and `INSERT=false`;
+- no provider, print-agent, digest or initial-admin variable exists on the source service;
+- `/health=200`, `/ui/login=404`, summary POST=`405`, no token=`401`, wrong token=`403`,
+  correct token=`200`, and `Cache-Control: no-store`;
+- OpenAPI contains only `/health` and `/api/v1/operations/summary`;
+- the returned aggregates were 90 active products, 12 low-stock products, 2 missing products,
+  0 production lots for the current Athens day and 4 open purchase orders;
+- both the clone and immutable evidence database still match the manifest exactly: PostgreSQL 17,
+  20 tables, 50,507 rows and schema fingerprint
+  `f3bfacf36afaa6832d8e8812d1c6f63110500077ad61253d18b699a74dea6466`.
+
+The first temporary reader password was inadvertently echoed by `psql` during role creation. It
+was rotated immediately before any application deployment or use, the Railway `DATABASE_URL` was
+updated through stdin, and only the replacement credential passed the connection test. The
+echoed credential is invalid. The Operations service token was never displayed.
+
+Operations staging deployment `a3da0ae6-b236-461e-866c-58a7a3c3a9ad` loaded the adapter
+configuration at exact Operations commit
+`8543fdfac5ed78b43204c3d39d26822b797c080f`. A manual confirmed read-only sync stored the
+Warehouse model as `CURRENT`. An unreachable-source drill recorded the bounded error
+`Read integration request failed` while preserving the exact last-good payload, and the normal
+source immediately restored `CURRENT`.
+
+The existing live Warehouse deployment, its database, schedulers, providers and public domain
+were not changed.
