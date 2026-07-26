@@ -79,7 +79,8 @@ dropped after evidence is retained and the staging checkpoint is closed.
 
 Executed on 26 July 2026:
 
-- private source commit: `0240bcd13f41283ba507965e487204b074c72e97`;
+- private runtime implementation commit:
+  `0240bcd13f41283ba507965e487204b074c72e97`;
 - Railway deployment: `4d00dab8-ad79-47de-8f04-d90e610d4622`, status `SUCCESS`;
 - non-production domain:
   `https://warehouse-operations-source-characterization.up.railway.app`;
@@ -110,3 +111,6 @@ source immediately restored `CURRENT`.
 
 The existing live Warehouse deployment, its database, schedulers, providers and public domain
 were not changed.
+
+Later evidence-only commits may advance the non-production provider SHA without changing
+application/runtime files. The implementation checkpoint above remains the reviewed source state.
