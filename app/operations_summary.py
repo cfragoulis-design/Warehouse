@@ -41,10 +41,12 @@ _ENABLED_ENV = "OPERATIONS_READ_API_ENABLED"
 _TOKEN_ENV = "OPERATIONS_READ_API_TOKEN"
 _MIN_TOKEN_LENGTH = 32
 _OPEN_PURCHASE_ORDER_STATUSES = ("DRAFT", "SUBMITTED", "PARTIAL")
+_PYDANTIC_V2 = hasattr(BaseModel, "model_validate")
 
 
 class WarehouseOperationsSummary(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    if _PYDANTIC_V2:
+        model_config = ConfigDict(extra="forbid")
 
     as_of: datetime
     active_products: int = Field(ge=0)
@@ -52,6 +54,11 @@ class WarehouseOperationsSummary(BaseModel):
     missing_products: int = Field(ge=0)
     production_today: int = Field(ge=0)
     purchase_orders_open: int = Field(ge=0)
+
+    if not _PYDANTIC_V2:
+
+        class Config:
+            extra = "forbid"
 
 
 def _read_api_enabled() -> bool:

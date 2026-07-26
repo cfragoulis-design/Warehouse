@@ -171,7 +171,12 @@ def test_summary_matches_existing_stock_and_purchase_order_semantics(db: Session
 
     result = build_operations_summary(db, now=observed_at)
 
-    assert result.model_dump() == {
+    result_payload = (
+        result.model_dump()
+        if hasattr(result, "model_dump")
+        else result.dict()
+    )
+    assert result_payload == {
         "as_of": observed_at,
         "active_products": 3,
         "low_stock_products": 1,

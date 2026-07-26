@@ -51,6 +51,8 @@ Focused verification:
 
 - Ruff: pass.
 - Pytest: 5 passed.
+- The same five tests pass under both the Warehouse Pydantic v1 runtime and the Operations
+  Pydantic v2 runtime; the closed response has no compatibility-only field.
 - Exact field and count semantics on disposable SQLite: pass.
 - Disabled/short-token hidden route: pass.
 - Missing/wrong/correct Bearer credential: pass.
@@ -91,3 +93,5 @@ recorded. Production remains a separate decision.
 - `README.md`
 - `docs/OPERATIONS_SUMMARY_HANDOFF.md`
 
+Later local critical-flow characterization and stock consistency corrections are recorded in
+`docs/CRITICAL_FLOW_CHARACTERIZATION.md`.
