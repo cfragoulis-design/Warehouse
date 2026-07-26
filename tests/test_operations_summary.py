@@ -8,12 +8,14 @@ from zoneinfo import ZoneInfo
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
+from tests.db_test_support import (
+    configured_test_database_url,
+    create_characterization_engine,
+)
 
-os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
+os.environ.setdefault("DATABASE_URL", configured_test_database_url())
 
 from app.db import Base, get_db  # noqa: E402
 from app.models import (  # noqa: E402
@@ -35,11 +37,7 @@ from app.operations_summary import (  # noqa: E402
 
 @pytest.fixture()
 def db() -> Session:
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    engine, _is_postgres = create_characterization_engine()
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     session = factory()

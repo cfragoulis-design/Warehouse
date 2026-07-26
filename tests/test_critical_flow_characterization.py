@@ -8,12 +8,15 @@ from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
+from tests.db_test_support import (
+    configured_test_database_url,
+    create_characterization_engine,
+)
 
-os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
+os.environ.setdefault("DATABASE_URL", configured_test_database_url())
 
 from app import production_report_service, services  # noqa: E402
 from app.consumables_service import (  # noqa: E402
@@ -55,24 +58,33 @@ class RequestStub:
 
 @pytest.fixture()
 def db() -> Session:
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    engine, is_postgres = create_characterization_engine()
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
         connection.execute(
             text(
-                """
-                CREATE TABLE report_runs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    report_key VARCHAR(64) NOT NULL,
-                    run_date DATE NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE (report_key, run_date)
+                (
+                    """
+                    CREATE TABLE report_runs (
+                        id SERIAL PRIMARY KEY,
+                        report_key VARCHAR(64) NOT NULL,
+                        run_date DATE NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        UNIQUE (report_key, run_date)
+                    )
+                    """
+                    if is_postgres
+                    else
+                    """
+                    CREATE TABLE report_runs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        report_key VARCHAR(64) NOT NULL,
+                        run_date DATE NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE (report_key, run_date)
+                    )
+                    """
                 )
-                """
             )
         )
     factory = sessionmaker(bind=engine, expire_on_commit=False)
