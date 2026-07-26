@@ -17,6 +17,7 @@ try:
     from app.services import router as services_router
     from app.digest_service import router as digest_router
     from app.production_report_service import router as production_report_router
+    from app.operations_summary import router as operations_summary_router
     from app.auth import router as auth_router
     from app.consumables_service import router as consumables_router
     from app.seed import seed_locations, seed_categories
@@ -26,6 +27,7 @@ except Exception:
     from services import router as services_router
     from digest_service import router as digest_router
     from production_report_service import router as production_report_router
+    from operations_summary import router as operations_summary_router
     from auth import router as auth_router
     from consumables_service import router as consumables_router
     from seed import seed_locations, seed_categories
@@ -119,6 +121,7 @@ app.include_router(consumables_router)
 app.include_router(digest_router)
 app.include_router(production_report_router)
 app.include_router(labels_router)
+app.include_router(operations_summary_router)
 
 
 @app.get("/health")
