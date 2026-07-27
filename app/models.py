@@ -13,6 +13,8 @@ from sqlalchemy import (
     Numeric,
     Date,
     UniqueConstraint,
+    CheckConstraint,
+    Index,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -134,6 +136,35 @@ class Product(Base):
 
 class ProductLot(Base):
     __tablename__ = "product_lots"
+    __table_args__ = (
+        CheckConstraint(
+            """
+            (
+                status = 'PROCESSING'
+                AND lease_token <> ''
+                AND claim_started_at IS NOT NULL
+                AND lease_expires_at IS NOT NULL
+                AND lease_expires_at > claim_started_at
+            )
+            OR
+            (
+                status <> 'PROCESSING'
+                AND lease_token = ''
+                AND claim_started_at IS NULL
+                AND lease_expires_at IS NULL
+            )
+            """,
+            name="ck_product_lots_print_claim_lease",
+        ),
+        Index(
+            "ix_product_lots_station_status_lease",
+            "station",
+            "status",
+            "lease_expires_at",
+            "created_at",
+            "id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     product_id: Mapped[int] = mapped_column(
@@ -149,6 +180,20 @@ class ProductLot(Base):
     batch_ref: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     extra_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="CREATED")
+    lease_token: Mapped[str] = mapped_column(
+        String(80),
+        nullable=False,
+        default="",
+        server_default="",
+    )
+    claim_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         index=True,
