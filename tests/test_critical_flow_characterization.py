@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from tests.db_test_support import (
     configured_test_database_url,
     create_characterization_engine,
+    restored_clone_mode_enabled,
+    restored_table_counts,
 )
 
 os.environ.setdefault("DATABASE_URL", configured_test_database_url())
@@ -58,41 +60,60 @@ class RequestStub:
 
 @pytest.fixture()
 def db() -> Session:
+    is_restored_clone = restored_clone_mode_enabled()
     engine, is_postgres = create_characterization_engine()
-    Base.metadata.create_all(engine)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                (
-                    """
-                    CREATE TABLE report_runs (
-                        id SERIAL PRIMARY KEY,
-                        report_key VARCHAR(64) NOT NULL,
-                        run_date DATE NOT NULL,
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                        UNIQUE (report_key, run_date)
+    baseline_counts = (
+        restored_table_counts(engine) if is_restored_clone else None
+    )
+    if not is_restored_clone:
+        Base.metadata.create_all(engine)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    (
+                        """
+                        CREATE TABLE report_runs (
+                            id SERIAL PRIMARY KEY,
+                            report_key VARCHAR(64) NOT NULL,
+                            run_date DATE NOT NULL,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            UNIQUE (report_key, run_date)
+                        )
+                        """
+                        if is_postgres
+                        else
+                        """
+                        CREATE TABLE report_runs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            report_key VARCHAR(64) NOT NULL,
+                            run_date DATE NOT NULL,
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE (report_key, run_date)
+                        )
+                        """
                     )
-                    """
-                    if is_postgres
-                    else
-                    """
-                    CREATE TABLE report_runs (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        report_key VARCHAR(64) NOT NULL,
-                        run_date DATE NOT NULL,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE (report_key, run_date)
-                    )
-                    """
                 )
             )
-        )
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    connection = engine.connect() if is_restored_clone else None
+    outer_transaction = connection.begin() if connection is not None else None
+    factory = sessionmaker(
+        bind=connection or engine,
+        expire_on_commit=False,
+        join_transaction_mode=(
+            "create_savepoint" if is_restored_clone else "conditional_savepoint"
+        ),
+    )
     session = factory()
     try:
         yield session
     finally:
         session.close()
+        if outer_transaction is not None:
+            outer_transaction.rollback()
+        if connection is not None:
+            connection.close()
+        if baseline_counts is not None:
+            assert restored_table_counts(engine) == baseline_counts
         engine.dispose()
 
 
@@ -114,10 +135,16 @@ def _stock_scenario(
     workshop_quantity: Decimal = Decimal("6"),
 ) -> tuple[User, Location, Location, Product]:
     user = _user(db)
-    central = Location(code="CENTRAL", name="Central")
-    workshop = Location(code="WORKSHOP", name="Workshop")
+    central = db.scalar(select(Location).where(Location.code == "CENTRAL"))
+    if central is None:
+        central = Location(code="CENTRAL", name="Central")
+        db.add(central)
+    workshop = db.scalar(select(Location).where(Location.code == "WORKSHOP"))
+    if workshop is None:
+        workshop = Location(code="WORKSHOP", name="Workshop")
+        db.add(workshop)
     product = Product(
-        sku="FLOW-KG",
+        sku="__CRITICAL-FLOW-KG__",
         name="Flow product",
         unit="kg",
         is_active=True,
@@ -125,7 +152,7 @@ def _stock_scenario(
         min_stock=2,
         shelf_life_days=7,
     )
-    db.add_all([central, workshop, product])
+    db.add(product)
     db.flush()
     db.add_all(
         [
@@ -186,7 +213,10 @@ def test_stock_balance_rejects_overdraw_and_pairs_transfer_rows(db: Session) -> 
 
     transfer_rows = db.scalars(
         select(StockMovement)
-        .where(StockMovement.transfer_id.is_not(None))
+        .where(
+            StockMovement.product_id == product.id,
+            StockMovement.transfer_id.is_not(None),
+        )
         .order_by(StockMovement.id)
     ).all()
     assert [(row.movement_type, row.qty) for row in transfer_rows] == [
@@ -318,7 +348,9 @@ def test_consumable_take_caps_at_available_and_every_change_has_a_ledger_row(
     db.refresh(stock)
     assert stock.qty == Decimal("2.500")
     ledger = db.scalars(
-        select(ConsumableMovement).order_by(ConsumableMovement.id)
+        select(ConsumableMovement)
+        .where(ConsumableMovement.consumable_id == consumable.id)
+        .order_by(ConsumableMovement.id)
     ).all()
     assert [
         (row.movement_type, row.qty, row.stock_after, row.note)
@@ -356,9 +388,15 @@ def test_purchase_order_generation_is_stable_and_receipt_is_capped(db: Session) 
 
     assert po_generate(db=db, user=admin).status_code == 303
     assert po_generate(db=db, user=admin).status_code == 303
-    orders = db.scalars(select(PurchaseOrder)).all()
+    orders = db.scalars(
+        select(PurchaseOrder).where(PurchaseOrder.supplier_id == supplier.id)
+    ).all()
     assert len(orders) == 1
-    item = db.scalar(select(PurchaseOrderItem))
+    item = db.scalar(
+        select(PurchaseOrderItem).where(
+            PurchaseOrderItem.purchase_order_id == orders[0].id
+        )
+    )
     assert item is not None
     assert item.qty_ordered == Decimal("12.000")
     assert item.pack_size_snapshot == Decimal("6.000")
@@ -384,7 +422,14 @@ def test_purchase_order_generation_is_stable_and_receipt_is_capped(db: Session) 
     )
     assert stock is not None
     assert stock.qty == Decimal("13.000")
-    assert db.scalar(select(func.count(ConsumableMovement.id))) == 1
+    assert (
+        db.scalar(
+            select(func.count(ConsumableMovement.id)).where(
+                ConsumableMovement.consumable_id == consumable.id
+            )
+        )
+        == 1
+    )
 
     assert asyncio.run(
         po_receive(
@@ -394,7 +439,14 @@ def test_purchase_order_generation_is_stable_and_receipt_is_capped(db: Session) 
             user=admin,
         )
     ).status_code == 303
-    assert db.scalar(select(func.count(ConsumableMovement.id))) == 1
+    assert (
+        db.scalar(
+            select(func.count(ConsumableMovement.id)).where(
+                ConsumableMovement.consumable_id == consumable.id
+            )
+        )
+        == 1
+    )
 
 
 def test_label_queue_enforces_token_station_and_terminal_status(
@@ -487,7 +539,27 @@ def test_weekly_report_is_once_only_and_failed_send_releases_marker(
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    report_day = date(2026, 7, 26)
+    report_day = date(2099, 1, 5)
+    period_start, period_end = production_report_service._last_completed_mon_sat(
+        report_day
+    )
+    marker_params = {"k": "weekly_vet_report", "d": period_end}
+
+    def marker_count() -> int:
+        return int(
+            db.scalar(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM report_runs
+                    WHERE report_key = :k AND run_date = :d
+                    """
+                ),
+                marker_params,
+            )
+            or 0
+        )
+
     monkeypatch.setattr(
         production_report_service,
         "_get_athens_today",
@@ -507,13 +579,21 @@ def test_weekly_report_is_once_only_and_failed_send_releases_marker(
         "ok": True,
         "skipped": True,
         "reason": "already-sent",
-        "period_start": "2026-07-20",
-        "period_end": "2026-07-25",
+        "period_start": str(period_start),
+        "period_end": str(period_end),
     }
     assert sent == ["sent"]
-    assert db.scalar(text("SELECT COUNT(*) FROM report_runs")) == 1
+    assert marker_count() == 1
 
-    db.execute(text("DELETE FROM report_runs"))
+    db.execute(
+        text(
+            """
+            DELETE FROM report_runs
+            WHERE report_key = :k AND run_date = :d
+            """
+        ),
+        marker_params,
+    )
     db.commit()
     monkeypatch.setattr(
         production_report_service,
@@ -522,7 +602,7 @@ def test_weekly_report_is_once_only_and_failed_send_releases_marker(
     )
     with pytest.raises(RuntimeError, match="provider unavailable"):
         production_report_service.send_weekly_vet_report_once(db)
-    assert db.scalar(text("SELECT COUNT(*) FROM report_runs")) == 0
+    assert marker_count() == 0
 
     monkeypatch.setattr(
         production_report_service,
@@ -531,4 +611,4 @@ def test_weekly_report_is_once_only_and_failed_send_releases_marker(
     )
     retry = production_report_service.send_weekly_vet_report_once(db)
     assert retry["sent"] is True
-    assert db.scalar(text("SELECT COUNT(*) FROM report_runs")) == 1
+    assert marker_count() == 1

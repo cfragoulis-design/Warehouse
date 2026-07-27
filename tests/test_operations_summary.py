@@ -8,11 +8,14 @@ from zoneinfo import ZoneInfo
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from tests.db_test_support import (
     configured_test_database_url,
     create_characterization_engine,
+    restored_clone_mode_enabled,
+    restored_table_counts,
 )
 
 os.environ.setdefault("DATABASE_URL", configured_test_database_url())
@@ -37,25 +40,49 @@ from app.operations_summary import (  # noqa: E402
 
 @pytest.fixture()
 def db() -> Session:
+    is_restored_clone = restored_clone_mode_enabled()
     engine, _is_postgres = create_characterization_engine()
-    Base.metadata.create_all(engine)
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    baseline_counts = (
+        restored_table_counts(engine) if is_restored_clone else None
+    )
+    if not is_restored_clone:
+        Base.metadata.create_all(engine)
+    connection = engine.connect() if is_restored_clone else None
+    outer_transaction = connection.begin() if connection is not None else None
+    factory = sessionmaker(
+        bind=connection or engine,
+        expire_on_commit=False,
+        join_transaction_mode=(
+            "create_savepoint" if is_restored_clone else "conditional_savepoint"
+        ),
+    )
     session = factory()
     try:
         yield session
     finally:
         session.close()
+        if outer_transaction is not None:
+            outer_transaction.rollback()
+        if connection is not None:
+            connection.close()
+        if baseline_counts is not None:
+            assert restored_table_counts(engine) == baseline_counts
         engine.dispose()
 
 
 def _seed_summary_scenario(db: Session, observed_at: datetime) -> None:
-    central = Location(code="CENTRAL", name="Central")
-    workshop = Location(code="WORKSHOP", name="Workshop")
-    db.add_all([central, workshop])
+    central = db.scalar(select(Location).where(Location.code == "CENTRAL"))
+    if central is None:
+        central = Location(code="CENTRAL", name="Central")
+        db.add(central)
+    workshop = db.scalar(select(Location).where(Location.code == "WORKSHOP"))
+    if workshop is None:
+        workshop = Location(code="WORKSHOP", name="Workshop")
+        db.add(workshop)
     db.flush()
 
     low = Product(
-        sku="LOW",
+        sku="__SUMMARY-FLOW-LOW__",
         name="Low",
         unit="kg",
         is_active=True,
@@ -63,7 +90,7 @@ def _seed_summary_scenario(db: Session, observed_at: datetime) -> None:
         target_central=10,
     )
     healthy = Product(
-        sku="OK",
+        sku="__SUMMARY-FLOW-OK__",
         name="Healthy",
         unit="kg",
         is_active=True,
@@ -71,7 +98,7 @@ def _seed_summary_scenario(db: Session, observed_at: datetime) -> None:
         target_central=10,
     )
     inactive = Product(
-        sku="OFF",
+        sku="__SUMMARY-FLOW-OFF__",
         name="Inactive",
         unit="kg",
         is_active=False,
@@ -79,7 +106,7 @@ def _seed_summary_scenario(db: Session, observed_at: datetime) -> None:
         target_central=10,
     )
     freezer_only = Product(
-        sku="FREEZER",
+        sku="__SUMMARY-FLOW-FREEZER__",
         name="Freezer only",
         unit="kg",
         is_active=True,
@@ -125,7 +152,7 @@ def _seed_summary_scenario(db: Session, observed_at: datetime) -> None:
                 quantity_labels=1,
                 production_date=athens_day,
                 expiry_date=athens_day + timedelta(days=2),
-                lot_code="TODAY-1",
+                lot_code="__SUMMARY-FLOW-TODAY-1__",
                 status="CREATED",
             ),
             ProductLot(
@@ -134,7 +161,7 @@ def _seed_summary_scenario(db: Session, observed_at: datetime) -> None:
                 quantity_labels=1,
                 production_date=athens_day,
                 expiry_date=athens_day + timedelta(days=2),
-                lot_code="TODAY-2",
+                lot_code="__SUMMARY-FLOW-TODAY-2__",
                 status="CREATED",
             ),
             ProductLot(
@@ -143,7 +170,7 @@ def _seed_summary_scenario(db: Session, observed_at: datetime) -> None:
                 quantity_labels=1,
                 production_date=athens_day - timedelta(days=1),
                 expiry_date=athens_day + timedelta(days=1),
-                lot_code="YESTERDAY",
+                lot_code="__SUMMARY-FLOW-YESTERDAY__",
                 status="CREATED",
             ),
         ]
@@ -165,6 +192,11 @@ def _seed_summary_scenario(db: Session, observed_at: datetime) -> None:
 
 def test_summary_matches_existing_stock_and_purchase_order_semantics(db: Session) -> None:
     observed_at = datetime(2026, 7, 26, 9, 30, tzinfo=timezone.utc)
+    baseline = (
+        build_operations_summary(db, now=observed_at)
+        if restored_clone_mode_enabled()
+        else None
+    )
     _seed_summary_scenario(db, observed_at)
 
     result = build_operations_summary(db, now=observed_at)
@@ -174,19 +206,27 @@ def test_summary_matches_existing_stock_and_purchase_order_semantics(db: Session
         if hasattr(result, "model_dump")
         else result.dict()
     )
+    active_products = 3 + (baseline.active_products if baseline else 0)
+    low_stock_products = 1 + (baseline.low_stock_products if baseline else 0)
+    missing_products = 1 + (baseline.missing_products if baseline else 0)
+    production_today = 2 + (baseline.production_today if baseline else 0)
+    purchase_orders_open = 3 + (baseline.purchase_orders_open if baseline else 0)
     assert result_payload == {
         "as_of": observed_at,
-        "active_products": 3,
-        "low_stock_products": 1,
-        "missing_products": 1,
-        "production_today": 2,
-        "purchase_orders_open": 3,
+        "active_products": active_products,
+        "low_stock_products": low_stock_products,
+        "missing_products": missing_products,
+        "production_today": production_today,
+        "purchase_orders_open": purchase_orders_open,
     }
 
 
 def test_summary_rejects_naive_clock_and_missing_canonical_location(db: Session) -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
         build_operations_summary(db, now=datetime(2026, 7, 26, 12, 0))
+
+    if restored_clone_mode_enabled():
+        return
 
     with pytest.raises(RuntimeError, match="CENTRAL"):
         build_operations_summary(
@@ -235,6 +275,11 @@ def test_http_contract_is_closed_no_store_and_get_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed_at = datetime.now(timezone.utc)
+    baseline = (
+        build_operations_summary(db, now=observed_at)
+        if restored_clone_mode_enabled()
+        else None
+    )
     _seed_summary_scenario(db, observed_at)
     token = "c" * 48
     monkeypatch.setenv("OPERATIONS_READ_API_ENABLED", "true")
@@ -263,7 +308,9 @@ def test_http_contract_is_closed_no_store_and_get_only(
         "production_today",
         "purchase_orders_open",
     }
-    assert response.json()["low_stock_products"] == 1
+    assert response.json()["low_stock_products"] == (
+        1 + (baseline.low_stock_products if baseline else 0)
+    )
 
     assert client.post(
         "/api/v1/operations/summary",

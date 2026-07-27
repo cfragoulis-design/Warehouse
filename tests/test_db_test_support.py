@@ -5,9 +5,11 @@ import pytest
 from tests.db_test_support import (
     CRITICAL_FLOW_CONFIRM_ENV,
     PROVIDERS_DISABLED_ENV,
+    RESTORED_CLONE_ENV,
     SQLITE_TEST_URL,
     _validated_postgres_database_url,
     configured_test_database_url,
+    restored_clone_mode_enabled,
 )
 
 
@@ -62,3 +64,40 @@ def test_postgres_guard_requires_provider_disable_confirmation(
         _validated_postgres_database_url(
             f"postgresql+psycopg://warehouse_test:secret@localhost:5432/{database_name}"
         )
+
+
+def test_restored_clone_guard_requires_explicit_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(RESTORED_CLONE_ENV, "yes")
+
+    with pytest.raises(RuntimeError, match="explicit value true"):
+        restored_clone_mode_enabled()
+
+
+def test_restored_clone_guard_requires_dedicated_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_name = "warehouse_flow_test_plain"
+    monkeypatch.setenv(CRITICAL_FLOW_CONFIRM_ENV, database_name)
+    monkeypatch.setenv(PROVIDERS_DISABLED_ENV, "true")
+    monkeypatch.setenv(RESTORED_CLONE_ENV, "true")
+
+    with pytest.raises(RuntimeError, match="restored-clone prefix"):
+        _validated_postgres_database_url(
+            f"postgresql+psycopg://warehouse_test:secret@localhost:5432/{database_name}"
+        )
+
+
+def test_restored_clone_guard_accepts_exact_dedicated_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_name = "warehouse_flow_test_restored_guard"
+    database_url = (
+        f"postgresql+psycopg://warehouse_test:secret@localhost:5432/{database_name}"
+    )
+    monkeypatch.setenv(CRITICAL_FLOW_CONFIRM_ENV, database_name)
+    monkeypatch.setenv(PROVIDERS_DISABLED_ENV, "true")
+    monkeypatch.setenv(RESTORED_CLONE_ENV, "true")
+
+    assert _validated_postgres_database_url(database_url) == database_url
