@@ -1,6 +1,6 @@
 # Warehouse Critical-Flow Characterization
 
-Status date: 26 July 2026.
+Status date: 27 July 2026.
 
 This checkpoint freezes the first synthetic behavior baseline before deeper Warehouse schema or
 service extraction. It now covers both the original in-memory SQLite harness and an isolated
@@ -37,13 +37,23 @@ The focused Warehouse runtime suite passes all 11 tests:
 
 - SQLite baseline: 11 passed in 1.43 seconds;
 - isolated PostgreSQL 17: 11 passed in 204.81 seconds through the Railway TCP proxy;
+- approved restored non-production clone: 11 passed in 234.85 seconds;
 - Operations-summary subset: five passed under the separate Pydantic v2 runtime, proving that the
   closed source response has no runtime-specific `model_config` field.
 
 PostgreSQL execution is fail-closed. A target database must start with
 `warehouse_flow_test_`, its exact name must be supplied separately as confirmation, and providers
-must be explicitly confirmed disabled before the harness can reset `public`. The disposable
-`warehouse_flow_test_20260726` database was removed after the successful run.
+must be explicitly confirmed disabled. The normal PostgreSQL harness may reset only that
+disposable target's `public` schema. Restored-data execution additionally requires the exact
+`warehouse_flow_test_restored_` prefix and an explicit restored-clone confirmation. In that mode,
+the harness rejects any table-boundary drift, runs every test inside an outer transaction and
+requires all 20 table row counts to return exactly to their baseline after every test.
+
+The first restored-data pass exposed three synthetic-only, unscoped assertions; no Warehouse flow
+failed. Those assertions now bind only to the created product, consumable and purchase order.
+The complete rerun passed, the disposable
+`warehouse_flow_test_restored_20260727_gate2` database was removed, and no application was
+deployed.
 
 New and test files pass Ruff; the changed legacy service compiles. Existing unrelated lint debt in
 the 2,600-line legacy service remains unchanged and is not hidden by this checkpoint.
@@ -64,8 +74,12 @@ The transactional restore matched the signed manifest exactly:
 - total rows: 50,507;
 - every per-table row count matched.
 
-A final read-only inspection after the behavioral suite produced the same fingerprint and counts.
-The evidence database was not used as a test target and remains unchanged.
+The 27 July gate created an exact database-template clone of `warehouse_restore_verify` and ran
+the complete 11-test flow/summary suite only against that clone. Before the tests, after all
+rollback checks and on the immutable evidence database, inspection returned the same PostgreSQL
+major, schema fingerprint, 20-table boundary and 50,507 total rows. Providers and schedulers were
+disabled and no runtime startup mutation was enabled. The evidence database was never used as a
+test target and remains unchanged.
 
 ## Remaining technical risk
 
