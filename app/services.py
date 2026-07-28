@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 import subprocess
 from uuid import uuid4
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import unicodedata
 import os
@@ -25,10 +25,17 @@ try:
     from app.auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from app.db import get_db
     from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
+    from app.print_queue import (
+        claim_next_product_lot,
+        finish_claimed_product_lot,
+    )
+    from app.runtime_config import load_runtime_settings
 except Exception:
     from auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from db import get_db
     from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
+    from print_queue import claim_next_product_lot, finish_claimed_product_lot
+    from runtime_config import load_runtime_settings
 
 router = APIRouter()
 
@@ -164,6 +171,27 @@ def _validate_agent_token(station: str, token: str | None) -> None:
         raise HTTPException(status_code=503, detail='Print agent token not configured')
     if provided != expected:
         raise HTTPException(status_code=403, detail='Invalid print agent token')
+
+
+def _require_print_claim_protocol(request: Request | None) -> None:
+    protocol = ''
+    if request is not None:
+        protocol = (
+            request.headers.get('x-print-agent-protocol') or ''
+        ).strip()
+    if protocol != '1':
+        raise HTTPException(
+            status_code=426,
+            detail='Print agent protocol 1 required',
+        )
+
+
+def _reject_legacy_print_queue_when_claims_enabled() -> None:
+    if load_runtime_settings().print_claims_enabled:
+        raise HTTPException(
+            status_code=426,
+            detail='Use the protocol-1 single-job print queue',
+        )
 
 
 def _fmt_label_date(value) -> str:
@@ -1394,6 +1422,7 @@ def api_print_jobs_next_batch(
     if request is not None:
         token = request.headers.get('x-agent-token', '')
     _validate_agent_token(station_norm, token)
+    _reject_legacy_print_queue_when_claims_enabled()
 
     first_row = (
         db.query(ProductLot)
@@ -1432,6 +1461,7 @@ def api_print_jobs_batch_done(
 ):
     station_norm = _normalize_station(station)
     _validate_agent_token(station_norm, request.headers.get('x-agent-token', ''))
+    _reject_legacy_print_queue_when_claims_enabled()
 
     try:
         import anyio
@@ -1465,6 +1495,7 @@ def labels_queue(
 ):
     station_norm = _normalize_station(station)
     _validate_agent_token(station_norm, token)
+    _reject_legacy_print_queue_when_claims_enabled()
 
     limit = max(1, min(int(limit or 10), 50))
 
@@ -1522,6 +1553,7 @@ def labels_done(request: Request, db: Session = Depends(get_db)):
     if station_norm != lot.station:
         raise HTTPException(status_code=400, detail='Station mismatch')
     _validate_agent_token(station_norm, token)
+    _reject_legacy_print_queue_when_claims_enabled()
 
     lot.status = 'PRINTED'
     db.commit()
@@ -1555,6 +1587,7 @@ def labels_error(request: Request, db: Session = Depends(get_db)):
     if station_norm != lot.station:
         raise HTTPException(status_code=400, detail='Station mismatch')
     _validate_agent_token(station_norm, token)
+    _reject_legacy_print_queue_when_claims_enabled()
 
     lot.status = 'ERROR'
     db.commit()
@@ -1574,6 +1607,32 @@ def api_print_jobs_next(
     if request is not None:
         token = request.headers.get('x-agent-token', '')
     _validate_agent_token(station_norm, token)
+
+    settings = load_runtime_settings()
+    if settings.print_claims_enabled:
+        _require_print_claim_protocol(request)
+        claim = claim_next_product_lot(
+            db,
+            station=station_norm,
+            now=datetime.now(timezone.utc),
+            lease_seconds=settings.print_claim_lease_seconds,
+        )
+        if claim is None:
+            return JSONResponse({'job': None})
+        lot = db.get(ProductLot, claim.lot_id)
+        if lot is None:
+            return JSONResponse({'job': None})
+        product = db.get(Product, lot.product_id)
+        if product is None:
+            return JSONResponse({'job': None})
+        payload = _sr_job_payload(lot, product)
+        payload.update(
+            {
+                'claim_token': claim.lease_token,
+                'lease_expires_at': claim.lease_expires_at.isoformat(),
+            }
+        )
+        return JSONResponse({'job': payload})
 
     row = (
         db.query(ProductLot, Product)
@@ -1605,6 +1664,32 @@ def api_print_jobs_done(
     if lot.station != station_norm:
         raise HTTPException(status_code=400, detail='Station mismatch')
 
+    if load_runtime_settings().print_claims_enabled:
+        _require_print_claim_protocol(request)
+        claim_token = (
+            request.headers.get('x-print-claim-token') or ''
+        ).strip()
+        if not claim_token:
+            raise HTTPException(
+                status_code=409,
+                detail='Print claim token required',
+            )
+        if not finish_claimed_product_lot(
+            db,
+            lot_id=lot.id,
+            station=station_norm,
+            lease_token=claim_token,
+            status='PRINTED',
+            now=datetime.now(timezone.utc),
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail='Print claim is stale or already completed',
+            )
+        return JSONResponse(
+            {'ok': True, 'id': lot.id, 'status': 'PRINTED'}
+        )
+
     lot.status = 'PRINTED'
     db.commit()
     return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
@@ -1626,6 +1711,37 @@ def api_print_jobs_fail(
         raise HTTPException(status_code=404, detail='Print job not found')
     if lot.station != station_norm:
         raise HTTPException(status_code=400, detail='Station mismatch')
+
+    if load_runtime_settings().print_claims_enabled:
+        _require_print_claim_protocol(request)
+        claim_token = (
+            request.headers.get('x-print-claim-token') or ''
+        ).strip()
+        if not claim_token:
+            raise HTTPException(
+                status_code=409,
+                detail='Print claim token required',
+            )
+        if not finish_claimed_product_lot(
+            db,
+            lot_id=lot.id,
+            station=station_norm,
+            lease_token=claim_token,
+            status='ERROR',
+            now=datetime.now(timezone.utc),
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail='Print claim is stale or already completed',
+            )
+        return JSONResponse(
+            {
+                'ok': True,
+                'id': lot.id,
+                'status': 'ERROR',
+                'error_message': (error_message or '')[:500],
+            }
+        )
 
     lot.status = 'ERROR'
     db.commit()

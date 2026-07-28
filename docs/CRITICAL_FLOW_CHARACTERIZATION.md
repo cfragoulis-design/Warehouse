@@ -81,17 +81,16 @@ major, schema fingerprint, 20-table boundary and 50,507 total rows. Providers an
 disabled and no runtime startup mutation was enabled. The evidence database was never used as a
 test target and remains unchanged.
 
-## Remaining technical risk
+## Print ownership follow-up
 
-The label queue currently provides authenticated station isolation and terminal transitions, but
-does not yet have worker-owned expiring claims. Two workers sharing one station credential can
-read the same queued job before either reports done/fail. A durable lease requires reviewed
-Warehouse schema migration and PostgreSQL concurrency verification; it must not be simulated with
-an in-memory lock or by overwriting lot traceability timestamps.
+The previously recorded duplicate-worker risk is closed in the default-off candidate documented
+in `PRINT_CLAIM_PROTOCOL_V1_EVIDENCE_20260727.md`. It adds a reviewed versioned migration,
+PostgreSQL `FOR UPDATE SKIP LOCKED` claims, expiring opaque ownership tokens, stale-token
+rejection, direct-SQL constraints and a real two-worker restored-clone race.
 
-The next checkpoint may now prepare a non-production Warehouse web service with startup mutations,
-schedulers and providers disabled. Existing-database migrations and any production Warehouse
-deployment remain separately gated.
+Production migration, protocol-1 print-agent installation and physical CENTRAL/WORKSHOP
+acceptance remain separate external gates. Existing-database migration or production deployment
+is not authorized by this checkpoint.
 
 ## Changed/new files
 
