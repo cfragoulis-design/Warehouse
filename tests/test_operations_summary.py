@@ -29,7 +29,9 @@ from app.models import (  # noqa: E402
     Supplier,
 )
 from app.operations_summary import (  # noqa: E402
+    build_operations_inventory,
     build_operations_summary,
+    require_operations_inventory_token,
     require_operations_read_token,
     router,
 )
@@ -184,6 +186,71 @@ def test_summary_matches_existing_stock_and_purchase_order_semantics(db: Session
     }
 
 
+def test_inventory_contract_matches_current_stock_and_product_semantics(db: Session) -> None:
+    observed_at = datetime(2026, 7, 26, 9, 30, tzinfo=timezone.utc)
+    _seed_summary_scenario(db, observed_at)
+
+    result = build_operations_inventory(db, now=observed_at)
+    by_sku = {product.sku: product for product in result.products}
+
+    low = by_sku["LOW"]
+    assert low.central_qty == Decimal("5")
+    assert low.workshop_qty == Decimal("0")
+    assert low.freezer_qty == Decimal("0")
+    assert low.total_qty == Decimal("5")
+    assert low.target_central == Decimal("10")
+    assert low.pending_qty == Decimal("5")
+    assert low.missing_qty == Decimal("2")
+    assert low.is_low is True
+
+    healthy = by_sku["OK"]
+    assert healthy.central_qty == Decimal("12")
+    assert healthy.pending_qty == Decimal("0")
+    assert healthy.is_low is False
+
+    freezer = by_sku["FREEZER"]
+    assert freezer.only_in_freezer is True
+    assert freezer.freezer_qty == Decimal("1")
+    assert freezer.total_qty == Decimal("1")
+    assert freezer.is_low is False
+
+    inactive = by_sku["OFF"]
+    assert inactive.is_active is False
+    assert inactive.missing_qty == Decimal("3")
+    assert result.contract_version == 1
+    assert result.as_of == observed_at
+
+
+def test_inventory_rejects_naive_clock_and_missing_canonical_locations(db: Session) -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        build_operations_inventory(db, now=datetime(2026, 7, 26, 12, 0))
+
+    with pytest.raises(RuntimeError, match="locations"):
+        build_operations_inventory(
+            db,
+            now=datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_inventory_fails_closed_above_the_contract_row_limit(db: Session) -> None:
+    db.add_all(
+        [
+            Location(code="CENTRAL", name="Central"),
+            Location(code="WORKSHOP", name="Workshop"),
+        ]
+    )
+    db.add_all(
+        [
+            Product(name=f"Bounded product {index}", unit="kg", is_active=True)
+            for index in range(501)
+        ]
+    )
+    db.commit()
+
+    with pytest.raises(RuntimeError, match="row limit"):
+        build_operations_inventory(db)
+
+
 def test_summary_rejects_naive_clock_and_missing_canonical_location(db: Session) -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
         build_operations_summary(db, now=datetime(2026, 7, 26, 12, 0))
@@ -230,6 +297,25 @@ def test_service_auth_rejects_missing_or_wrong_bearer_token(
     assert require_operations_read_token(f"Bearer {token}") is None
 
 
+def test_inventory_auth_requires_its_own_default_off_activation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = "i" * 48
+    monkeypatch.setenv("OPERATIONS_READ_API_ENABLED", "true")
+    monkeypatch.setenv("OPERATIONS_READ_API_TOKEN", token)
+    monkeypatch.delenv("OPERATIONS_INVENTORY_READ_API_ENABLED", raising=False)
+
+    with pytest.raises(HTTPException) as disabled:
+        require_operations_inventory_token(f"Bearer {token}")
+    assert disabled.value.status_code == 404
+
+    monkeypatch.setenv("OPERATIONS_INVENTORY_READ_API_ENABLED", "true")
+    with pytest.raises(HTTPException) as missing:
+        require_operations_inventory_token(None)
+    assert missing.value.status_code == 401
+    assert require_operations_inventory_token(f"Bearer {token}") is None
+
+
 def test_http_contract_is_closed_no_store_and_get_only(
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
@@ -239,6 +325,7 @@ def test_http_contract_is_closed_no_store_and_get_only(
     token = "c" * 48
     monkeypatch.setenv("OPERATIONS_READ_API_ENABLED", "true")
     monkeypatch.setenv("OPERATIONS_READ_API_TOKEN", token)
+    monkeypatch.setenv("OPERATIONS_INVENTORY_READ_API_ENABLED", "true")
 
     app = FastAPI()
     app.include_router(router)
@@ -267,5 +354,37 @@ def test_http_contract_is_closed_no_store_and_get_only(
 
     assert client.post(
         "/api/v1/operations/summary",
+        headers={"Authorization": f"Bearer {token}"},
+    ).status_code == 405
+
+    inventory = client.get(
+        "/api/v1/operations/inventory",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert inventory.status_code == 200
+    assert inventory.headers["cache-control"] == "no-store"
+    assert set(inventory.json()) == {"contract_version", "as_of", "products"}
+    assert inventory.json()["contract_version"] == 1
+    assert inventory.json()["products"]
+    assert set(inventory.json()["products"][0]) == {
+        "external_id",
+        "name",
+        "sku",
+        "category",
+        "unit",
+        "is_active",
+        "only_in_freezer",
+        "central_qty",
+        "workshop_qty",
+        "freezer_qty",
+        "total_qty",
+        "target_central",
+        "min_stock",
+        "pending_qty",
+        "missing_qty",
+        "is_low",
+    }
+    assert client.post(
+        "/api/v1/operations/inventory",
         headers={"Authorization": f"Bearer {token}"},
     ).status_code == 405

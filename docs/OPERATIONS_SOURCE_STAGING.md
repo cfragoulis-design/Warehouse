@@ -27,6 +27,8 @@ WAREHOUSE_STARTUP_MUTATIONS_ENABLED=false
 WAREHOUSE_SCHEDULERS_ENABLED=false
 OPERATIONS_READ_API_ENABLED=true
 OPERATIONS_READ_API_TOKEN=<random 32+ character service token>
+# Inventory candidate only; omit for the established aggregate checkpoint:
+OPERATIONS_INVENTORY_READ_API_ENABLED=false
 ```
 
 Source mode refuses to start if mutations or schedulers are not explicitly disabled. Ambiguous
@@ -38,6 +40,8 @@ The source process mounts only:
 
 - `GET /health`;
 - `GET /api/v1/operations/summary`;
+- the mounted `GET /api/v1/operations/inventory` candidate, which returns hidden `404` unless its
+  independent switch is explicitly enabled;
 - FastAPI's OpenAPI/documentation endpoints.
 
 The Warehouse UI, session/PIN login, writes, Telegram endpoints, report endpoints, print-agent
@@ -78,6 +82,9 @@ dropped after evidence is retained and the staging checkpoint is closed.
 ## Executed checkpoint
 
 Executed on 26 July 2026:
+
+The evidence below is historical and exact to the aggregate-only commit. Its OpenAPI assertion
+predates the local inventory candidate; no inventory activation is implied by that evidence.
 
 - private runtime implementation commit:
   `0240bcd13f41283ba507965e487204b074c72e97`;

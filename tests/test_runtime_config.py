@@ -82,6 +82,7 @@ from app.db import engine
 paths = {route.path for route in app.routes}
 assert "/health" in paths
 assert "/api/v1/operations/summary" in paths
+assert "/api/v1/operations/inventory" in paths
 assert "/ui/login" not in paths
 assert "app.services" not in sys.modules
 assert "app.digest_service" not in sys.modules
@@ -93,6 +94,8 @@ with TestClient(app) as client:
     assert client.get("/ui/login").status_code == 404
     assert client.post("/api/v1/operations/summary").status_code == 405
     assert client.get("/api/v1/operations/summary").status_code == 401
+    assert client.post("/api/v1/operations/inventory").status_code == 405
+    assert client.get("/api/v1/operations/inventory").status_code == 404
 
 assert weekly_report_task is None
 with engine.connect() as connection:

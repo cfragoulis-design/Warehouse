@@ -22,6 +22,11 @@ The aggregate-only Operations endpoint stays hidden unless both variables are ex
 method and is unrelated to the session/PIN authentication used by the Warehouse UI. Keep the
 switch false and omit the token until a separate staging connection is approved.
 
+The product-level `GET /api/v1/operations/inventory` candidate has a second independent switch,
+`OPERATIONS_INVENTORY_READ_API_ENABLED=true`. It remains hidden with `404` unless both the base
+read boundary and this switch are enabled. The route is local-only and must not be enabled on an
+existing source deployment without the gates in `docs/OPERATIONS_INVENTORY_HANDOFF.md`.
+
 ### Non-production Operations source mode
 
 The narrow source deployment must use a dedicated database clone and a SELECT-only PostgreSQL
@@ -32,7 +37,7 @@ role. It also requires all three runtime boundaries below:
 - `WAREHOUSE_SCHEDULERS_ENABLED=false`
 
 Source mode fails startup unless mutations and schedulers are both explicitly disabled. It mounts
-only `/health`, the OpenAPI documentation endpoints and the Operations summary router; the
+only `/health`, the OpenAPI documentation endpoints and the Operations read router; the
 Warehouse UI, session login, mutation routes, provider routes, label agents and report routes are
 not mounted. Production defaults remain unchanged when these variables are omitted.
 
