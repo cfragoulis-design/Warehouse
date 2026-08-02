@@ -9,26 +9,40 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-# Robust imports: work both as package (app.*) and flat modules
 try:
-    from app.routes_labels import router as labels_router
-    from app.db import init_db, SessionLocal
-    from app.auth import seed_admins
-    from app.services import router as services_router
-    from app.digest_service import router as digest_router
-    from app.production_report_service import router as production_report_router
-    from app.auth import router as auth_router
-    from app.consumables_service import router as consumables_router
-    from app.seed import seed_locations, seed_categories
-except Exception:
-    from db import init_db, SessionLocal
-    from auth import seed_admins
-    from services import router as services_router
-    from digest_service import router as digest_router
-    from production_report_service import router as production_report_router
-    from auth import router as auth_router
-    from consumables_service import router as consumables_router
-    from seed import seed_locations, seed_categories
+    from app.runtime_config import load_runtime_settings
+except ImportError:
+    from runtime_config import load_runtime_settings
+
+runtime_settings = load_runtime_settings()
+
+# Robust imports: work both as package (app.*) and flat modules.
+try:
+    from app.db import SessionLocal, init_db
+    from app.operations_summary import router as operations_summary_router
+except ImportError:
+    from db import SessionLocal, init_db
+    from operations_summary import router as operations_summary_router
+
+if not runtime_settings.operations_source_mode:
+    try:
+        from app.auth import router as auth_router
+        from app.auth import seed_admins
+        from app.consumables_service import router as consumables_router
+        from app.digest_service import router as digest_router
+        from app.production_report_service import router as production_report_router
+        from app.routes_labels import router as labels_router
+        from app.seed import seed_categories, seed_locations
+        from app.services import router as services_router
+    except ImportError:
+        from auth import router as auth_router
+        from auth import seed_admins
+        from consumables_service import router as consumables_router
+        from digest_service import router as digest_router
+        from production_report_service import router as production_report_router
+        from routes_labels import router as labels_router
+        from seed import seed_categories, seed_locations
+        from services import router as services_router
 
 SECRET_KEY = os.getenv("SECRET_KEY", "change-me")
 logger = logging.getLogger(__name__)
@@ -65,6 +79,8 @@ async def weekly_report_scheduler() -> None:
 @app.on_event("startup")
 async def start_weekly_report_scheduler() -> None:
     global weekly_report_task
+    if not runtime_settings.schedulers_enabled:
+        return
     weekly_report_task = asyncio.create_task(weekly_report_scheduler())
 
 
@@ -82,6 +98,8 @@ async def stop_weekly_report_scheduler() -> None:
 
 @app.on_event("startup")
 def startup() -> None:
+    if not runtime_settings.startup_mutations_enabled:
+        return
     init_db()
     db = SessionLocal()
     try:
@@ -103,22 +121,24 @@ def startup() -> None:
         db.close()
 
 
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=SECRET_KEY,
-    same_site="lax",
-    https_only=True,
-)
+if not runtime_settings.operations_source_mode:
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=SECRET_KEY,
+        same_site="lax",
+        https_only=True,
+    )
 
-if static_dir:
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    if static_dir:
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-app.include_router(auth_router)
-app.include_router(services_router)
-app.include_router(consumables_router)
-app.include_router(digest_router)
-app.include_router(production_report_router)
-app.include_router(labels_router)
+    app.include_router(auth_router)
+    app.include_router(services_router)
+    app.include_router(consumables_router)
+    app.include_router(digest_router)
+    app.include_router(production_report_router)
+    app.include_router(labels_router)
+app.include_router(operations_summary_router)
 
 
 @app.get("/health")

@@ -2054,6 +2054,9 @@ def transfer_workshop_to_central(
             ),
         ]
     )
+    # Every physical WORKSHOP -> CENTRAL delivery pays down any persisted
+    # missing/owed quantity, regardless of which supported UI route created it.
+    missing_reduce_on_delivery(db, product_id, q)
     db.commit()
     return RedirectResponse("/stock", 303)
 
@@ -2217,6 +2220,8 @@ async def stock_adjust(
     loc_row = db.query(Location).filter(Location.code == loc).first()
     if not loc_row:
         raise HTTPException(status_code=500, detail="Location missing")
+    if q < 0 and get_stock_qty(db, product_id, loc_row.id) < q_abs:
+        raise HTTPException(status_code=422, detail="Not enough stock")
 
     mv = StockMovement(
         product_id=product_id,
