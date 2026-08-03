@@ -128,10 +128,42 @@
     .qbtn:hover{border-color:rgba(75,123,236,0.65)}
     .qbtn small{font-weight:600;color:var(--muted)}
 
+    .topActions{display:flex;align-items:center;gap:12px;min-width:0}
+    .weeklyReminder{
+      max-width:980px;
+      margin:14px auto 0;
+      padding:12px 16px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      color:var(--text);
+      background:rgba(202,162,74,0.12);
+      border:1px solid rgba(202,162,74,0.42);
+      border-radius:12px;
+      font-size:14px;
+    }
+    .weeklyReminderCopy{min-width:0;line-height:1.4}
+    .weeklyReminderActions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+    .weeklyReminderLink,
+    .weeklyReminderDismiss{
+      padding:8px 10px;
+      border-radius:8px;
+      font:inherit;
+      font-weight:700;
+      white-space:nowrap;
+    }
+    .weeklyReminderLink{background:var(--blue);color:#fff}
+    .weeklyReminderDismiss{background:var(--panel2);color:var(--text);border:1px solid var(--line);cursor:pointer}
+
     .foot{margin-top:16px;color:var(--muted);font-size:12px;opacity:0.9}
     @media (max-width:640px){
       .statsRow{grid-template-columns:1fr}
-      .top{padding:14px 14px}
+      .top{padding:14px;align-items:flex-start;gap:12px;flex-wrap:wrap}
+      .topActions{width:100%;justify-content:space-between;flex-wrap:wrap}
+      .topActions .app-datetime{min-width:0;white-space:normal}
+      .weeklyReminder{margin:12px 14px 0;align-items:flex-start;flex-direction:column}
+      .weeklyReminderActions{width:100%;flex-wrap:wrap}
     }
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
@@ -149,7 +181,7 @@
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;gap:12px;">
+    <div class="topActions">
       <span id="app-datetime" class="app-datetime"></span>
       <form method="post" action="/logout">
         <button class="btn" type="submit">Logout</button>
@@ -346,38 +378,25 @@
         const todayKey = "weekly_report_reminder_" + now.toISOString().slice(0,10);
         if (localStorage.getItem(todayKey) === "dismissed") return;
 
-        // Create banner
+        // Create an in-flow reminder that never covers the application header.
         const banner = document.createElement("div");
-        banner.style.position = "fixed";
-        banner.style.top = "0";
-        banner.style.left = "0";
-        banner.style.right = "0";
-        banner.style.background = "#fff3cd";
-        banner.style.borderBottom = "1px solid #ffeeba";
-        banner.style.padding = "10px 16px";
-        banner.style.zIndex = "9999";
-        banner.style.display = "flex";
-        banner.style.alignItems = "center";
-        banner.style.justifyContent = "space-between";
-        banner.style.fontSize = "14px";
+        banner.className = "weeklyReminder";
 
         banner.innerHTML = `
-            <div>
+            <div class="weeklyReminderCopy">
                 <strong>Υπενθύμιση:</strong> Στείλε την εβδομαδιαία αναφορά παραγωγής (Δευτέρα–Σάββατο)
             </div>
-            <div>
-                <a href="/admin/vet-report/weekly/send"
-                   style="margin-right:10px; padding:6px 10px; background:#0d6efd; color:white; text-decoration:none; border-radius:4px;">
+            <div class="weeklyReminderActions">
+                <a class="weeklyReminderLink" href="/admin/vet-report/weekly/send">
                    Send Weekly Report
                 </a>
-                <button id="dismissWeeklyReminder"
-                        style="padding:6px 10px; background:#6c757d; color:white; border:none; border-radius:4px; cursor:pointer;">
+                <button class="weeklyReminderDismiss" id="dismissWeeklyReminder" type="button">
                     Κλείσιμο
                 </button>
             </div>
         `;
 
-        document.body.appendChild(banner);
+        document.body.prepend(banner);
 
         document.getElementById("dismissWeeklyReminder").onclick = function () {
             localStorage.setItem(todayKey, "dismissed");
