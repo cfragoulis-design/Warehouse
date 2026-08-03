@@ -35,6 +35,8 @@ been performed.
   inactive products and non-finite quantities.
 - Product/category administration now has its own catalog router with unchanged
   public paths and explicit route-registry coverage.
+- Freezer views and mutations now have their own router; shared quantity
+  formatting keeps stock and freezer output consistent.
 
 ## Verified evidence
 
@@ -43,7 +45,7 @@ been performed.
 - `python -m compileall -q app tests`: passed.
 - `ruff check app tests`: passed with correctness rules.
 - `pip-audit -r requirements.txt`: no known vulnerabilities found.
-- Structural follow-up environment: 84 tests passed, including direct route,
+- Structural follow-up environment: 86 tests passed, including direct route,
   quantity, messaging-idempotency and freezer-concurrency boundary tests.
 
 ## Required staging gate
@@ -74,9 +76,9 @@ been performed.
   baseline.
 - Add persistent, expiring worker claims for label jobs. This is a schema change
   and belongs in the first versioned migration after the baseline.
-- Continue splitting `services.py` into stock, labels and freezer routers in
-  behaviour-preserving checkpoints. Catalog, Workshop messaging and the
-  stock-domain rules are already extracted.
+- Continue splitting `services.py` into stock and labels routers in
+  behaviour-preserving checkpoints. Catalog, freezer, Workshop messaging and
+  the stock-domain rules are already extracted.
 - Move PIN failure counters to shared persistent storage if Warehouse is scaled
   beyond one web process/instance.
 - Replace product-history `ON DELETE CASCADE` constraints after the migration

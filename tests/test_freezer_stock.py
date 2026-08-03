@@ -11,7 +11,7 @@ from tests.db_test_support import configured_test_database_url, create_character
 
 os.environ.setdefault("DATABASE_URL", configured_test_database_url())
 
-from app import services  # noqa: E402
+from app import freezer_service  # noqa: E402
 from app.db import Base  # noqa: E402
 from app.models import FreezerItem, Product, User  # noqa: E402
 
@@ -71,12 +71,12 @@ def test_freezer_mutations_share_product_lock_and_keep_balance_non_negative(
 
     locks: list[tuple[object, ...]] = []
     monkeypatch.setattr(
-        services,
+        freezer_service,
         "acquire_transaction_lock",
         lambda _db, *parts: locks.append(parts),
     )
 
-    response = services.freezer_add(
+    response = freezer_service.freezer_add(
         _request("/freezer/add"),
         product_id=product.id,
         qty="5,5",
@@ -87,7 +87,7 @@ def test_freezer_mutations_share_product_lock_and_keep_balance_non_negative(
     item = db.query(FreezerItem).filter_by(product_id=product.id).one()
     assert Decimal(item.qty) == Decimal("5.500")
 
-    adjusted = services.freezer_adjust(
+    adjusted = freezer_service.freezer_adjust(
         _request("/freezer/adjust"),
         item_id=item.id,
         delta="-8",
@@ -97,7 +97,7 @@ def test_freezer_mutations_share_product_lock_and_keep_balance_non_negative(
     assert adjusted.status_code == 200
     assert Decimal(item.qty) == Decimal("0")
 
-    set_response = services.freezer_set(
+    set_response = freezer_service.freezer_set(
         _request("/freezer/set"),
         item_id=item.id,
         qty="2.25",
@@ -107,7 +107,7 @@ def test_freezer_mutations_share_product_lock_and_keep_balance_non_negative(
     assert set_response.status_code == 200
     assert Decimal(item.qty) == Decimal("2.25")
 
-    deleted = services.freezer_delete(
+    deleted = freezer_service.freezer_delete(
         _request("/freezer/delete"),
         item_id=item.id,
         db=db,
@@ -126,7 +126,7 @@ def test_freezer_rejects_inactive_products_and_non_finite_quantities(db: Session
     db.add(item)
     db.commit()
 
-    inactive_response = services.freezer_add(
+    inactive_response = freezer_service.freezer_add(
         _request("/freezer/add"),
         product_id=inactive.id,
         qty="1",
@@ -137,7 +137,7 @@ def test_freezer_rejects_inactive_products_and_non_finite_quantities(db: Session
     assert "err=product" in inactive_response.headers["location"]
     assert db.query(FreezerItem).filter_by(product_id=inactive.id).count() == 0
 
-    invalid_response = services.freezer_set(
+    invalid_response = freezer_service.freezer_set(
         _request("/freezer/set"),
         item_id=item.id,
         qty="NaN",
@@ -156,7 +156,7 @@ def test_freezer_adjustment_enforces_role_at_direct_function_boundary(db: Sessio
     db.commit()
 
     with pytest.raises(HTTPException) as forbidden:
-        services.freezer_adjust(
+        freezer_service.freezer_adjust(
             _request("/freezer/adjust"),
             item_id=item.id,
             delta="1",

@@ -23,7 +23,8 @@ from sqlalchemy.orm import Session
 try:
     from app.auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from app.db import acquire_transaction_lock, get_db
-    from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag
+    from app.formatting import fmtqty
+    from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, AppFlag
     from app.stock_domain import (
         get_missing_map,
         get_stock_for_product,
@@ -31,15 +32,16 @@ try:
         missing_add_shortfall,
         missing_reduce_on_delivery,
         parse_qty,
-        parse_qty_any,
-        parse_qty_signed,
+        parse_qty_any as parse_qty_any,
+        parse_qty_signed as parse_qty_signed,
         signed_qty_expr,
     )
     from app.templating import WarehouseJinja2Templates
 except ImportError:
     from auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from db import acquire_transaction_lock, get_db
-    from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag
+    from formatting import fmtqty
+    from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, AppFlag
     from stock_domain import (
         get_missing_map,
         get_stock_for_product,
@@ -47,8 +49,8 @@ except ImportError:
         missing_add_shortfall,
         missing_reduce_on_delivery,
         parse_qty,
-        parse_qty_any,
-        parse_qty_signed,
+        parse_qty_any as parse_qty_any,
+        parse_qty_signed as parse_qty_signed,
         signed_qty_expr,
     )
     from templating import WarehouseJinja2Templates
@@ -63,22 +65,6 @@ router = APIRouter()
 # - if services.py in app/: templates in app/templates
 # - if services.py in root: templates in app/templates
 templates = WarehouseJinja2Templates(directory="app/templates")
-
-
-def fmtqty(val, unit: str | None = None) -> str:
-    if val is None:
-        return "0"
-    u = (unit or "").lower()
-    try:
-        v = float(val)
-    except Exception:
-        return str(val)
-
-    if u in {"pcs", "box", "piece", "pieces"}:
-        return str(int(round(v)))
-
-    s = f"{v:.3f}".rstrip("0").rstrip(".")
-    return s if s else "0"
 
 
 templates.env.filters["fmtqty"] = fmtqty
@@ -1621,7 +1607,6 @@ async def stock_set_target(
 
     return RedirectResponse(url="/stock", status_code=303)
 
-
 @router.post("/stock/adjust")
 async def stock_adjust(
     request: Request,
@@ -1726,8 +1711,6 @@ async def stock_adjust(
         )
 
     return RedirectResponse(url="/stock", status_code=303)
-
-
 @router.post("/stock/transfer_wc")
 async def stock_transfer_workshop_to_central_ui(
     request: Request,
@@ -1960,187 +1943,4 @@ async def stock_fulfill_pending(
     return RedirectResponse(url="/stock", status_code=303)
 
 
-# --------------------
-# Freezer (standalone stock)
-# --------------------
-
-def _can_freezer_adjust(user: User) -> bool:
-    return user.role in {"admin", "workshop"}
-
-
-def _locked_freezer_item(db: Session, item_id: int) -> FreezerItem | None:
-    """Lock the product-level freezer balance, then reload the current row."""
-    product_id = db.execute(
-        select(FreezerItem.product_id).where(FreezerItem.id == int(item_id))
-    ).scalar_one_or_none()
-    if product_id is None:
-        return None
-    acquire_transaction_lock(db, "freezer-stock", product_id)
-    return db.get(FreezerItem, int(item_id))
-
-
-@router.get("/freezer", response_class=HTMLResponse)
-def freezer_view(
-    request: Request,
-    q: str | None = None,
-    show: str | None = None,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    q = (q or "").strip()
-    show = (show or "").strip()  # ""=only frozen, "all"=all products
-
-    # Load freezer items joined with products
-    stmt = (
-        select(FreezerItem, Product)
-        .join(Product, Product.id == FreezerItem.product_id)
-        .where(Product.is_active.is_(True))
-    )
-
-    if q:
-        like = f"%{q}%"
-        stmt = stmt.where((Product.name.ilike(like)) | (Product.sku.ilike(like)))
-
-    stmt = stmt.order_by(func.coalesce(Product.category, "ZZZ"), Product.name)
-
-    freezer_rows = db.execute(stmt).all()
-
-    # For "all products" view, show products not yet in freezer with qty=0 (virtual rows)
-    products_all = db.execute(
-        select(Product).where(Product.is_active.is_(True)).order_by(func.coalesce(Product.category, "ZZZ"), Product.name)
-    ).scalars().all()
-
-    freezer_map = {fi.product_id: fi for (fi, p) in freezer_rows}
-
-    rows = []
-    if show == "all":
-        for p in products_all:
-            fi = freezer_map.get(p.id)
-            rows.append({"item": fi, "product": p, "qty": Decimal(str(fi.qty)) if fi else Decimal("0")})
-    else:
-        for fi, p in freezer_rows:
-            rows.append({"item": fi, "product": p, "qty": Decimal(str(fi.qty))})
-
-    # products for Add dropdown (active)
-    add_products = products_all
-
-    return templates.TemplateResponse(
-        "freezer.html",
-        {
-            "request": request,
-            "user": user,
-            "rows": rows,
-            "q": q,
-            "show": show,
-            "add_products": add_products,
-            "can_adjust": _can_freezer_adjust(user),
-            "is_admin": user.role == "admin",
-        },
-    )
-
-
-@router.post("/freezer/add")
-def freezer_add(
-    request: Request,
-    product_id: int = Form(...),
-    qty: str = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    if user.role != "admin":
-        return admin_only_dialog(request, user, next_url="/freezer")
-
-    q = parse_qty(qty)
-    if q is None:
-        return RedirectResponse(url="/freezer?err=qty", status_code=303)
-
-    product = db.get(Product, product_id)
-    if product is None or not product.is_active:
-        return RedirectResponse(url="/freezer?err=product", status_code=303)
-
-    acquire_transaction_lock(db, "freezer-stock", product_id)
-    fi = db.execute(select(FreezerItem).where(FreezerItem.product_id == product_id)).scalar_one_or_none()
-    if fi:
-        fi.qty = Decimal(str(fi.qty)) + q
-    else:
-        fi = FreezerItem(product_id=product_id, qty=q)
-        db.add(fi)
-
-    db.commit()
-
-    # If called via fetch, return JSON
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return JSONResponse({"ok": True})
-
-    return RedirectResponse(url="/freezer", status_code=303)
-
-
-@router.post("/freezer/adjust")
-def freezer_adjust(
-    request: Request,
-    item_id: int = Form(...),
-    delta: str = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    if not _can_freezer_adjust(user):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    d = parse_qty_signed(delta)
-    if d is None:
-        return JSONResponse({"ok": False, "error": "bad_qty"}, status_code=400)
-
-    fi = _locked_freezer_item(db, item_id)
-    if not fi:
-        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-
-    new_qty = Decimal(str(fi.qty)) + d
-    if new_qty < 0:
-        new_qty = Decimal("0")
-
-    fi.qty = new_qty
-    db.commit()
-
-    return JSONResponse({"ok": True, "item_id": fi.id, "qty": fmtqty(new_qty)})
-
-
-@router.post("/freezer/set")
-def freezer_set(
-    request: Request,
-    item_id: int = Form(...),
-    qty: str = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-
-    q = parse_qty_any(qty)
-    if q is None:
-        return JSONResponse({"ok": False, "error": "bad_qty"}, status_code=400)
-
-    fi = _locked_freezer_item(db, item_id)
-    if not fi:
-        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-
-    fi.qty = q
-    db.commit()
-    return JSONResponse({"ok": True, "item_id": fi.id, "qty": fmtqty(q)})
-
-
-@router.post("/freezer/delete")
-def freezer_delete(
-    request: Request,
-    item_id: int = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-
-    fi = _locked_freezer_item(db, item_id)
-    if fi:
-        db.delete(fi)
-        db.commit()
-
-    return JSONResponse({"ok": True, "item_id": int(item_id)})
+# End of the legacy stock/label router. New domains belong in dedicated modules.

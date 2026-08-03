@@ -27,9 +27,11 @@ Operations, SR, provider or database change has been made.
 - Acknowledgements now serialize per message/user before the idempotency check.
 - Freezer mutations now serialize per product and reload the current balance
   after acquiring the lock.
+- Freezer routes now live in `freezer_service.py`; shared output formatting was
+  moved into a dependency-free module used by both stock and freezer views.
 - `services.py` was reduced from 2,700+ physical lines to 2,146 without
   changing route paths, templates or the external Operations inventory
-  contract.
+  contract, then reduced further to 1,944 by extracting freezer routes.
 
 ## Findings that require a versioned migration
 
@@ -61,14 +63,15 @@ These should not be patched through startup DDL or guessed against production:
    numeric threshold, database invariants and acknowledgement uniqueness.
 4. Extract label routes without behaviour changes, then add persistent,
    expiring print-job claims in a later migration.
-5. Extract the freezer routes; introduce the freezer ledger with a guarded
-   backfill/opening-balance event. Catalog extraction is already complete.
+5. Introduce the freezer ledger with a guarded backfill/opening-balance event.
+   Catalog and freezer route extraction are already complete.
 6. Only after isolated PostgreSQL concurrency and rollback verification,
    request separate staging approval. Production remains out of scope.
 
 ## Local verification
 
-- Complete suite: 84 passed.
-- Route uniqueness verifies the extracted messaging and catalog modules.
+- Complete suite: 86 passed.
+- Route uniqueness verifies the extracted messaging, catalog and freezer
+  modules.
 - No schema migration was added or executed.
 - No network publication, push or deployment was performed.

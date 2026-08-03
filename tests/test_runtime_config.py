@@ -230,6 +230,23 @@ for method, path in expected_catalog_routes:
     ]
     assert len(matching) == 1
     assert matching[0].endpoint.__module__ == "app.catalog_service"
+
+expected_freezer_routes = {
+    ("GET", "/freezer"),
+    ("POST", "/freezer/add"),
+    ("POST", "/freezer/adjust"),
+    ("POST", "/freezer/set"),
+    ("POST", "/freezer/delete"),
+}
+for method, path in expected_freezer_routes:
+    matching = [
+        route
+        for route in routes
+        if getattr(route, "path", None) == path
+        and method in (getattr(route, "methods", set()) or set())
+    ]
+    assert len(matching) == 1
+    assert matching[0].endpoint.__module__ == "app.freezer_service"
 """
     result = subprocess.run(
         [sys.executable, "-c", command],
