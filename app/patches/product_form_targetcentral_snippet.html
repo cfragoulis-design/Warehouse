@@ -1,6 +1,0 @@
-<!-- Add this near Min Stock field in app/templates/product_form.html -->
-
-<label>Στόχος Κεντρικού (Target Central) — στη μονάδα του προϊόντος</label>
-<input name="target_central" type="number" min="0" step="1"
-       value="{{ product.target_central if product and product.target_central is not none else 0 }}">
-<div class="muted">Αν είναι &gt; 0, στο Stock θα δείχνει Pending όταν το Κεντρικό είναι κάτω από τον στόχο.</div>

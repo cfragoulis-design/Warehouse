@@ -113,11 +113,6 @@
                 {{ 'Deactivate' if p.is_active else 'Activate' }}
               </button>
             </form>
-            <form method="post" action="/products/{{ p.id }}/delete" style="display:inline;margin:0" onsubmit="return confirm('Delete product? This will also delete its stock movements.');">
-              <button class="btnlink" type="submit" style="background:rgba(255,107,107,.1);border-color:rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer">
-                Delete
-              </button>
-            </form>
           </div>
         </td>
       </tr>

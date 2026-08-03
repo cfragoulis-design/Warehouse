@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -18,7 +18,7 @@ from tests.db_test_support import (
 
 os.environ.setdefault("DATABASE_URL", configured_test_database_url())
 
-from app import production_report_service, services  # noqa: E402
+from app import auth, digest_service, production_report_service, services  # noqa: E402
 from app.consumables_service import (  # noqa: E402
     consumable_add_submit,
     consumable_take_submit,
@@ -151,6 +151,30 @@ def _stock_scenario(
 
 def _json(response) -> dict[str, object]:
     return json.loads(response.body.decode("utf-8"))
+
+
+def _request(
+    *,
+    method: str = "POST",
+    host: str = "warehouse.example",
+    origin: str | None = "https://warehouse.example",
+) -> Request:
+    headers = [(b"host", host.encode("ascii"))]
+    if origin is not None:
+        headers.append((b"origin", origin.encode("ascii")))
+    scope = {
+        "type": "http",
+        "method": method,
+        "scheme": "https",
+        "path": "/login",
+        "raw_path": b"/login",
+        "query_string": b"",
+        "headers": headers,
+        "server": (host, 443),
+        "client": ("127.0.0.1", 12345),
+        "session": {},
+    }
+    return Request(scope)
 
 
 def test_stock_balance_rejects_overdraw_and_pairs_transfer_rows(db: Session) -> None:
@@ -532,3 +556,199 @@ def test_weekly_report_is_once_only_and_failed_send_releases_marker(
     retry = production_report_service.send_weekly_vet_report_once(db)
     assert retry["sent"] is True
     assert db.scalar(text("SELECT COUNT(*) FROM report_runs")) == 1
+
+
+def test_daily_report_failed_send_releases_marker_for_retry(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report_day = date(2026, 8, 3)
+    monkeypatch.setenv("PRODUCTION_REPORT_TOKEN", "daily-token")
+    monkeypatch.setattr(
+        production_report_service,
+        "_get_athens_today",
+        lambda _db: report_day,
+    )
+    monkeypatch.setattr(
+        production_report_service,
+        "_send_email",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("provider unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        production_report_service.daily_production_cron(
+            request=None,
+            x_report_token="daily-token",
+            db=db,
+        )
+    assert db.scalar(text("SELECT COUNT(*) FROM report_runs")) == 0
+
+    sent: list[str] = []
+    monkeypatch.setattr(
+        production_report_service,
+        "_send_email",
+        lambda **_kwargs: sent.append("sent"),
+    )
+    retry = production_report_service.daily_production_cron(
+        request=None,
+        x_report_token="daily-token",
+        db=db,
+    )
+    assert _json(retry)["sent"] is True
+    assert sent == ["sent"]
+    assert db.scalar(text("SELECT COUNT(*) FROM report_runs")) == 1
+
+
+def test_report_cron_token_fails_closed_and_never_uses_query_auth(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PRODUCTION_REPORT_TOKEN", raising=False)
+    with pytest.raises(HTTPException) as missing_config:
+        production_report_service.daily_production_cron(
+            request=None,
+            x_report_token=None,
+            db=db,
+        )
+    assert missing_config.value.status_code == 503
+
+    monkeypatch.setenv("PRODUCTION_REPORT_TOKEN", "report-token")
+    with pytest.raises(HTTPException) as wrong_token:
+        production_report_service.daily_production_cron(
+            request=None,
+            x_report_token="wrong",
+            db=db,
+        )
+    assert wrong_token.value.status_code == 403
+
+
+def test_digest_cron_fails_closed_and_uses_header_token(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DIGEST_TOKEN", raising=False)
+    with pytest.raises(HTTPException) as missing_config:
+        digest_service.send_telegram_digest_cron(x_digest_token=None, db=db)
+    assert missing_config.value.status_code == 503
+
+    monkeypatch.setenv("DIGEST_TOKEN", "digest-token")
+    with pytest.raises(HTTPException) as wrong_token:
+        digest_service.send_telegram_digest_cron(x_digest_token="wrong", db=db)
+    assert wrong_token.value.status_code == 403
+
+    monkeypatch.setattr(digest_service, "_build_digest", lambda _db: "digest")
+    monkeypatch.setattr(digest_service, "_telegram_send_safe", lambda message: message == "digest")
+    assert digest_service.send_telegram_digest_cron(
+        x_digest_token="digest-token",
+        db=db,
+    ) == {"ok": True}
+
+
+def test_label_hook_never_executes_product_data_through_a_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    product = Product(
+        name="Steak & whoami",
+        sku="SEC-1",
+        unit="kg",
+        is_active=True,
+    )
+    lot = ProductLot(
+        product_id=1,
+        station="CENTRAL",
+        quantity_labels=1,
+        production_date=date(2026, 8, 3),
+        expiry_date=date(2026, 8, 4),
+        lot_code="LOT-SEC-1",
+        status="QUEUED",
+    )
+    monkeypatch.setenv(
+        "LABEL_PRINT_COMMAND",
+        "printer --name '{product_name}' --lot {lot_code}",
+    )
+    calls: list[tuple[list[str], bool, bool]] = []
+
+    def fake_run(command: list[str], *, shell: bool, check: bool) -> None:
+        calls.append((command, shell, check))
+
+    monkeypatch.setattr(services.subprocess, "run", fake_run)
+
+    assert services._run_label_print_hook(product, lot) == "PRINTED"
+    assert calls == [
+        (
+            ["printer", "--name", "Steak & whoami", "--lot", "LOT-SEC-1"],
+            False,
+            True,
+        )
+    ]
+
+
+def test_product_delete_compatibility_route_only_deactivates_product(
+    db: Session,
+) -> None:
+    user, _central, _workshop, product = _stock_scenario(db)
+    movement_count = db.scalar(select(func.count(StockMovement.id)))
+
+    response = services.product_delete(pid=product.id, user=user, db=db)
+
+    assert response.status_code == 303
+    db.refresh(product)
+    assert product.is_active is False
+    assert db.scalar(select(func.count(StockMovement.id))) == movement_count
+
+
+def test_session_auth_rejects_cross_origin_posts_and_rate_limits_pin_guesses(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    username = "rate-limited-admin"
+    user = User(username=username, role="admin", pin_hash=auth.hash_pin("123456"))
+    db.add(user)
+    db.commit()
+    auth._clear_login_failures(username)
+    monkeypatch.setattr(auth, "_LOGIN_MAX_FAILURES", 2)
+
+    with pytest.raises(HTTPException) as cross_origin:
+        auth.login(
+            request=_request(origin="https://attacker.example"),
+            username=username,
+            pin="wrong",
+            db=db,
+        )
+    assert cross_origin.value.status_code == 403
+
+    first = auth.login(
+        request=_request(),
+        username=username,
+        pin="wrong",
+        db=db,
+    )
+    assert first.status_code == 303
+
+    limited = auth.login(
+        request=_request(),
+        username=username,
+        pin="wrong",
+        db=db,
+    )
+    assert limited.status_code == 429
+    assert int(limited.headers["retry-after"]) > 0
+
+    still_limited = auth.login(
+        request=_request(),
+        username=username,
+        pin="123456",
+        db=db,
+    )
+    assert still_limited.status_code == 429
+
+    auth._clear_login_failures(username)
+    success_request = _request()
+    success = auth.login(
+        request=success_request,
+        username=username,
+        pin="123456",
+        db=db,
+    )
+    assert success.status_code == 303
+    assert success_request.session["uid"] == user.id

@@ -122,7 +122,9 @@
 
     <h1>Login</h1>
 
-    {% if err %}
+    {% if err == 'rate' %}
+      <div class="err">Too many failed attempts. Wait a few minutes and try again.</div>
+    {% elif err %}
       <div class="err">Wrong username or PIN.</div>
     {% endif %}
 

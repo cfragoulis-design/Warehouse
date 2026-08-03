@@ -49,7 +49,11 @@ Weekly Vet Report email via Railway Cron
    The report_runs table also prevents duplicate weekly emails.
 
    Alternative HTTP trigger, if you use an external HTTP cron:
-   - /internal/weekly-vet-report-cron?token=<WEEKLY_VET_REPORT_TOKEN>
+   - Method: POST
+   - URL: /internal/weekly-vet-report-cron
+   - Header: X-Report-Token: <WEEKLY_VET_REPORT_TOKEN>
+
+   Never place the token in the URL/query string.
 
 4) Admin preview:
    - /admin/vet-report/weekly/

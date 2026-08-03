@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-from pathlib import Path
 import subprocess
+import shlex
+import hmac
 from uuid import uuid4
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from collections import defaultdict
 import unicodedata
 import os
@@ -15,20 +16,21 @@ import urllib.request
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case, exists, or_
+from sqlalchemy import select, func, case, exists
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
     from app.auth import require_user, get_current_user, is_warehouse_only, home_for_user
-    from app.db import get_db
+    from app.db import acquire_transaction_lock, get_db
     from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
-except Exception:
+    from app.templating import WarehouseJinja2Templates
+except ImportError:
     from auth import require_user, get_current_user, is_warehouse_only, home_for_user
-    from db import get_db
+    from db import acquire_transaction_lock, get_db
     from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
+    from templating import WarehouseJinja2Templates
 
 router = APIRouter()
 
@@ -39,7 +41,7 @@ router = APIRouter()
 # Keep your existing folder layout:
 # - if services.py in app/: templates in app/templates
 # - if services.py in root: templates in app/templates
-templates = Jinja2Templates(directory="app/templates")
+templates = WarehouseJinja2Templates(directory="app/templates")
 
 
 def fmtqty(val, unit: str | None = None) -> str:
@@ -145,8 +147,11 @@ def _run_label_print_hook(product: Product, lot: ProductLot) -> str:
         'storage_text': getattr(product, 'storage_text', None) or '',
         'label_template': getattr(product, 'label_template', None) or '',
     }
-    command = command_tmpl.format(**values)
-    subprocess.run(command, shell=True, check=True)
+    command_parts = shlex.split(command_tmpl, posix=True)
+    if not command_parts:
+        raise RuntimeError('LABEL_PRINT_COMMAND produced no executable')
+    command = [part.format(**values) for part in command_parts]
+    subprocess.run(command, shell=False, check=True)
     return 'PRINTED'
 
 
@@ -162,7 +167,7 @@ def _validate_agent_token(station: str, token: str | None) -> None:
     provided = (token or '').strip()
     if not expected:
         raise HTTPException(status_code=503, detail='Print agent token not configured')
-    if provided != expected:
+    if not provided or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=403, detail='Invalid print agent token')
 
 
@@ -242,7 +247,7 @@ def workshop_pending_message(
         db.execute(
             select(WorkshopMessage)
             .where(
-                WorkshopMessage.is_active == True,
+                WorkshopMessage.is_active.is_(True),
                 WorkshopMessage.target_role == "workshop",
                 ~ack_exists,
             )
@@ -303,13 +308,13 @@ def workshop_ack_message(
 # --------------------
 def get_locations(db: Session) -> dict[str, Location]:
     locs = db.execute(select(Location)).scalars().all()
-    return {l.code: l for l in locs}
+    return {location.code: location for location in locs}
 
 
 def get_categories(db: Session, include_inactive: bool = False) -> list[Category]:
     stmt = select(Category)
     if not include_inactive:
-        stmt = stmt.where(Category.is_active == True)
+        stmt = stmt.where(Category.is_active.is_(True))
     stmt = stmt.order_by(Category.sort_order.asc(), Category.name.asc())
     return db.execute(stmt).scalars().all()
 
@@ -409,8 +414,6 @@ def _missing_add_shortfall(db: Session, product_id: int, shortfall_qty: Decimal)
 # --------------------
 # DASHBOARD STATS
 # --------------------
-from datetime import date
-
 def get_dashboard_stats(db: Session) -> dict:
     # CENTRAL location
     central = db.execute(
@@ -570,7 +573,7 @@ def products_list(
         db.execute(
             select(Product)
             .outerjoin(Category, Category.name == Product.category)
-            .where(True if show_all else (Product.is_active == True))
+            .where(True if show_all else Product.is_active.is_(True))
             .order_by(
                 Product.is_active.desc(),
                 cat_order.asc(),
@@ -710,7 +713,9 @@ def product_delete(
 ):
     product = db.get(Product, pid)
     if product:
-        db.delete(product)
+        # Products are historical master data. Never cascade-delete their lots,
+        # movements, missing-stock rows or freezer history.
+        product.is_active = False
         db.commit()
     return RedirectResponse(url="/products", status_code=303)
 
@@ -890,7 +895,7 @@ def movement_new_form(
     db: Session = Depends(get_db),
 ):
     products = db.execute(
-        select(Product).where(Product.is_active == True).order_by(Product.name.asc())
+        select(Product).where(Product.is_active.is_(True)).order_by(Product.name.asc())
     ).scalars().all()
 
     locs = db.execute(select(Location).order_by(Location.id.asc())).scalars().all()
@@ -927,6 +932,7 @@ def movement_create(
     if not loc:
         return RedirectResponse(url="/movements/new?err=location", status_code=303)
 
+    acquire_transaction_lock(db, "stock", p.id, loc.id)
     if mt in {"OUT", "ADJ-"}:
         available = get_stock_for_product(db, p.id, loc.id)
         if available < q:
@@ -1018,7 +1024,7 @@ def _category_order_index(db: Session | None = None) -> dict[str, int]:
     if db is not None:
         try:
             cats = db.execute(
-                select(Category).where(Category.is_active == True).order_by(Category.sort_order.asc(), Category.name.asc())
+                select(Category).where(Category.is_active.is_(True)).order_by(Category.sort_order.asc(), Category.name.asc())
             ).scalars().all()
             if cats:
                 return {_norm_cat(c.name): int(c.sort_order or 1000) for c in cats}
@@ -1096,8 +1102,8 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     # Stock view should be clean: inactive products are hidden.
     # Also hide products that are managed ONLY in /freezer.
-    stmt = stmt.where(Product.is_active == True)
-    stmt = stmt.where(Product.only_in_freezer == False)
+    stmt = stmt.where(Product.is_active.is_(True))
+    stmt = stmt.where(Product.only_in_freezer.is_(False))
 
     qq = (q or "").strip()
     if qq:
@@ -1190,10 +1196,6 @@ def api_stock(
     """
     grouped = build_stock_grouped(db, loc=loc, q=q)
 
-    f = _get_flag(db, _CENTRAL_READY_KEY)
-    central_ready = bool(f.bool_value) if f else False
-    central_ready_note = (f.note if f else None)
-
     items = []
     for _cat, arr in grouped.items():
         for it in arr:
@@ -1228,10 +1230,6 @@ def stock_view(
 ):
     grouped = build_stock_grouped(db, loc=loc, q=q)
 
-    f = _get_flag(db, _CENTRAL_READY_KEY)
-    central_ready = bool(f.bool_value) if f else False
-    central_ready_note = (f.note if f else None)
-
     return templates.TemplateResponse(
         "stock.html",
         {
@@ -1251,8 +1249,8 @@ def stock_view(
 def _eligible_label_products(db: Session):
     rows = (
         db.query(Product)
-        .filter(Product.is_active == True)
-        .filter(Product.only_in_freezer == False)
+        .filter(Product.is_active.is_(True))
+        .filter(Product.only_in_freezer.is_(False))
         .filter(Product.shelf_life_days > 0)
         .order_by(Product.category.asc().nullslast(), Product.name.asc())
         .all()
@@ -1459,12 +1457,12 @@ def api_print_jobs_batch_done(
 @router.get("/labels/queue", response_class=JSONResponse)
 def labels_queue(
     station: str,
-    token: str,
+    request: Request,
     limit: int = 10,
     db: Session = Depends(get_db),
 ):
     station_norm = _normalize_station(station)
-    _validate_agent_token(station_norm, token)
+    _validate_agent_token(station_norm, request.headers.get('x-agent-token', ''))
 
     limit = max(1, min(int(limit or 10), 50))
 
@@ -1889,10 +1887,6 @@ def stock_print_a4(
 ):
     grouped = build_stock_grouped(db, loc=loc, q=q)
 
-    f = _get_flag(db, _CENTRAL_READY_KEY)
-    central_ready = bool(f.bool_value) if f else False
-    central_ready_note = (f.note if f else None)
-
     if scope == "pending":
         grouped2: dict[str, list[dict]] = {}
         for cat, items in grouped.items():
@@ -1933,6 +1927,7 @@ def workshop_in(
     if not workshop:
         raise HTTPException(500, "WORKSHOP missing")
 
+    acquire_transaction_lock(db, "stock", product_id, workshop.id)
     db.add(
         StockMovement(
             product_id=product_id,
@@ -1962,6 +1957,7 @@ def workshop_out(
     if not workshop:
         raise HTTPException(500, "WORKSHOP missing")
 
+    acquire_transaction_lock(db, "stock", product_id, workshop.id)
     available = get_stock_for_product(db, product_id, workshop.id)
     if available < q:
         return RedirectResponse("/stock", 303)
@@ -1995,6 +1991,7 @@ def central_out(
     if not central:
         raise HTTPException(500, "CENTRAL missing")
 
+    acquire_transaction_lock(db, "stock", product_id, central.id)
     available = get_stock_for_product(db, product_id, central.id)
     if available < q:
         return RedirectResponse("/stock", 303)
@@ -2029,6 +2026,8 @@ def transfer_workshop_to_central(
     if not workshop or not central:
         raise HTTPException(500, "Locations missing")
 
+    for location_id in sorted((workshop.id, central.id)):
+        acquire_transaction_lock(db, "stock", product_id, location_id)
     available = get_stock_for_product(db, product_id, workshop.id)
     if available < q:
         return RedirectResponse("/stock", 303)
@@ -2078,6 +2077,8 @@ def transfer_central_to_workshop(
     if not workshop or not central:
         raise HTTPException(500, "Locations missing")
 
+    for location_id in sorted((workshop.id, central.id)):
+        acquire_transaction_lock(db, "stock", product_id, location_id)
     available = get_stock_for_product(db, product_id, central.id)
     if available < q:
         return RedirectResponse("/stock", 303)
@@ -2220,6 +2221,7 @@ async def stock_adjust(
     loc_row = db.query(Location).filter(Location.code == loc).first()
     if not loc_row:
         raise HTTPException(status_code=500, detail="Location missing")
+    acquire_transaction_lock(db, "stock", product_id, loc_row.id)
     if q < 0 and get_stock_qty(db, product_id, loc_row.id) < q_abs:
         raise HTTPException(status_code=422, detail="Not enough stock")
 
@@ -2304,6 +2306,8 @@ async def stock_transfer_workshop_to_central_ui(
     if not central or not workshop:
         raise HTTPException(status_code=500, detail="Locations missing")
 
+    for location_id in sorted((workshop.id, central.id)):
+        acquire_transaction_lock(db, "stock", product_id, location_id)
     ws_qty = get_stock_qty(db, product_id, workshop.id)
     if ws_qty < q:
         raise HTTPException(status_code=422, detail="Not enough workshop stock")
@@ -2404,6 +2408,8 @@ async def stock_fulfill_pending(
     if not central or not workshop:
         raise HTTPException(status_code=500, detail="Locations missing")
 
+    for location_id in sorted((workshop.id, central.id)):
+        acquire_transaction_lock(db, "stock", product_id, location_id)
     c_qty = get_stock_qty(db, product_id, central.id)
     ws_qty = get_stock_qty(db, product_id, workshop.id)
     t = p.target_central or Decimal("0")
@@ -2532,7 +2538,7 @@ def freezer_view(
     stmt = (
         select(FreezerItem, Product)
         .join(Product, Product.id == FreezerItem.product_id)
-        .where(Product.is_active == True)
+        .where(Product.is_active.is_(True))
     )
 
     if q:
@@ -2545,7 +2551,7 @@ def freezer_view(
 
     # For "all products" view, show products not yet in freezer with qty=0 (virtual rows)
     products_all = db.execute(
-        select(Product).where(Product.is_active == True).order_by(func.coalesce(Product.category, "ZZZ"), Product.name)
+        select(Product).where(Product.is_active.is_(True)).order_by(func.coalesce(Product.category, "ZZZ"), Product.name)
     ).scalars().all()
 
     freezer_map = {fi.product_id: fi for (fi, p) in freezer_rows}

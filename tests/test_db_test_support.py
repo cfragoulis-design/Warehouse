@@ -62,3 +62,36 @@ def test_postgres_guard_requires_provider_disable_confirmation(
         _validated_postgres_database_url(
             f"postgresql+psycopg://warehouse_test:secret@localhost:5432/{database_name}"
         )
+
+
+def test_transaction_lock_uses_deterministic_postgres_advisory_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", SQLITE_TEST_URL)
+    from app.db import acquire_transaction_lock
+
+    class Dialect:
+        name = "postgresql"
+
+    class Bind:
+        dialect = Dialect()
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, int]]] = []
+
+        def get_bind(self) -> Bind:
+            return Bind()
+
+        def execute(self, statement, parameters) -> None:
+            self.calls.append((str(statement), parameters))
+
+    session = FakeSession()
+    acquire_transaction_lock(session, "stock", 42, 3)  # type: ignore[arg-type]
+    acquire_transaction_lock(session, "stock", 42, 3)  # type: ignore[arg-type]
+    acquire_transaction_lock(session, "stock", 42, 4)  # type: ignore[arg-type]
+
+    assert all("pg_advisory_xact_lock" in sql for sql, _params in session.calls)
+    keys = [params["lock_key"] for _sql, params in session.calls]
+    assert keys[0] == keys[1]
+    assert keys[0] != keys[2]

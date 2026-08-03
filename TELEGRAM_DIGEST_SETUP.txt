@@ -6,9 +6,13 @@ Telegram Digest (twice daily via Railway Cron)
    - TELEGRAM_CHAT_ID
    - DIGEST_TOKEN  (choose a random secret string)
 
-2) Add two Railway cron jobs (HTTP GET):
-   - /internal/telegram-digest-cron?token=<DIGEST_TOKEN> at 07:00 Europe/Athens
-   - /internal/telegram-digest-cron?token=<DIGEST_TOKEN> at 14:20 Europe/Athens
+2) Add two HTTP POST cron jobs:
+   - URL: /internal/telegram-digest-cron
+   - Header: X-Digest-Token: <DIGEST_TOKEN>
+   - Schedules: 07:00 and 14:20 Europe/Athens
+
+   The token must never be placed in the URL/query string because URLs are
+   commonly retained in proxy logs and browser history.
 
 Manual test (admin only):
    POST /internal/telegram-digest

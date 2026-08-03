@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import hmac
 import json
 import urllib.parse
 import urllib.request
@@ -8,7 +9,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 try:
@@ -16,7 +18,7 @@ try:
     from app.auth import require_user
     from app.models import User
     from app.services import build_stock_grouped
-except Exception:
+except ImportError:
     from db import get_db
     from auth import require_user
     from models import User
@@ -72,7 +74,8 @@ def _try_get_ready_to_load(db: Session) -> bool | None:
     ]
     for sql in probes:
         try:
-            row = db.execute(sql).fetchone()  # type: ignore
+            with db.begin_nested():
+                row = db.execute(text(sql)).fetchone()
             if row is None:
                 continue
             v = row[0]
@@ -153,19 +156,18 @@ def send_telegram_digest(
     ok = _telegram_send_safe(msg)
     return {"ok": ok}
 
-@router.get("/internal/telegram-digest-cron")
+@router.post("/internal/telegram-digest-cron")
 def send_telegram_digest_cron(
-    token: str = "",
+    x_digest_token: str | None = Header(default=None, alias="X-Digest-Token"),
     db: Session = Depends(get_db),
 ):
-    """Cron-safe trigger.
-    Configure Railway cron to hit:
-      /internal/telegram-digest-cron?token=YOUR_DIGEST_TOKEN
-    """
+    """Cron-safe trigger authenticated by a non-URL header."""
     expected = os.getenv("DIGEST_TOKEN", "").strip()
-    if expected:
-        if not token or token != expected:
-            raise HTTPException(status_code=403, detail="Forbidden")
+    if not expected:
+        raise HTTPException(status_code=503, detail="Digest token not configured")
+    supplied = (x_digest_token or "").strip()
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     msg = _build_digest(db)
     ok = _telegram_send_safe(msg)
