@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 import os
-from sqlalchemy import create_engine
+import hashlib
+import logging
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 
 try:
     from app.runtime_config import load_runtime_settings
 except ImportError:
     from runtime_config import load_runtime_settings
+
+
+logger = logging.getLogger(__name__)
+
+
+def _handle_startup_ddl_failure(step: str, exc: Exception) -> None:
+    logger.exception("Warehouse startup DDL failed at %s", step)
+    if load_runtime_settings().strict_startup_ddl:
+        raise RuntimeError(f"Warehouse startup DDL failed at {step}") from exc
 
 
 def _normalize_database_url(url: str) -> str:
@@ -45,6 +56,27 @@ def get_db():
         db.close()
 
 
+def acquire_transaction_lock(db: Session, *resource_parts: object) -> None:
+    """Serialize a logical stock resource for the current DB transaction.
+
+    PostgreSQL advisory transaction locks work across all web workers and are
+    released automatically at commit/rollback. SQLite is used only by local
+    tests and does not need a cross-process lock here.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    resource = "|".join(str(part) for part in resource_parts).encode("utf-8")
+    lock_key = int.from_bytes(
+        hashlib.blake2b(resource, digest_size=8).digest(),
+        byteorder="big",
+        signed=True,
+    )
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": lock_key},
+    )
+
+
 def init_db() -> None:
     if not load_runtime_settings().startup_mutations_enabled:
         return
@@ -61,9 +93,8 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock INTEGER NOT NULL DEFAULT 0"
             )
-    except Exception:
-        # Do not fail app startup if ALTER is unsupported or permissions are restricted.
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("products.min_stock", exc)
 
     # Only-in-freezer flag (safe, idempotent).
     # Products with only_in_freezer=TRUE should not appear in /stock.
@@ -72,8 +103,8 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS only_in_freezer BOOLEAN NOT NULL DEFAULT FALSE"
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("products.only_in_freezer", exc)
 
     # Daily Production Report flag (safe, idempotent).
     # Products with is_production_item=TRUE are included in the daily email report.
@@ -82,8 +113,8 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_production_item BOOLEAN NOT NULL DEFAULT FALSE"
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("products.is_production_item", exc)
 
 
     # Label printing columns on products (safe, idempotent).
@@ -98,8 +129,8 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_template VARCHAR(255)"
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("products.label_metadata", exc)
 
     # Product label lots (safe, idempotent).
     try:
@@ -136,8 +167,8 @@ def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS ix_product_lots_batch_ref ON product_lots(batch_ref);"
             )
         
-    except Exception:
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("product_lots", exc)
 
     # Report runs table (idempotency for cron retries).
     # Ensures we don't send the same report twice for the same day.
@@ -154,8 +185,8 @@ def init_db() -> None:
                 );
                 """
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("report_runs", exc)
 
     # Missing/Owed table (safe, idempotent). We also keep a migration file, but this prevents crashes
     # on deployments where migrations were not run.
@@ -171,8 +202,8 @@ def init_db() -> None:
                 );
                 """
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("stock_missing", exc)
 
 
     # Freezer items (standalone stock). Safe, idempotent.
@@ -189,8 +220,8 @@ def init_db() -> None:
                 );
                 """
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("freezer_items", exc)
 
 
     # App flags (e.g. CENTRAL ready-to-load). Safe, idempotent.
@@ -206,8 +237,8 @@ def init_db() -> None:
                 );
                 """
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("app_flags", exc)
 
     # Consumables prices (safe, idempotent).
     # Added for the consumables module to support Cost €/pack.
@@ -216,8 +247,8 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE consumables ADD COLUMN IF NOT EXISTS cost_per_pack NUMERIC(12,2) NOT NULL DEFAULT 0"
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("consumables.cost_per_pack", exc)
 
     # Workshop messages (CENTRAL -> WORKSHOP). Safe, idempotent.
     try:
@@ -249,6 +280,6 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "CREATE INDEX IF NOT EXISTS ix_workshop_message_acks_msg_user ON workshop_message_acks(message_id, user_id);"
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        _handle_startup_ddl_failure("workshop_messages", exc)
 

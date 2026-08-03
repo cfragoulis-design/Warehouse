@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from app.runtime_config import load_runtime_settings
+from app.runtime_config import load_runtime_settings, resolve_session_secret
 
 
 def test_runtime_defaults_preserve_existing_warehouse_behavior(
@@ -16,12 +16,15 @@ def test_runtime_defaults_preserve_existing_warehouse_behavior(
     monkeypatch.delenv("WAREHOUSE_OPERATIONS_SOURCE_MODE", raising=False)
     monkeypatch.delenv("WAREHOUSE_STARTUP_MUTATIONS_ENABLED", raising=False)
     monkeypatch.delenv("WAREHOUSE_SCHEDULERS_ENABLED", raising=False)
+    monkeypatch.delenv("WAREHOUSE_STRICT_STARTUP_DDL", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
 
     settings = load_runtime_settings()
 
     assert settings.operations_source_mode is False
     assert settings.startup_mutations_enabled is True
     assert settings.schedulers_enabled is True
+    assert settings.strict_startup_ddl is False
 
 
 @pytest.mark.parametrize(
@@ -30,6 +33,7 @@ def test_runtime_defaults_preserve_existing_warehouse_behavior(
         ("WAREHOUSE_OPERATIONS_SOURCE_MODE", "sometimes"),
         ("WAREHOUSE_STARTUP_MUTATIONS_ENABLED", "disabled"),
         ("WAREHOUSE_SCHEDULERS_ENABLED", "maybe"),
+        ("WAREHOUSE_STRICT_STARTUP_DDL", "relaxed"),
     ],
 )
 def test_runtime_rejects_ambiguous_boolean_values(
@@ -60,6 +64,40 @@ def test_source_mode_requires_both_side_effect_boundaries_disabled(
         load_runtime_settings()
 
 
+def test_managed_runtime_requires_strong_explicit_session_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    settings = load_runtime_settings()
+    assert settings.strict_startup_ddl is True
+
+    with pytest.raises(RuntimeError, match="SECRET_KEY is required"):
+        resolve_session_secret(settings)
+
+    monkeypatch.setenv("SECRET_KEY", "change-me")
+    with pytest.raises(RuntimeError, match="at least 32 characters"):
+        resolve_session_secret(settings)
+
+    strong_secret = "warehouse-session-secret-that-is-long-enough"
+    monkeypatch.setenv("SECRET_KEY", strong_secret)
+    assert resolve_session_secret(settings) == strong_secret
+
+
+def test_source_mode_does_not_require_session_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.setenv("WAREHOUSE_OPERATIONS_SOURCE_MODE", "true")
+    monkeypatch.setenv("WAREHOUSE_STARTUP_MUTATIONS_ENABLED", "false")
+    monkeypatch.setenv("WAREHOUSE_SCHEDULERS_ENABLED", "false")
+
+    settings = load_runtime_settings()
+
+    assert resolve_session_secret(settings) is None
+
+
 def test_source_mode_exposes_only_health_and_read_summary_without_creating_tables() -> None:
     environment = os.environ.copy()
     environment.update(
@@ -79,7 +117,15 @@ from sqlalchemy import text
 from app.app import app, runtime_settings, weekly_report_task
 from app.db import engine
 
-paths = {route.path for route in app.routes}
+def expanded_routes():
+    for route in app.routes:
+        original_router = getattr(route, "original_router", None)
+        if original_router is not None:
+            yield from original_router.routes
+        else:
+            yield route
+
+paths = {route.path for route in expanded_routes() if hasattr(route, "path")}
 assert "/health" in paths
 assert "/api/v1/operations/summary" in paths
 assert "/api/v1/operations/inventory" in paths
@@ -103,6 +149,104 @@ with engine.connect() as connection:
         text("SELECT count(*) FROM sqlite_master WHERE type = 'table'")
     ).scalar_one()
 assert table_count == 0
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", command],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_standard_runtime_has_one_authenticated_label_center() -> None:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "DATABASE_URL": "sqlite+pysqlite:///:memory:",
+            "SECRET_KEY": "standard-runtime-session-secret-for-tests",
+            "WAREHOUSE_OPERATIONS_SOURCE_MODE": "false",
+            "WAREHOUSE_STARTUP_MUTATIONS_ENABLED": "false",
+            "WAREHOUSE_SCHEDULERS_ENABLED": "false",
+        }
+    )
+    command = """
+from app.app import app
+
+def expanded_routes():
+    for route in app.routes:
+        original_router = getattr(route, "original_router", None)
+        if original_router is not None:
+            yield from original_router.routes
+        else:
+            yield route
+
+routes = list(expanded_routes())
+label_routes = [route for route in routes if getattr(route, "path", None) == "/admin/labels"]
+assert len(label_routes) == 1
+assert label_routes[0].name == "labels_center"
+assert not any(getattr(route, "path", None) == "/admin/labels/print" for route in routes)
+
+expected_workshop_routes = {
+    ("POST", "/admin/workshop-message"),
+    ("GET", "/api/workshop/messages/pending"),
+    ("POST", "/api/workshop/messages/{message_id}/ack"),
+}
+for method, path in expected_workshop_routes:
+    matching = [
+        route
+        for route in routes
+        if getattr(route, "path", None) == path
+        and method in (getattr(route, "methods", set()) or set())
+    ]
+    assert len(matching) == 1
+    assert matching[0].endpoint.__module__ == "app.workshop_message_service"
+
+expected_catalog_routes = {
+    ("GET", "/products"),
+    ("GET", "/products/new"),
+    ("POST", "/products/new"),
+    ("GET", "/products/{pid}/edit"),
+    ("POST", "/products/{pid}/edit"),
+    ("POST", "/products/{pid}/delete"),
+    ("POST", "/products/{pid}/toggle"),
+    ("GET", "/categories"),
+    ("GET", "/categories/new"),
+    ("POST", "/categories/new"),
+    ("GET", "/categories/{cid}/edit"),
+    ("POST", "/categories/{cid}/edit"),
+    ("POST", "/categories/{cid}/toggle"),
+}
+for method, path in expected_catalog_routes:
+    matching = [
+        route
+        for route in routes
+        if getattr(route, "path", None) == path
+        and method in (getattr(route, "methods", set()) or set())
+    ]
+    assert len(matching) == 1
+    assert matching[0].endpoint.__module__ == "app.catalog_service"
+
+expected_freezer_routes = {
+    ("GET", "/freezer"),
+    ("POST", "/freezer/add"),
+    ("POST", "/freezer/adjust"),
+    ("POST", "/freezer/set"),
+    ("POST", "/freezer/delete"),
+}
+for method, path in expected_freezer_routes:
+    matching = [
+        route
+        for route in routes
+        if getattr(route, "path", None) == path
+        and method in (getattr(route, "methods", set()) or set())
+    ]
+    assert len(matching) == 1
+    assert matching[0].endpoint.__module__ == "app.freezer_service"
 """
     result = subprocess.run(
         [sys.executable, "-c", command],

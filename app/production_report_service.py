@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
+import hmac
 import json
 import urllib.request
 import smtplib
 from email.mime.text import MIMEText
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -22,6 +23,15 @@ router = APIRouter()
 
 def _env(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
+
+
+def _require_report_token(supplied: str | None, *environment_names: str) -> None:
+    expected = next((_env(name) for name in environment_names if _env(name)), "")
+    if not expected:
+        raise HTTPException(status_code=503, detail="Report token not configured")
+    provided = (supplied or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
 
 def _fmt_qty(v: object) -> str:
@@ -329,18 +339,16 @@ def send_weekly_vet_report_once(db: Session) -> dict[str, object]:
     }
 
 
-@router.get("/internal/daily-production-cron")
+@router.post("/internal/daily-production-cron")
 def daily_production_cron(
     request: Request,
-    token: str = "",
+    x_report_token: str | None = Header(default=None, alias="X-Report-Token"),
     db: Session = Depends(get_db),
 ):
-    expected = _env("PRODUCTION_REPORT_TOKEN")
-    if not expected or token != expected:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_report_token(x_report_token, "PRODUCTION_REPORT_TOKEN")
 
     report_key = "daily_production"
-    today = date.today()
+    today = _get_athens_today(db)
     inserted = db.execute(
         text(
             """
@@ -352,9 +360,9 @@ def daily_production_cron(
         ),
         {"k": report_key, "d": today},
     ).fetchone()
-    db.commit()
 
     if inserted is None:
+        db.rollback()
         return JSONResponse({"ok": True, "skipped": True, "reason": "already-sent"})
 
     prod_products: list[Product] = (
@@ -393,7 +401,7 @@ def daily_production_cron(
     to_addrs = _normalize_list(_env("PRODUCTION_REPORT_TO", "info@kentarxos.gr"))
     cc_addrs = _normalize_list(_env("PRODUCTION_REPORT_CC", "info@sklavounosmeat.gr"))
 
-    today_gr_val = _get_athens_today(db)
+    today_gr_val = today
     subject = f"Ημερήσια Παραγωγή – {today_gr_val.strftime('%d/%m/%Y')}"
 
     lines: list[str] = []
@@ -428,20 +436,28 @@ def daily_production_cron(
     lines.append("(Auto report από WH)")
     body = "\n".join(lines)
 
-    _send_email(subject=subject, body=body, to_addrs=to_addrs, cc_addrs=cc_addrs, sender_env_key="PRODUCTION_REPORT_FROM")
+    try:
+        _send_email(subject=subject, body=body, to_addrs=to_addrs, cc_addrs=cc_addrs, sender_env_key="PRODUCTION_REPORT_FROM")
+    except Exception:
+        db.rollback()
+        raise
+
+    db.commit()
 
     return JSONResponse({"ok": True, "sent": True, "date": str(today_gr_val)})
 
 
-@router.get("/internal/weekly-vet-report-cron")
+@router.post("/internal/weekly-vet-report-cron")
 def weekly_vet_report_cron(
     request: Request,
-    token: str = "",
+    x_report_token: str | None = Header(default=None, alias="X-Report-Token"),
     db: Session = Depends(get_db),
 ):
-    expected = _env("WEEKLY_VET_REPORT_TOKEN") or _env("PRODUCTION_REPORT_TOKEN")
-    if not expected or token != expected:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _require_report_token(
+        x_report_token,
+        "WEEKLY_VET_REPORT_TOKEN",
+        "PRODUCTION_REPORT_TOKEN",
+    )
 
     return JSONResponse(send_weekly_vet_report_once(db))
 

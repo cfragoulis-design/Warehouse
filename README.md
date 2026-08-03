@@ -7,7 +7,8 @@
 
 ## Environment variables (Railway -> Variables)
 - `DATABASE_URL` (use Railway Postgres connection string)
-- `SECRET_KEY` (any random string)
+- `SECRET_KEY` (a unique random value of at least 32 characters; required on Railway)
+- `WAREHOUSE_STRICT_STARTUP_DDL` (defaults to `true` on Railway/staging/production; startup fails if compatibility DDL fails)
 - `INITIAL_ADMIN_PIN` (e.g. `123456`)
 - `INITIAL_ADMIN2_PIN` (e.g. `141087`)
 
@@ -53,7 +54,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 export DATABASE_URL='postgresql+psycopg://user:pass@localhost:5432/db'
-export SECRET_KEY='dev'
+export SECRET_KEY='replace-with-at-least-32-random-characters'
 export INITIAL_ADMIN_PIN='123456'
 uvicorn app.app:app --reload
 ```

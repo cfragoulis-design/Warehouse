@@ -5,12 +5,11 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 try:
-    from app.db import get_db
+    from app.db import acquire_transaction_lock, get_db
     from app.auth import require_user, require_role, is_warehouse_only
     from app.models import (
         User,
@@ -21,13 +20,15 @@ try:
         PurchaseOrderItem,
         ConsumableMovement,
     )
-except Exception:
-    from db import get_db
+    from app.templating import WarehouseJinja2Templates
+except ImportError:
+    from db import acquire_transaction_lock, get_db
     from auth import require_user, require_role, is_warehouse_only
     from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement
+    from templating import WarehouseJinja2Templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = WarehouseJinja2Templates(directory="app/templates")
 
 OPEN_PO_STATUSES = {"DRAFT", "SUBMITTED", "PARTIAL"}
 WORKSHOP_CODE = "WORKSHOP"
@@ -103,7 +104,13 @@ def _positive_decimal(raw: str, default: str = "1") -> Decimal:
 
 
 def _stock_for_update(db: Session, consumable_id: int) -> ConsumableStock:
-    st = db.query(ConsumableStock).filter_by(consumable_id=consumable_id, location_code=WORKSHOP_CODE).first()
+    acquire_transaction_lock(db, "consumable-stock", consumable_id, WORKSHOP_CODE)
+    st = (
+        db.query(ConsumableStock)
+        .filter_by(consumable_id=consumable_id, location_code=WORKSHOP_CODE)
+        .with_for_update()
+        .first()
+    )
     if not st:
         st = ConsumableStock(consumable_id=consumable_id, location_code=WORKSHOP_CODE, qty=Decimal("0"))
         db.add(st)
@@ -277,7 +284,6 @@ def consumable_new(
     initial_qty: str = Form("0"),
     notes: str = Form(""),
 ):
-    role = (getattr(user, "role", "") or "").lower()
     clean_name = (name or "").strip()
     if not clean_name:
         raise HTTPException(status_code=400, detail="Name is required")
@@ -331,7 +337,7 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
 
     consumables = (
         db.query(Consumable)
-        .filter(Consumable.is_active == True)
+        .filter(Consumable.is_active.is_(True))
         .order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc())
         .all()
     )
@@ -574,7 +580,7 @@ def consumable_adjust(
             db,
             consumable_id=cid,
             movement_type=movement_type,
-            qty=actual,
+            qty=abs(actual),
             stock_after=_d(st.qty),
             user=user,
             note=(note or default_note),
@@ -683,7 +689,7 @@ def po_generate(db: Session = Depends(get_db), user: User = Depends(require_role
     )
     on_order_map = {cid: _d(qty) for cid, qty in on_order_rows}
 
-    consumables = db.query(Consumable).filter(Consumable.is_active == True).all()
+    consumables = db.query(Consumable).filter(Consumable.is_active.is_(True)).all()
     by_supplier: dict[int, list[tuple[Consumable, Decimal]]] = defaultdict(list)
 
     for c in consumables:
@@ -771,6 +777,7 @@ async def po_receive(
     db: Session = Depends(get_db),
     user: User = Depends(require_role("admin")),
 ):
+    acquire_transaction_lock(db, "purchase-order", po_id)
     po = db.get(PurchaseOrder, po_id)
     if not po:
         raise HTTPException(404)

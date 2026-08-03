@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import asyncio
 import logging
 from pathlib import Path
@@ -10,11 +9,12 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 try:
-    from app.runtime_config import load_runtime_settings
+    from app.runtime_config import load_runtime_settings, resolve_session_secret
 except ImportError:
-    from runtime_config import load_runtime_settings
+    from runtime_config import load_runtime_settings, resolve_session_secret
 
 runtime_settings = load_runtime_settings()
+session_secret = resolve_session_secret(runtime_settings)
 
 # Robust imports: work both as package (app.*) and flat modules.
 try:
@@ -28,23 +28,26 @@ if not runtime_settings.operations_source_mode:
     try:
         from app.auth import router as auth_router
         from app.auth import seed_admins
+        from app.catalog_service import router as catalog_router
         from app.consumables_service import router as consumables_router
         from app.digest_service import router as digest_router
+        from app.freezer_service import router as freezer_router
         from app.production_report_service import router as production_report_router
-        from app.routes_labels import router as labels_router
         from app.seed import seed_categories, seed_locations
         from app.services import router as services_router
+        from app.workshop_message_service import router as workshop_message_router
     except ImportError:
         from auth import router as auth_router
         from auth import seed_admins
+        from catalog_service import router as catalog_router
         from consumables_service import router as consumables_router
         from digest_service import router as digest_router
+        from freezer_service import router as freezer_router
         from production_report_service import router as production_report_router
-        from routes_labels import router as labels_router
         from seed import seed_categories, seed_locations
         from services import router as services_router
+        from workshop_message_service import router as workshop_message_router
 
-SECRET_KEY = os.getenv("SECRET_KEY", "change-me")
 logger = logging.getLogger(__name__)
 weekly_report_task = None
 
@@ -64,7 +67,7 @@ async def weekly_report_scheduler() -> None:
         try:
             try:
                 from app.weekly_vet_report_cron import run_if_due
-            except Exception:
+            except ImportError:
                 from weekly_vet_report_cron import run_if_due
             result = await asyncio.to_thread(run_if_due)
             if result.get("sent"):
@@ -122,9 +125,10 @@ def startup() -> None:
 
 
 if not runtime_settings.operations_source_mode:
+    assert session_secret is not None
     app.add_middleware(
         SessionMiddleware,
-        secret_key=SECRET_KEY,
+        secret_key=session_secret,
         same_site="lax",
         https_only=True,
     )
@@ -133,11 +137,13 @@ if not runtime_settings.operations_source_mode:
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     app.include_router(auth_router)
+    app.include_router(catalog_router)
     app.include_router(services_router)
+    app.include_router(freezer_router)
+    app.include_router(workshop_message_router)
     app.include_router(consumables_router)
     app.include_router(digest_router)
     app.include_router(production_report_router)
-    app.include_router(labels_router)
 app.include_router(operations_summary_router)
 
 

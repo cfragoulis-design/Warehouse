@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Numeric,
     Date,
+    CheckConstraint,
     UniqueConstraint,
     func,
 )
@@ -59,6 +60,13 @@ class WorkshopMessage(Base):
 
 class WorkshopMessageAck(Base):
     __tablename__ = "workshop_message_acks"
+    __table_args__ = (
+        UniqueConstraint(
+            "message_id",
+            "user_id",
+            name="uq_workshop_message_acks_message_user",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
@@ -101,6 +109,16 @@ class AppFlag(Base):
 
 class Product(Base):
     __tablename__ = "products"
+    __table_args__ = (
+        CheckConstraint(
+            "min_stock >= 0",
+            name="ck_products_min_stock_nonnegative",
+        ),
+        CheckConstraint(
+            "target_central >= 0",
+            name="ck_products_target_central_nonnegative",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     sku: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
@@ -109,9 +127,13 @@ class Product(Base):
     unit: Mapped[str] = mapped_column(String(8), nullable=False, default="pcs")  # pcs / kg / box
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Minimum total stock (CENTRAL + WORKSHOP). If >0 and total falls below it, UI shows LOW.
-    min_stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    min_stock: Mapped[Decimal] = mapped_column(
+        Numeric(12, 3), nullable=False, default=Decimal("0")
+    )
     # Desired stock at CENTRAL. Used to compute Pending (Target - Central)
-    target_central: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
+    target_central: Mapped[Decimal] = mapped_column(
+        Numeric(12, 3), nullable=False, default=Decimal("0")
+    )
 
     # If true, product is managed ONLY in /freezer and should NOT appear in /stock.
     only_in_freezer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -184,6 +206,13 @@ class Location(Base):
 
 class StockMovement(Base):
     __tablename__ = "stock_movements"
+    __table_args__ = (
+        CheckConstraint("qty > 0", name="ck_stock_movements_qty_positive"),
+        CheckConstraint(
+            "movement_type IN ('IN', 'OUT', 'ADJ+', 'ADJ-')",
+            name="ck_stock_movements_type",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
@@ -194,7 +223,7 @@ class StockMovement(Base):
     )
 
     # qty is always positive; movement_type defines sign.
-    qty: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False)
+    qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
 
     # IN / OUT / ADJ+ / ADJ-
     movement_type: Mapped[str] = mapped_column(String(8), nullable=False, default="IN")
@@ -239,6 +268,12 @@ class StockMissing(Base):
     """
 
     __tablename__ = "stock_missing"
+    __table_args__ = (
+        CheckConstraint(
+            "qty_missing >= 0",
+            name="ck_stock_missing_qty_nonnegative",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
@@ -298,18 +333,45 @@ class Consumable(Base):
 
 class ConsumableStock(Base):
     __tablename__ = "consumable_stock"
-    __table_args__ = (UniqueConstraint("consumable_id", "location_code", name="uq_consumable_stock_item_location"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "consumable_id",
+            "location_code",
+            name="uq_consumable_stock_item_location",
+        ),
+        CheckConstraint(
+            "qty >= 0",
+            name="ck_consumable_stock_qty_nonnegative",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=False)
 
     # We keep location as code for simplicity; UI uses WORKSHOP only.
     location_code: Mapped[str] = mapped_column(String(30), nullable=False, default="WORKSHOP")
-    qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("0"))
+    qty: Mapped[Decimal] = mapped_column(
+        Numeric(12, 3), nullable=False, default=Decimal("0")
+    )
 
 
 class ConsumableMovement(Base):
     __tablename__ = "consumable_movements"
+    __table_args__ = (
+        CheckConstraint(
+            "movement_type IN ('IN', 'OUT', 'ADJUST')",
+            name="ck_consumable_movements_type",
+        ),
+        CheckConstraint(
+            "((movement_type IN ('IN', 'OUT') AND qty > 0) "
+            "OR (movement_type = 'ADJUST' AND qty <> 0))",
+            name="ck_consumable_movements_qty_semantics",
+        ),
+        CheckConstraint(
+            "stock_after >= 0",
+            name="ck_consumable_movements_stock_after_nonnegative",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), index=True, nullable=False)
@@ -358,6 +420,12 @@ class PurchaseOrderItem(Base):
 
 class FreezerItem(Base):
     __tablename__ = "freezer_items"
+    __table_args__ = (
+        CheckConstraint(
+            "qty >= 0",
+            name="ck_freezer_items_qty_nonnegative",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
@@ -368,7 +436,9 @@ class FreezerItem(Base):
         nullable=False,
     )
 
-    qty: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
+    qty: Mapped[Decimal] = mapped_column(
+        Numeric(12, 3), nullable=False, default=Decimal("0")
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

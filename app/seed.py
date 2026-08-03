@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 try:
     from app.db import SessionLocal
     from app.models import Location, Product, Category
-except Exception:
+except ImportError:
     from db import SessionLocal
     from models import Location, Product, Category
 
@@ -38,7 +38,7 @@ def seed_locations(db: Session | None = None) -> None:
         close = True
 
     try:
-        existing = {l.code: l for l in db.query(Location).all()}
+        existing = {location.code: location for location in db.query(Location).all()}
 
         to_add = []
         if "CENTRAL" not in existing:

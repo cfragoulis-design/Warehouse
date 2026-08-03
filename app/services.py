@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-from pathlib import Path
 import subprocess
+import shlex
+import hmac
 from uuid import uuid4
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from collections import defaultdict
 import unicodedata
 import os
@@ -15,20 +16,44 @@ import urllib.request
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func, case, exists, or_
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, func, case
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
     from app.auth import require_user, get_current_user, is_warehouse_only, home_for_user
-    from app.db import get_db
-    from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
-except Exception:
+    from app.db import acquire_transaction_lock, get_db
+    from app.formatting import fmtqty
+    from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, AppFlag
+    from app.stock_domain import (
+        get_missing_map,
+        get_stock_for_product,
+        get_stock_qty,
+        missing_add_shortfall,
+        missing_reduce_on_delivery,
+        parse_qty,
+        parse_qty_any as parse_qty_any,
+        parse_qty_signed as parse_qty_signed,
+        signed_qty_expr,
+    )
+    from app.templating import WarehouseJinja2Templates
+except ImportError:
     from auth import require_user, get_current_user, is_warehouse_only, home_for_user
-    from db import get_db
-    from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
+    from db import acquire_transaction_lock, get_db
+    from formatting import fmtqty
+    from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, AppFlag
+    from stock_domain import (
+        get_missing_map,
+        get_stock_for_product,
+        get_stock_qty,
+        missing_add_shortfall,
+        missing_reduce_on_delivery,
+        parse_qty,
+        parse_qty_any as parse_qty_any,
+        parse_qty_signed as parse_qty_signed,
+        signed_qty_expr,
+    )
+    from templating import WarehouseJinja2Templates
 
 router = APIRouter()
 
@@ -39,23 +64,7 @@ router = APIRouter()
 # Keep your existing folder layout:
 # - if services.py in app/: templates in app/templates
 # - if services.py in root: templates in app/templates
-templates = Jinja2Templates(directory="app/templates")
-
-
-def fmtqty(val, unit: str | None = None) -> str:
-    if val is None:
-        return "0"
-    u = (unit or "").lower()
-    try:
-        v = float(val)
-    except Exception:
-        return str(val)
-
-    if u in {"pcs", "box", "piece", "pieces"}:
-        return str(int(round(v)))
-
-    s = f"{v:.3f}".rstrip("0").rstrip(".")
-    return s if s else "0"
+templates = WarehouseJinja2Templates(directory="app/templates")
 
 
 templates.env.filters["fmtqty"] = fmtqty
@@ -64,12 +73,6 @@ templates.env.filters["fmtqty"] = fmtqty
 # --------------------
 # auth helpers
 # --------------------
-def require_admin(user: User = Depends(require_user)) -> User:
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-    return user
-
-
 def admin_only_dialog(request: Request, user: User, next_url: str = "/dashboard") -> HTMLResponse:
     # Friendly access denied page (prevents raw JSON 403 in browser)
     return templates.TemplateResponse(
@@ -145,8 +148,11 @@ def _run_label_print_hook(product: Product, lot: ProductLot) -> str:
         'storage_text': getattr(product, 'storage_text', None) or '',
         'label_template': getattr(product, 'label_template', None) or '',
     }
-    command = command_tmpl.format(**values)
-    subprocess.run(command, shell=True, check=True)
+    command_parts = shlex.split(command_tmpl, posix=True)
+    if not command_parts:
+        raise RuntimeError('LABEL_PRINT_COMMAND produced no executable')
+    command = [part.format(**values) for part in command_parts]
+    subprocess.run(command, shell=False, check=True)
     return 'PRINTED'
 
 
@@ -162,7 +168,7 @@ def _validate_agent_token(station: str, token: str | None) -> None:
     provided = (token or '').strip()
     if not expected:
         raise HTTPException(status_code=503, detail='Print agent token not configured')
-    if provided != expected:
+    if not provided or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=403, detail='Invalid print agent token')
 
 
@@ -194,161 +200,11 @@ def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
     }
 
 # --------------------
-# workshop messaging (CENTRAL -> WORKSHOP)
-# --------------------
-@router.post("/admin/workshop-message")
-def admin_send_workshop_message(
-    request: Request,
-    body: str = Form(...),
-    title: str = Form(""),
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    msg_body = (body or "").strip()
-    if not msg_body:
-        return RedirectResponse(url="/dashboard?msg=" + urllib.parse.quote("Empty message") + "&level=warning", status_code=303)
-
-    msg_title = (title or "").strip() or None
-
-    msg = WorkshopMessage(
-        created_by_user_id=user.id,
-        target_role="workshop",
-        title=msg_title,
-        body=msg_body,
-        require_ack=True,
-        is_active=True,
-    )
-    db.add(msg)
-    db.commit()
-    return RedirectResponse(url="/dashboard?msg=" + urllib.parse.quote("Message sent to workshop") + "&level=info", status_code=303)
-
-
-@router.get("/api/workshop/messages/pending", response_class=JSONResponse)
-def workshop_pending_message(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    # Non-workshop users should never see messages; also keeps script safe if included everywhere.
-    if (user.role or "").lower() != "workshop":
-        return {"ok": True, "message": None}
-
-    ack_exists = exists().where(
-        (WorkshopMessageAck.message_id == WorkshopMessage.id) &
-        (WorkshopMessageAck.user_id == user.id)
-    )
-
-    msg = (
-        db.execute(
-            select(WorkshopMessage)
-            .where(
-                WorkshopMessage.is_active == True,
-                WorkshopMessage.target_role == "workshop",
-                ~ack_exists,
-            )
-            .order_by(WorkshopMessage.created_at.desc())
-            .limit(1)
-        )
-        .scalars()
-        .first()
-    )
-
-    if not msg:
-        return {"ok": True, "message": None}
-
-    return {
-        "ok": True,
-        "message": {
-            "id": msg.id,
-            "title": msg.title or "Message",
-            "body": msg.body,
-            "created_at": msg.created_at.isoformat() if msg.created_at else None,
-            "require_ack": bool(msg.require_ack),
-        },
-    }
-
-
-@router.post("/api/workshop/messages/{message_id}/ack", response_class=JSONResponse)
-def workshop_ack_message(
-    message_id: int,
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    if (user.role or "").lower() != "workshop":
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    msg = db.get(WorkshopMessage, message_id)
-    if not msg or not msg.is_active:
-        return {"ok": True}
-
-    # Best-effort dedupe
-    existing = db.execute(
-        select(WorkshopMessageAck.id).where(
-            WorkshopMessageAck.message_id == message_id,
-            WorkshopMessageAck.user_id == user.id,
-        )
-    ).first()
-
-    if not existing:
-        db.add(WorkshopMessageAck(message_id=message_id, user_id=user.id))
-        db.commit()
-
-    return {"ok": True}
-
-
-
-# --------------------
 # data helpers
 # --------------------
 def get_locations(db: Session) -> dict[str, Location]:
     locs = db.execute(select(Location)).scalars().all()
-    return {l.code: l for l in locs}
-
-
-def get_categories(db: Session, include_inactive: bool = False) -> list[Category]:
-    stmt = select(Category)
-    if not include_inactive:
-        stmt = stmt.where(Category.is_active == True)
-    stmt = stmt.order_by(Category.sort_order.asc(), Category.name.asc())
-    return db.execute(stmt).scalars().all()
-
-
-def parse_qty(qty: str) -> Decimal | None:
-    try:
-        q = Decimal(qty.replace(",", ".").strip())
-        if q <= 0:
-            return None
-        return q
-    except Exception:
-        return None
-
-
-
-def parse_qty_any(qty: str) -> Decimal | None:
-    """Parse qty that may be zero (for set operations)."""
-    try:
-        q = Decimal(qty.replace(",", ".").strip())
-        if q < 0:
-            return None
-        return q
-    except Exception:
-        return None
-
-
-
-def parse_qty_signed(qty: str) -> Decimal | None:
-    """Parse qty that may be negative (for +/- adjustments)."""
-    try:
-        s = qty.replace(",", ".").strip()
-        if not s:
-            return None
-        q = Decimal(s)
-        if q == 0:
-            return None
-        return q
-    except Exception:
-        return None
+    return {location.code: location for location in locs}
 
 
 def _truthy_flag(val: str | None) -> bool:
@@ -358,59 +214,9 @@ def _truthy_flag(val: str | None) -> bool:
     return v in {"1", "true", "yes", "on", "y"}
 
 
-def signed_qty_expr():
-    # OUT & ADJ- negative, everything else positive
-    return case(
-        (StockMovement.movement_type.in_(["OUT", "ADJ-"]), -StockMovement.qty),
-        else_=StockMovement.qty,
-    )
-
-
-def _get_missing_map(db: Session) -> dict[int, Decimal]:
-    rows = db.execute(select(StockMissing.product_id, StockMissing.qty_missing)).all()
-    out: dict[int, Decimal] = {}
-    for pid, qty in rows:
-        try:
-            out[int(pid)] = Decimal(qty or 0)
-        except Exception:
-            out[int(pid)] = Decimal("0")
-    return out
-
-
-def _missing_decrease_on_delivery(db: Session, product_id: int, delivered_qty: Decimal) -> None:
-    """Decrease missing only on WORKSHOP -> CENTRAL delivery."""
-    if delivered_qty <= 0:
-        return
-    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
-    if not rec:
-        return
-    new_val = Decimal(rec.qty_missing or 0) - delivered_qty
-    if new_val <= 0:
-        db.delete(rec)
-    else:
-        rec.qty_missing = new_val
-
-
-def _missing_add_shortfall(db: Session, product_id: int, shortfall_qty: Decimal) -> None:
-    """Add missing only when a fulfill request could not be fully satisfied."""
-    if shortfall_qty <= 0:
-        return
-    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
-    if not rec:
-        rec = StockMissing(product_id=product_id, qty_missing=shortfall_qty)
-        db.add(rec)
-    else:
-        rec.qty_missing = Decimal(rec.qty_missing or 0) + shortfall_qty
-
-
-
-
-
 # --------------------
 # DASHBOARD STATS
 # --------------------
-from datetime import date
-
 def get_dashboard_stats(db: Session) -> dict:
     # CENTRAL location
     central = db.execute(
@@ -460,77 +266,6 @@ def get_dashboard_stats(db: Session) -> dict:
         "movements_today": int(movements_today or 0),
     }
 
-def get_stock_for_product(db: Session, product_id: int, location_id: int) -> Decimal:
-    signed_qty = signed_qty_expr()
-    val = db.execute(
-        select(func.coalesce(func.sum(signed_qty), 0))
-        .where(StockMovement.product_id == product_id)
-        .where(StockMovement.location_id == location_id)
-    ).scalar_one()
-    return Decimal(val)
-
-
-# compatibility alias (you used get_stock_qty later)
-def get_stock_qty(db: Session, product_id: int, location_id: int) -> Decimal:
-    return get_stock_for_product(db, product_id, location_id)
-
-
-def get_missing_map(db: Session) -> dict[int, Decimal]:
-    """Returns current Missing/Owed per product.
-
-    Missing is a persisted value (not derived from Target/Central).
-    """
-    rows = db.execute(select(StockMissing.product_id, StockMissing.qty_missing)).all()
-    out: dict[int, Decimal] = {}
-    for pid, q in rows:
-        try:
-            out[int(pid)] = Decimal(q or 0)
-        except Exception:
-            out[int(pid)] = Decimal("0")
-    return out
-
-
-def _set_missing(db: Session, product_id: int, new_qty: Decimal) -> None:
-    new_qty = Decimal(new_qty or 0)
-    if new_qty < 0:
-        new_qty = Decimal("0")
-    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
-    if not rec:
-        rec = StockMissing(product_id=product_id, qty_missing=new_qty)
-        db.add(rec)
-    else:
-        rec.qty_missing = new_qty
-
-
-def missing_reduce_on_delivery(db: Session, product_id: int, delivered_qty: Decimal) -> Decimal:
-    """Reduce Missing by delivered quantity.
-
-    Returns the amount that was used to cover Missing.
-    """
-    delivered_qty = Decimal(delivered_qty or 0)
-    if delivered_qty <= 0:
-        return Decimal("0")
-    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
-    if not rec:
-        return Decimal("0")
-    cur = Decimal(rec.qty_missing or 0)
-    used = min(cur, delivered_qty)
-    rec.qty_missing = cur - used
-    return used
-
-
-def missing_add_shortfall(db: Session, product_id: int, shortfall_qty: Decimal) -> None:
-    shortfall_qty = Decimal(shortfall_qty or 0)
-    if shortfall_qty <= 0:
-        return
-    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
-    if not rec:
-        rec = StockMissing(product_id=product_id, qty_missing=shortfall_qty)
-        db.add(rec)
-    else:
-        rec.qty_missing = Decimal(rec.qty_missing or 0) + shortfall_qty
-
-
 # --------------------
 # ROOT / DASHBOARD
 # --------------------
@@ -552,305 +287,6 @@ def dashboard(
         "dashboard.html",
         {"request": request, "user": user, "stats": stats},
     )
-
-# --------------------
-# PRODUCTS (admin)
-# --------------------
-@router.get("/products", response_class=HTMLResponse)
-def products_list(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    # Keep products list clean: Active first, then by Category.sort_order (when category exists), then by category name, then product name.
-    cat_order = func.coalesce(Category.sort_order, 9999)
-    show_all = (request.query_params.get("show") == "all")
-
-    products = (
-        db.execute(
-            select(Product)
-            .outerjoin(Category, Category.name == Product.category)
-            .where(True if show_all else (Product.is_active == True))
-            .order_by(
-                Product.is_active.desc(),
-                cat_order.asc(),
-                func.coalesce(Product.category, "").asc(),
-                Product.name.asc(),
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    return templates.TemplateResponse(
-        "products_list.html",
-        {"request": request, "user": user, "products": products, "show_all": show_all},
-    )
-
-
-@router.get("/products/new", response_class=HTMLResponse)
-def product_new_form(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    categories = get_categories(db)
-    return templates.TemplateResponse(
-        "product_form.html",
-        {"request": request, "user": user, "product": None, "action": "/products/new", "categories": categories},
-    )
-
-
-@router.post("/products/new")
-def product_create(
-    request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-    name: str = Form(...),
-    sku: str | None = Form(None),
-    category: str | None = Form(None),
-    unit: str = Form("pcs"),
-    min_stock: str = Form("0"),
-    only_in_freezer: str | None = Form(None),
-    is_production_item: str | None = Form(None),
-    shelf_life_days: str = Form("0"),
-    storage_text: str | None = Form(None),
-    label_template: str | None = Form(None),
-):
-    ms = parse_qty(min_stock) or Decimal("0")
-    p = Product(
-        name=name.strip(),
-        sku=sku.strip() if sku else None,
-        category=category.strip() if category else None,
-        unit=unit,
-        min_stock=float(ms),
-        only_in_freezer=_truthy_flag(only_in_freezer),
-        is_production_item=_truthy_flag(is_production_item),
-        shelf_life_days=int(parse_qty(shelf_life_days) or 0),
-        storage_text=(storage_text.strip() if storage_text else None),
-        label_template=(label_template.strip() if label_template else None),
-    )
-    db.add(p)
-    try:
-        db.commit()
-    except IntegrityError:
-        # Most common: duplicate SKU unique constraint
-        db.rollback()
-        # Keep UX simple: show the existing warning banner in product_form.html
-        # (query param err=sku)
-        return RedirectResponse(url="/products/new?err=sku", status_code=303)
-
-    return RedirectResponse(url="/products", status_code=303)
-
-
-@router.get("/products/{pid}/edit", response_class=HTMLResponse)
-def product_edit_form(
-    pid: int,
-    request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    product = db.get(Product, pid)
-    if not product:
-        return RedirectResponse(url="/products", status_code=303)
-
-    categories = get_categories(db)
-    return templates.TemplateResponse(
-        "product_form.html",
-        {"request": request, "user": user, "product": product, "action": f"/products/{pid}/edit", "categories": categories},
-    )
-
-
-@router.post("/products/{pid}/edit")
-def product_update(
-    pid: int,
-    request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-    name: str = Form(...),
-    sku: str | None = Form(None),
-    category: str | None = Form(None),
-    unit: str = Form("pcs"),
-    min_stock: str = Form("0"),
-    only_in_freezer: str | None = Form(None),
-    is_production_item: str | None = Form(None),
-    shelf_life_days: str = Form("0"),
-    storage_text: str | None = Form(None),
-    label_template: str | None = Form(None),
-):
-    product = db.get(Product, pid)
-    if not product:
-        return RedirectResponse(url="/products", status_code=303)
-
-    product.name = name.strip()
-    product.sku = sku.strip() if sku else None
-    product.category = category.strip() if category else None
-    product.unit = unit
-    product.only_in_freezer = _truthy_flag(only_in_freezer)
-    product.is_production_item = _truthy_flag(is_production_item)
-    ms = parse_qty(min_stock)
-    product.min_stock = float(ms) if ms is not None else 0
-    product.shelf_life_days = int(parse_qty(shelf_life_days) or 0)
-    product.storage_text = storage_text.strip() if storage_text else None
-    product.label_template = label_template.strip() if label_template else None
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        return RedirectResponse(url=f"/products/{pid}/edit?err=sku", status_code=303)
-
-    return RedirectResponse(url="/products", status_code=303)
-
-
-@router.post("/products/{pid}/delete")
-def product_delete(
-    pid: int,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    product = db.get(Product, pid)
-    if product:
-        db.delete(product)
-        db.commit()
-    return RedirectResponse(url="/products", status_code=303)
-
-
-@router.post("/products/{pid}/toggle")
-def product_toggle(
-    pid: int,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    product = db.get(Product, pid)
-    if product:
-        product.is_active = not product.is_active
-        db.commit()
-    return RedirectResponse(url="/products", status_code=303)
-
-
-# --------------------
-# CATEGORIES (admin)
-# --------------------
-
-@router.get("/categories", response_class=HTMLResponse)
-def categories_list(
-    request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    if user.role != "admin":
-        return admin_only_dialog(request, user)
-    categories = get_categories(db, include_inactive=True)
-    return templates.TemplateResponse(
-        "categories_list.html",
-        {"request": request, "user": user, "categories": categories},
-    )
-
-
-@router.get("/categories/new", response_class=HTMLResponse)
-def category_new_form(
-    request: Request,
-    user: User = Depends(require_admin),
-):
-    if user.role != "admin":
-        return admin_only_dialog(request, user)
-    return templates.TemplateResponse(
-        "category_form.html",
-        {"request": request, "user": user, "category": None, "action": "/categories/new"},
-    )
-
-
-@router.post("/categories/new")
-def category_create(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-    name: str = Form(...),
-    sort_order: int = Form(1000),
-):
-    if user.role != "admin":
-        return admin_only_dialog(request, user)
-    nm = (name or "").strip()
-    if not nm:
-        return RedirectResponse(url="/categories/new?err=name", status_code=303)
-
-    exists = db.execute(select(Category).where(Category.name == nm)).scalar_one_or_none()
-    if exists:
-        return RedirectResponse(url="/categories/new?err=exists", status_code=303)
-
-    db.add(Category(name=nm, sort_order=int(sort_order or 1000), is_active=True))
-    db.commit()
-    return RedirectResponse(url="/categories", status_code=303)
-
-
-@router.get("/categories/{cid}/edit", response_class=HTMLResponse)
-def category_edit_form(
-    cid: int,
-    request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    if user.role != "admin":
-        return admin_only_dialog(request, user)
-    category = db.get(Category, cid)
-    if not category:
-        return RedirectResponse(url="/categories", status_code=303)
-
-    return templates.TemplateResponse(
-        "category_form.html",
-        {"request": request, "user": user, "category": category, "action": f"/categories/{cid}/edit"},
-    )
-
-
-@router.post("/categories/{cid}/edit")
-def category_update(
-    request: Request,
-    cid: int,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-    name: str = Form(...),
-    sort_order: int = Form(1000),
-):
-    if user.role != "admin":
-        return admin_only_dialog(request, user)
-    category = db.get(Category, cid)
-    if not category:
-        return RedirectResponse(url="/categories", status_code=303)
-
-    new_name = (name or "").strip()
-    if not new_name:
-        return RedirectResponse(url=f"/categories/{cid}/edit?err=name", status_code=303)
-
-    # If renaming: propagate to products.category (non-destructive, keeps consistency)
-    old_name = category.name
-    if new_name != old_name:
-        conflict = db.execute(select(Category).where(Category.name == new_name, Category.id != cid)).scalar_one_or_none()
-        if conflict:
-            return RedirectResponse(url=f"/categories/{cid}/edit?err=exists", status_code=303)
-
-        db.query(Product).filter(Product.category == old_name).update({"category": new_name})
-        category.name = new_name
-
-    category.sort_order = int(sort_order or 1000)
-    db.commit()
-    return RedirectResponse(url="/categories", status_code=303)
-
-
-@router.post("/categories/{cid}/toggle")
-def category_toggle(
-    request: Request,
-    cid: int,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    if user.role != "admin":
-        return admin_only_dialog(request, user)
-    category = db.get(Category, cid)
-    if category:
-        category.is_active = not category.is_active
-        db.commit()
-    return RedirectResponse(url="/categories", status_code=303)
-
 
 # --------------------
 # MOVEMENTS (all users)
@@ -890,7 +326,7 @@ def movement_new_form(
     db: Session = Depends(get_db),
 ):
     products = db.execute(
-        select(Product).where(Product.is_active == True).order_by(Product.name.asc())
+        select(Product).where(Product.is_active.is_(True)).order_by(Product.name.asc())
     ).scalars().all()
 
     locs = db.execute(select(Location).order_by(Location.id.asc())).scalars().all()
@@ -927,6 +363,7 @@ def movement_create(
     if not loc:
         return RedirectResponse(url="/movements/new?err=location", status_code=303)
 
+    acquire_transaction_lock(db, "stock", p.id, loc.id)
     if mt in {"OUT", "ADJ-"}:
         available = get_stock_for_product(db, p.id, loc.id)
         if available < q:
@@ -1018,7 +455,7 @@ def _category_order_index(db: Session | None = None) -> dict[str, int]:
     if db is not None:
         try:
             cats = db.execute(
-                select(Category).where(Category.is_active == True).order_by(Category.sort_order.asc(), Category.name.asc())
+                select(Category).where(Category.is_active.is_(True)).order_by(Category.sort_order.asc(), Category.name.asc())
             ).scalars().all()
             if cats:
                 return {_norm_cat(c.name): int(c.sort_order or 1000) for c in cats}
@@ -1096,8 +533,8 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
 
     # Stock view should be clean: inactive products are hidden.
     # Also hide products that are managed ONLY in /freezer.
-    stmt = stmt.where(Product.is_active == True)
-    stmt = stmt.where(Product.only_in_freezer == False)
+    stmt = stmt.where(Product.is_active.is_(True))
+    stmt = stmt.where(Product.only_in_freezer.is_(False))
 
     qq = (q or "").strip()
     if qq:
@@ -1190,10 +627,6 @@ def api_stock(
     """
     grouped = build_stock_grouped(db, loc=loc, q=q)
 
-    f = _get_flag(db, _CENTRAL_READY_KEY)
-    central_ready = bool(f.bool_value) if f else False
-    central_ready_note = (f.note if f else None)
-
     items = []
     for _cat, arr in grouped.items():
         for it in arr:
@@ -1228,10 +661,6 @@ def stock_view(
 ):
     grouped = build_stock_grouped(db, loc=loc, q=q)
 
-    f = _get_flag(db, _CENTRAL_READY_KEY)
-    central_ready = bool(f.bool_value) if f else False
-    central_ready_note = (f.note if f else None)
-
     return templates.TemplateResponse(
         "stock.html",
         {
@@ -1251,8 +680,8 @@ def stock_view(
 def _eligible_label_products(db: Session):
     rows = (
         db.query(Product)
-        .filter(Product.is_active == True)
-        .filter(Product.only_in_freezer == False)
+        .filter(Product.is_active.is_(True))
+        .filter(Product.only_in_freezer.is_(False))
         .filter(Product.shelf_life_days > 0)
         .order_by(Product.category.asc().nullslast(), Product.name.asc())
         .all()
@@ -1459,12 +888,12 @@ def api_print_jobs_batch_done(
 @router.get("/labels/queue", response_class=JSONResponse)
 def labels_queue(
     station: str,
-    token: str,
+    request: Request,
     limit: int = 10,
     db: Session = Depends(get_db),
 ):
     station_norm = _normalize_station(station)
-    _validate_agent_token(station_norm, token)
+    _validate_agent_token(station_norm, request.headers.get('x-agent-token', ''))
 
     limit = max(1, min(int(limit or 10), 50))
 
@@ -1889,10 +1318,6 @@ def stock_print_a4(
 ):
     grouped = build_stock_grouped(db, loc=loc, q=q)
 
-    f = _get_flag(db, _CENTRAL_READY_KEY)
-    central_ready = bool(f.bool_value) if f else False
-    central_ready_note = (f.note if f else None)
-
     if scope == "pending":
         grouped2: dict[str, list[dict]] = {}
         for cat, items in grouped.items():
@@ -1933,6 +1358,7 @@ def workshop_in(
     if not workshop:
         raise HTTPException(500, "WORKSHOP missing")
 
+    acquire_transaction_lock(db, "stock", product_id, workshop.id)
     db.add(
         StockMovement(
             product_id=product_id,
@@ -1962,6 +1388,7 @@ def workshop_out(
     if not workshop:
         raise HTTPException(500, "WORKSHOP missing")
 
+    acquire_transaction_lock(db, "stock", product_id, workshop.id)
     available = get_stock_for_product(db, product_id, workshop.id)
     if available < q:
         return RedirectResponse("/stock", 303)
@@ -1995,6 +1422,7 @@ def central_out(
     if not central:
         raise HTTPException(500, "CENTRAL missing")
 
+    acquire_transaction_lock(db, "stock", product_id, central.id)
     available = get_stock_for_product(db, product_id, central.id)
     if available < q:
         return RedirectResponse("/stock", 303)
@@ -2029,6 +1457,8 @@ def transfer_workshop_to_central(
     if not workshop or not central:
         raise HTTPException(500, "Locations missing")
 
+    for location_id in sorted((workshop.id, central.id)):
+        acquire_transaction_lock(db, "stock", product_id, location_id)
     available = get_stock_for_product(db, product_id, workshop.id)
     if available < q:
         return RedirectResponse("/stock", 303)
@@ -2078,6 +1508,8 @@ def transfer_central_to_workshop(
     if not workshop or not central:
         raise HTTPException(500, "Locations missing")
 
+    for location_id in sorted((workshop.id, central.id)):
+        acquire_transaction_lock(db, "stock", product_id, location_id)
     available = get_stock_for_product(db, product_id, central.id)
     if available < q:
         return RedirectResponse("/stock", 303)
@@ -2175,7 +1607,6 @@ async def stock_set_target(
 
     return RedirectResponse(url="/stock", status_code=303)
 
-
 @router.post("/stock/adjust")
 async def stock_adjust(
     request: Request,
@@ -2220,6 +1651,7 @@ async def stock_adjust(
     loc_row = db.query(Location).filter(Location.code == loc).first()
     if not loc_row:
         raise HTTPException(status_code=500, detail="Location missing")
+    acquire_transaction_lock(db, "stock", product_id, loc_row.id)
     if q < 0 and get_stock_qty(db, product_id, loc_row.id) < q_abs:
         raise HTTPException(status_code=422, detail="Not enough stock")
 
@@ -2279,8 +1711,6 @@ async def stock_adjust(
         )
 
     return RedirectResponse(url="/stock", status_code=303)
-
-
 @router.post("/stock/transfer_wc")
 async def stock_transfer_workshop_to_central_ui(
     request: Request,
@@ -2304,6 +1734,8 @@ async def stock_transfer_workshop_to_central_ui(
     if not central or not workshop:
         raise HTTPException(status_code=500, detail="Locations missing")
 
+    for location_id in sorted((workshop.id, central.id)):
+        acquire_transaction_lock(db, "stock", product_id, location_id)
     ws_qty = get_stock_qty(db, product_id, workshop.id)
     if ws_qty < q:
         raise HTTPException(status_code=422, detail="Not enough workshop stock")
@@ -2404,6 +1836,8 @@ async def stock_fulfill_pending(
     if not central or not workshop:
         raise HTTPException(status_code=500, detail="Locations missing")
 
+    for location_id in sorted((workshop.id, central.id)):
+        acquire_transaction_lock(db, "stock", product_id, location_id)
     c_qty = get_stock_qty(db, product_id, central.id)
     ws_qty = get_stock_qty(db, product_id, workshop.id)
     t = p.target_central or Decimal("0")
@@ -2509,171 +1943,4 @@ async def stock_fulfill_pending(
     return RedirectResponse(url="/stock", status_code=303)
 
 
-# --------------------
-# Freezer (standalone stock)
-# --------------------
-
-def _can_freezer_adjust(user: User) -> bool:
-    return user.role in {"admin", "workshop"}
-
-
-@router.get("/freezer", response_class=HTMLResponse)
-def freezer_view(
-    request: Request,
-    q: str | None = None,
-    show: str | None = None,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    q = (q or "").strip()
-    show = (show or "").strip()  # ""=only frozen, "all"=all products
-
-    # Load freezer items joined with products
-    stmt = (
-        select(FreezerItem, Product)
-        .join(Product, Product.id == FreezerItem.product_id)
-        .where(Product.is_active == True)
-    )
-
-    if q:
-        like = f"%{q}%"
-        stmt = stmt.where((Product.name.ilike(like)) | (Product.sku.ilike(like)))
-
-    stmt = stmt.order_by(func.coalesce(Product.category, "ZZZ"), Product.name)
-
-    freezer_rows = db.execute(stmt).all()
-
-    # For "all products" view, show products not yet in freezer with qty=0 (virtual rows)
-    products_all = db.execute(
-        select(Product).where(Product.is_active == True).order_by(func.coalesce(Product.category, "ZZZ"), Product.name)
-    ).scalars().all()
-
-    freezer_map = {fi.product_id: fi for (fi, p) in freezer_rows}
-
-    rows = []
-    if show == "all":
-        for p in products_all:
-            fi = freezer_map.get(p.id)
-            rows.append({"item": fi, "product": p, "qty": Decimal(str(fi.qty)) if fi else Decimal("0")})
-    else:
-        for fi, p in freezer_rows:
-            rows.append({"item": fi, "product": p, "qty": Decimal(str(fi.qty))})
-
-    # products for Add dropdown (active)
-    add_products = products_all
-
-    return templates.TemplateResponse(
-        "freezer.html",
-        {
-            "request": request,
-            "user": user,
-            "rows": rows,
-            "q": q,
-            "show": show,
-            "add_products": add_products,
-            "can_adjust": _can_freezer_adjust(user),
-            "is_admin": user.role == "admin",
-        },
-    )
-
-
-@router.post("/freezer/add")
-def freezer_add(
-    request: Request,
-    product_id: int = Form(...),
-    qty: str = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    if user.role != "admin":
-        return admin_only_dialog(request, user, next_url="/freezer")
-
-    q = parse_qty(qty)
-    if q is None:
-        return RedirectResponse(url="/freezer?err=qty", status_code=303)
-
-    fi = db.execute(select(FreezerItem).where(FreezerItem.product_id == product_id)).scalar_one_or_none()
-    if fi:
-        fi.qty = Decimal(str(fi.qty)) + q
-    else:
-        fi = FreezerItem(product_id=product_id, qty=q)
-        db.add(fi)
-
-    db.commit()
-
-    # If called via fetch, return JSON
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return JSONResponse({"ok": True})
-
-    return RedirectResponse(url="/freezer", status_code=303)
-
-
-@router.post("/freezer/adjust")
-def freezer_adjust(
-    request: Request,
-    item_id: int = Form(...),
-    delta: str = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    if not _can_freezer_adjust(user):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    d = parse_qty_signed(delta)
-    if d is None:
-        return JSONResponse({"ok": False, "error": "bad_qty"}, status_code=400)
-
-    fi = db.get(FreezerItem, int(item_id))
-    if not fi:
-        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-
-    new_qty = Decimal(str(fi.qty)) + d
-    if new_qty < 0:
-        new_qty = Decimal("0")
-
-    fi.qty = new_qty
-    db.commit()
-
-    return JSONResponse({"ok": True, "item_id": fi.id, "qty": fmtqty(new_qty)})
-
-
-@router.post("/freezer/set")
-def freezer_set(
-    request: Request,
-    item_id: int = Form(...),
-    qty: str = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-
-    q = parse_qty_any(qty)
-    if q is None:
-        return JSONResponse({"ok": False, "error": "bad_qty"}, status_code=400)
-
-    fi = db.get(FreezerItem, int(item_id))
-    if not fi:
-        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-
-    fi.qty = q
-    db.commit()
-    return JSONResponse({"ok": True, "item_id": fi.id, "qty": fmtqty(q)})
-
-
-@router.post("/freezer/delete")
-def freezer_delete(
-    request: Request,
-    item_id: int = Form(...),
-    db: Session = Depends(get_db),
-    user: User = Depends(require_user),
-):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-
-    fi = db.get(FreezerItem, int(item_id))
-    if fi:
-        db.delete(fi)
-        db.commit()
-
-    return JSONResponse({"ok": True, "item_id": int(item_id)})
+# End of the legacy stock/label router. New domains belong in dedicated modules.

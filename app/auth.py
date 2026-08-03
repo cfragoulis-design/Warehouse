@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
+from collections import deque
+from urllib.parse import urlsplit
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from passlib.hash import bcrypt
 
 from .db import get_db
 from .models import User
+from .templating import WarehouseJinja2Templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = WarehouseJinja2Templates(directory="app/templates")
+
+_LOGIN_WINDOW_SECONDS = 300
+_LOGIN_MAX_FAILURES = 8
+_login_failures: dict[str, deque[float]] = {}
+_login_failures_lock = threading.Lock()
 
 
 def _limit_bcrypt_secret(s: str) -> str:
@@ -39,6 +48,60 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User | 
     if not uid:
         return None
     return db.get(User, int(uid))
+
+
+def _require_same_origin(request: Request) -> None:
+    if request.method.upper() in {"GET", "HEAD", "OPTIONS", "TRACE"}:
+        return
+
+    expected_host = (request.headers.get("host") or request.url.netloc).casefold()
+    candidate = request.headers.get("origin") or request.headers.get("referer")
+    if candidate:
+        parsed = urlsplit(candidate)
+        if parsed.scheme in {"http", "https"} and parsed.netloc.casefold() == expected_host:
+            return
+
+    if not candidate and request.headers.get("sec-fetch-site", "").casefold() == "same-origin":
+        return
+
+    raise HTTPException(status_code=403, detail="Cross-origin form submission rejected")
+
+
+def _login_failure_key(username: str) -> str:
+    return username.strip().casefold()
+
+
+def _login_retry_after(username: str, *, now: float | None = None) -> int:
+    current = time.monotonic() if now is None else now
+    key = _login_failure_key(username)
+    with _login_failures_lock:
+        failures = _login_failures.get(key)
+        if not failures:
+            return 0
+        while failures and current - failures[0] >= _LOGIN_WINDOW_SECONDS:
+            failures.popleft()
+        if not failures:
+            _login_failures.pop(key, None)
+            return 0
+        if len(failures) < _LOGIN_MAX_FAILURES:
+            return 0
+        return max(1, int(_LOGIN_WINDOW_SECONDS - (current - failures[0])))
+
+
+def _record_login_failure(username: str, *, now: float | None = None) -> int:
+    current = time.monotonic() if now is None else now
+    key = _login_failure_key(username)
+    with _login_failures_lock:
+        failures = _login_failures.setdefault(key, deque())
+        while failures and current - failures[0] >= _LOGIN_WINDOW_SECONDS:
+            failures.popleft()
+        failures.append(current)
+    return _login_retry_after(username, now=current)
+
+
+def _clear_login_failures(username: str) -> None:
+    with _login_failures_lock:
+        _login_failures.pop(_login_failure_key(username), None)
 
 
 WAREHOUSE_ALLOWED_PATHS = (
@@ -71,6 +134,7 @@ def _warehouse_path_allowed(path: str) -> bool:
 
 
 def require_user(request: Request, user: User | None = Depends(get_current_user)) -> User:
+    _require_same_origin(request)
     if not user:
         raise HTTPException(status_code=303, headers={"Location": "/login"})
     if is_warehouse_only(user) and not _warehouse_path_allowed(request.url.path):
@@ -89,7 +153,10 @@ def require_role(role: str):
 
 @router.get("/login", response_class=HTMLResponse)
 def login_form(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "err": request.query_params.get("err", "")},
+    )
 
 
 @router.post("/login")
@@ -99,19 +166,39 @@ def login(
     pin: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    _require_same_origin(request)
     username = username.strip()
     pin = pin.strip()
 
+    retry_after = _login_retry_after(username)
+    if retry_after:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "err": "rate"},
+            status_code=429,
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if not user or not verify_pin(pin, user.pin_hash):
+        retry_after = _record_login_failure(username)
+        if retry_after:
+            return templates.TemplateResponse(
+                "login.html",
+                {"request": request, "err": "rate"},
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
         return RedirectResponse(url="/login?err=1", status_code=303)
 
+    _clear_login_failures(username)
     request.session["uid"] = user.id
     return RedirectResponse(url=home_for_user(user), status_code=303)
 
 
 @router.post("/logout")
 def logout(request: Request):
+    _require_same_origin(request)
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
 

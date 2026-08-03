@@ -22,9 +22,10 @@
     @keyframes cellFlash{0%{background:rgba(47,124,246,.35)}100%{background:transparent}}
     .wrap{max-width:1540px;margin:0 auto;padding:0 16px 24px}
     .card{background:rgba(17,25,54,.75);border:1px solid rgba(36,48,85,.75);border-radius:16px;box-shadow:0 12px 45px rgba(0,0,0,.35);overflow:hidden}
-    .tableScroll{width:100%;overflow-x:auto;overscroll-behavior-inline:contain}
+    .tableScroll{width:100%;overflow-x:auto;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch}
     .cardHead{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:14px 14px;border-bottom:1px solid rgba(36,48,85,.75);background:rgba(15,22,45,.55)}
     .filters{display:flex;gap:10px;align-items:center}
+    .filters form,.rightHead{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     select,input{background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:10px 12px;border-radius:12px;outline:none}
     select{min-width:160px}
     input[type=text]{min-width:260px}
@@ -160,7 +161,22 @@
 .labelToast.err{border-color:rgba(255,107,107,.55); color:#ffd2d2}
 .labelBtn.isBusy{opacity:.65; pointer-events:none}
 
+    @media (max-width:700px){
+      .top{flex-direction:column;align-items:flex-start;gap:12px;padding:16px}
+      .nav{width:100%;gap:8px 12px;flex-wrap:wrap}
+      .nav .app-datetime{width:100%;white-space:normal}
+      .wrap{padding-left:12px;padding-right:12px}
+      .cardHead{align-items:stretch;flex-direction:column}
+      .filters,.filters form,.rightHead{width:100%}
+      .filters form{display:grid;grid-template-columns:1fr auto}
+      .filters select,.filters input[type=text]{width:100%;min-width:0}
+      .filters select{grid-column:1 / -1}
+      .rightHead{align-items:flex-start}
+      .rightHead .btn{white-space:normal}
+    }
+
  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
 <body>
   <div class="top wrap" style="padding-bottom:10px">

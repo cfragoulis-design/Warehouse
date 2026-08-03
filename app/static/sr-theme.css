@@ -1,0 +1,250 @@
+/*
+ * Warehouse visual palette aligned with Sklavounos Restaurants.
+ *
+ * This file is intentionally loaded after each page's legacy inline styles.
+ * It only changes presentation: no layout, workflow, or form behaviour lives
+ * here.  The aliases keep the current templates compatible while giving the
+ * Warehouse a single, maintainable source for colours.
+ */
+:root {
+  color-scheme: dark;
+
+  --sr-bg: #020617;
+  --sr-surface: #0f172a;
+  --sr-surface-soft: #111827;
+  --sr-line: #1e293b;
+  --sr-line-strong: #334155;
+  --sr-text: #f1f5f9;
+  --sr-muted: #94a3b8;
+  --sr-info: #0284c7;
+  --sr-info-bright: #38bdf8;
+  --sr-success: #10b981;
+  --sr-warning: #f59e0b;
+  --sr-danger: #f43f5e;
+
+  /* Legacy Warehouse token aliases. */
+  --bg: var(--sr-bg) !important;
+  --bg1: var(--sr-surface) !important;
+  --bg2: var(--sr-bg) !important;
+  --panel: var(--sr-surface) !important;
+  --panel1: var(--sr-surface) !important;
+  --panel2: var(--sr-surface-soft) !important;
+  --line: var(--sr-line) !important;
+  --text: var(--sr-text) !important;
+  --muted: var(--sr-muted) !important;
+  --blue: var(--sr-info) !important;
+  --blue2: var(--sr-info-bright) !important;
+  --btn: var(--sr-info) !important;
+  --green: var(--sr-success) !important;
+  --good: var(--sr-success) !important;
+  --ok: var(--sr-success) !important;
+  --amber: var(--sr-warning) !important;
+  --warn: var(--sr-warning) !important;
+  --red: var(--sr-danger) !important;
+  --danger: var(--sr-danger) !important;
+  --input: var(--sr-surface) !important;
+  --inputLine: var(--sr-line-strong) !important;
+}
+
+html {
+  background: var(--sr-bg);
+}
+
+body {
+  background: var(--sr-bg) !important;
+  color: var(--sr-text) !important;
+}
+
+a {
+  color: #7dd3fc;
+}
+
+/* Navigation and page surfaces mirror the SR slate shell. */
+.top,
+.topbar {
+  background: rgba(2, 6, 23, 0.96) !important;
+  border-color: var(--sr-line) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(12px);
+}
+
+.card,
+.panel,
+.stat,
+.item,
+.history,
+.addbox,
+.tableWrap {
+  background: rgba(15, 23, 42, 0.82) !important;
+  border-color: var(--sr-line) !important;
+}
+
+.cardHead,
+.card-h,
+.section-row td,
+table thead th,
+table.tbl thead th,
+.table thead th {
+  background: rgba(2, 6, 23, 0.94) !important;
+  border-color: var(--sr-line) !important;
+}
+
+th,
+td,
+.card-h,
+.cardHead,
+.history h2,
+.move {
+  border-color: var(--sr-line) !important;
+}
+
+tr:hover td,
+.table tbody tr.data-row:hover {
+  background: rgba(30, 41, 59, 0.42) !important;
+}
+
+.pill,
+.badge,
+.qbtn,
+.action,
+.toggle,
+.btn2,
+.btnGhost,
+.btn.ghost,
+.smallbtn,
+.stockBtn,
+.tt {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border-color: var(--sr-line-strong) !important;
+  color: var(--sr-text);
+}
+
+.pill:hover,
+.qbtn:hover,
+.action:hover,
+.btn2:hover,
+.btnGhost:hover,
+.btn.ghost:hover,
+.smallbtn:hover,
+.stockBtn:hover {
+  background: var(--sr-line) !important;
+  border-color: #475569 !important;
+}
+
+/* Primary actions use the same sky/cyan family used by SR live controls. */
+.btn:not(.btn2):not(.btnGhost):not(.ghost):not(.danger):not(.btnDanger),
+.btnBlue,
+.takebtn,
+.addsubmit,
+.outBtn,
+.transferBtn,
+.labelBtn.central,
+a.btn.primary {
+  background: rgba(2, 132, 199, 0.9) !important;
+  border-color: rgba(14, 165, 233, 0.72) !important;
+  color: #f8fafc !important;
+}
+
+.btn:not(.btn2):not(.btnGhost):not(.ghost):not(.danger):not(.btnDanger):hover,
+.btnBlue:hover,
+.takebtn:hover,
+.addsubmit:hover,
+.outBtn:hover,
+.transferBtn:hover,
+.labelBtn.central:hover,
+a.btn.primary:hover {
+  background: #0ea5e9 !important;
+}
+
+input,
+select,
+textarea,
+.select,
+.input {
+  background: rgba(15, 23, 42, 0.94) !important;
+  border-color: var(--sr-line-strong) !important;
+  color: var(--sr-text) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #64748b;
+  opacity: 1;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.select:focus,
+.input:focus {
+  border-color: var(--sr-info-bright) !important;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.16) !important;
+  outline: none;
+}
+
+.catrow td {
+  background: linear-gradient(180deg, rgba(3, 105, 161, 0.28), rgba(15, 23, 42, 0.92)) !important;
+  border-color: var(--sr-line-strong) !important;
+  color: #e0f2fe !important;
+}
+
+.catrow td::before {
+  background: var(--sr-info-bright) !important;
+}
+
+/* Keep operational states instantly distinguishable. */
+.badge.good,
+.badge.ok,
+.pill.ok,
+.ok,
+.in,
+.inBtn,
+.labelToast.ok {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border-color: rgba(16, 185, 129, 0.48) !important;
+  color: #a7f3d0 !important;
+}
+
+.badge.warn,
+.pill.warn,
+.labelBtn.workshop {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.48) !important;
+  color: #fde68a !important;
+}
+
+.badge.danger,
+.badge.low,
+.pill.danger,
+.bad,
+.out,
+.btnDanger,
+.btn.danger,
+.needBtn,
+.pm .minus,
+.labelToast.err {
+  background: rgba(244, 63, 94, 0.12) !important;
+  border-color: rgba(244, 63, 94, 0.5) !important;
+  color: #fecdd3 !important;
+}
+
+.dot.ok {
+  background: var(--sr-success) !important;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.12);
+}
+
+.readyBanner {
+  background: rgba(2, 132, 199, 0.12) !important;
+  border-color: rgba(14, 165, 233, 0.42) !important;
+}
+
+.tt::after,
+.labelToast {
+  background: rgba(2, 6, 23, 0.98) !important;
+  border-color: var(--sr-line-strong) !important;
+}
+
+::selection {
+  background: rgba(14, 165, 233, 0.4);
+  color: #fff;
+}
