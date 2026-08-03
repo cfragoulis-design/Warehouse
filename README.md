@@ -45,6 +45,9 @@ not mounted. Production defaults remain unchanged when these variables are omitt
 See `docs/OPERATIONS_SOURCE_STAGING.md` for the staged activation and rollback gates.
 
 ## Railway settings
+- Config-as-code runs a side-effect-free configuration preflight before a new
+  deployment and requires `/health` to pass before traffic cutover. See
+  `docs/WAREHOUSE_DEPLOYMENT_GUARD.md`.
 - Start command (if you prefer not using Procfile):
   `uvicorn app.app:app --host 0.0.0.0 --port $PORT`
 
