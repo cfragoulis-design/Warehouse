@@ -27,6 +27,7 @@ from app import (  # noqa: E402
 )
 from app.consumables_service import (  # noqa: E402
     consumable_add_submit,
+    consumable_adjust,
     consumable_take_submit,
     po_generate,
     po_receive,
@@ -347,6 +348,18 @@ def test_consumable_take_caps_at_available_and_every_change_has_a_ledger_row(
     assert _json(added)["stock_numeric"] == 2.5
     db.refresh(stock)
     assert stock.qty == Decimal("2.500")
+
+    adjusted = consumable_adjust(
+        cid=consumable.id,
+        request=request,
+        db=db,
+        user=user,
+        delta="-1.25",
+        note="count correction",
+    )
+    assert _json(adjusted)["stock_numeric"] == 1.25
+    db.refresh(stock)
+    assert stock.qty == Decimal("1.250")
     ledger = db.scalars(
         select(ConsumableMovement).order_by(ConsumableMovement.id)
     ).all()
@@ -356,6 +369,7 @@ def test_consumable_take_caps_at_available_and_every_change_has_a_ledger_row(
     ] == [
         ("OUT", Decimal("5.000"), Decimal("0.000"), "shift"),
         ("IN", Decimal("2.500"), Decimal("2.500"), "delivery"),
+        ("OUT", Decimal("1.250"), Decimal("1.250"), "count correction"),
     ]
 
 
