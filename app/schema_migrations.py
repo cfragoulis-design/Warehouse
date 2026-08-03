@@ -13,13 +13,14 @@ import psycopg
 from sqlalchemy.engine import URL, make_url
 
 
-MigrationTarget = Literal["restore", "production"]
+MigrationTarget = Literal["restore", "staging", "production"]
 
 BASELINE_SCHEMA_FINGERPRINT = (
     "f3bfacf36afaa6832d8e8812d1c6f63110500077ad61253d18b699a74dea6466"
 )
 MIGRATION_TABLE = "warehouse_schema_migrations"
 RESTORE_DATABASE_SUFFIX = "_restore_verify"
+STAGING_DATABASE_SUFFIX = "_staging"
 _MIGRATION_LOCK_KEY = 907_541_063_337_221_119
 _COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 _DATABASE_PATTERN = re.compile(r"[A-Za-z0-9_]+\Z")
@@ -107,8 +108,16 @@ def _validate_target(
         raise RuntimeError(
             f"Warehouse restore target must end with {RESTORE_DATABASE_SUFFIX}"
         )
-    if target == "production" and database_name.endswith(RESTORE_DATABASE_SUFFIX):
-        raise RuntimeError("Warehouse production target cannot be a restore database")
+    if target == "staging" and not database_name.endswith(STAGING_DATABASE_SUFFIX):
+        raise RuntimeError(
+            f"Warehouse staging target must end with {STAGING_DATABASE_SUFFIX}"
+        )
+    if target == "production" and database_name.endswith(
+        (RESTORE_DATABASE_SUFFIX, STAGING_DATABASE_SUFFIX)
+    ):
+        raise RuntimeError(
+            "Warehouse production target cannot be a restore or staging database"
+        )
 
 
 def _schema_fingerprint(connection: psycopg.Connection[object]) -> str:
@@ -298,7 +307,11 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("status", "apply"):
         child = subparsers.add_parser(command)
-        child.add_argument("--target", choices=("restore", "production"), required=True)
+        child.add_argument(
+            "--target",
+            choices=("restore", "staging", "production"),
+            required=True,
+        )
         child.add_argument("--expected-database", required=True)
         child.add_argument("--confirm-database", required=True)
         if command == "apply":

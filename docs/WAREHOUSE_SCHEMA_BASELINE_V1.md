@@ -56,6 +56,10 @@ The SQL executes in one transaction behind an advisory lock, with five-second
 lock timeout, 60-second statement timeout, exact database-name confirmation,
 baseline fingerprint guard and immutable migration checksums.
 
+The runner has separate guarded targets for isolated restore, staging and
+production databases. Staging accepts only an explicitly confirmed database
+whose name ends in `_staging`; it cannot be mislabeled as a production target.
+
 ## Rehearsal result
 
 - Migration current version: `20260803_001`.

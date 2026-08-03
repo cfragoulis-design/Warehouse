@@ -53,11 +53,19 @@ def test_restore_target_must_be_exact_and_isolated() -> None:
 
 
 def test_production_target_rejects_restore_and_system_databases() -> None:
-    with pytest.raises(RuntimeError, match="cannot be a restore"):
+    with pytest.raises(RuntimeError, match="cannot be a restore or staging"):
         _validate_target(
             database_name="warehouse_restore_verify",
             expected_database="warehouse_restore_verify",
             confirmed_database="warehouse_restore_verify",
+            target="production",
+        )
+
+    with pytest.raises(RuntimeError, match="cannot be a restore or staging"):
+        _validate_target(
+            database_name="warehouse_operations_staging",
+            expected_database="warehouse_operations_staging",
+            confirmed_database="warehouse_operations_staging",
             target="production",
         )
 
@@ -67,4 +75,29 @@ def test_production_target_rejects_restore_and_system_databases() -> None:
             expected_database="postgres",
             confirmed_database="postgres",
             target="production",
+        )
+
+
+def test_staging_target_requires_an_explicit_staging_database() -> None:
+    _validate_target(
+        database_name="warehouse_operations_staging",
+        expected_database="warehouse_operations_staging",
+        confirmed_database="warehouse_operations_staging",
+        target="staging",
+    )
+
+    with pytest.raises(RuntimeError, match="staging target must end"):
+        _validate_target(
+            database_name="railway",
+            expected_database="railway",
+            confirmed_database="railway",
+            target="staging",
+        )
+
+    with pytest.raises(RuntimeError, match="staging target must end"):
+        _validate_target(
+            database_name="warehouse_restore_verify",
+            expected_database="warehouse_restore_verify",
+            confirmed_database="warehouse_restore_verify",
+            target="staging",
         )
