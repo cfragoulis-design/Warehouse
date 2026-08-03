@@ -17,6 +17,9 @@ projects a bounded operational view into a separate One read model.
 - Independent route boundary: `OPERATIONS_CONSUMABLES_READ_API_ENABLED=true`.
 - The new switch defaults off. Disabled returns hidden `404`; missing/wrong credentials return
   `401/403`; POST returns `405`; successful responses use `Cache-Control: no-store`.
+- The fail-closed deployment guard rejects any configuration that enables the Consumables route
+  without the base Operations read API. Its privacy-safe report exposes only the boolean state,
+  never a token, database URL or business value.
 - No Warehouse UI, session, mutation, scheduler or print route is added.
 
 ## Closed contract
