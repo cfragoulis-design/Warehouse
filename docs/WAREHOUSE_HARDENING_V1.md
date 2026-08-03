@@ -33,6 +33,8 @@ been performed.
   bounded message content and serialized acknowledgement writes.
 - Freezer balance writes now share a product-level transaction lock and reject
   inactive products and non-finite quantities.
+- Product/category administration now has its own catalog router with unchanged
+  public paths and explicit route-registry coverage.
 
 ## Verified evidence
 
@@ -41,7 +43,7 @@ been performed.
 - `python -m compileall -q app tests`: passed.
 - `ruff check app tests`: passed with correctness rules.
 - `pip-audit -r requirements.txt`: no known vulnerabilities found.
-- Structural follow-up environment: 81 tests passed, including direct route,
+- Structural follow-up environment: 84 tests passed, including direct route,
   quantity, messaging-idempotency and freezer-concurrency boundary tests.
 
 ## Required staging gate
@@ -72,8 +74,8 @@ been performed.
   baseline.
 - Add persistent, expiring worker claims for label jobs. This is a schema change
   and belongs in the first versioned migration after the baseline.
-- Continue splitting `services.py` into catalog, stock, labels and freezer
-  routers in behaviour-preserving checkpoints. Workshop messaging and the
+- Continue splitting `services.py` into stock, labels and freezer routers in
+  behaviour-preserving checkpoints. Catalog, Workshop messaging and the
   stock-domain rules are already extracted.
 - Move PIN failure counters to shared persistent storage if Warehouse is scaled
   beyond one web process/instance.

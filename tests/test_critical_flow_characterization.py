@@ -18,7 +18,13 @@ from tests.db_test_support import (
 
 os.environ.setdefault("DATABASE_URL", configured_test_database_url())
 
-from app import auth, digest_service, production_report_service, services  # noqa: E402
+from app import (  # noqa: E402
+    auth,
+    catalog_service,
+    digest_service,
+    production_report_service,
+    services,
+)
 from app.consumables_service import (  # noqa: E402
     consumable_add_submit,
     consumable_take_submit,
@@ -689,7 +695,7 @@ def test_product_delete_compatibility_route_only_deactivates_product(
     user, _central, _workshop, product = _stock_scenario(db)
     movement_count = db.scalar(select(func.count(StockMovement.id)))
 
-    response = services.product_delete(pid=product.id, user=user, db=db)
+    response = catalog_service.product_delete(pid=product.id, user=user, db=db)
 
     assert response.status_code == 303
     db.refresh(product)

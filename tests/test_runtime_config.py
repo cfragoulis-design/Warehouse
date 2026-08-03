@@ -205,6 +205,31 @@ for method, path in expected_workshop_routes:
     ]
     assert len(matching) == 1
     assert matching[0].endpoint.__module__ == "app.workshop_message_service"
+
+expected_catalog_routes = {
+    ("GET", "/products"),
+    ("GET", "/products/new"),
+    ("POST", "/products/new"),
+    ("GET", "/products/{pid}/edit"),
+    ("POST", "/products/{pid}/edit"),
+    ("POST", "/products/{pid}/delete"),
+    ("POST", "/products/{pid}/toggle"),
+    ("GET", "/categories"),
+    ("GET", "/categories/new"),
+    ("POST", "/categories/new"),
+    ("GET", "/categories/{cid}/edit"),
+    ("POST", "/categories/{cid}/edit"),
+    ("POST", "/categories/{cid}/toggle"),
+}
+for method, path in expected_catalog_routes:
+    matching = [
+        route
+        for route in routes
+        if getattr(route, "path", None) == path
+        and method in (getattr(route, "methods", set()) or set())
+    ]
+    assert len(matching) == 1
+    assert matching[0].endpoint.__module__ == "app.catalog_service"
 """
     result = subprocess.run(
         [sys.executable, "-c", command],

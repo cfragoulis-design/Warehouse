@@ -28,6 +28,7 @@ if not runtime_settings.operations_source_mode:
     try:
         from app.auth import router as auth_router
         from app.auth import seed_admins
+        from app.catalog_service import router as catalog_router
         from app.consumables_service import router as consumables_router
         from app.digest_service import router as digest_router
         from app.production_report_service import router as production_report_router
@@ -37,6 +38,7 @@ if not runtime_settings.operations_source_mode:
     except ImportError:
         from auth import router as auth_router
         from auth import seed_admins
+        from catalog_service import router as catalog_router
         from consumables_service import router as consumables_router
         from digest_service import router as digest_router
         from production_report_service import router as production_report_router
@@ -133,6 +135,7 @@ if not runtime_settings.operations_source_mode:
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     app.include_router(auth_router)
+    app.include_router(catalog_router)
     app.include_router(services_router)
     app.include_router(workshop_message_router)
     app.include_router(consumables_router)

@@ -21,11 +21,15 @@ Operations, SR, provider or database change has been made.
   `stock_domain.py`, while compatibility imports preserve current callers.
 - Workshop messages were extracted into `workshop_message_service.py`. Route
   registry tests prove there is one handler per public path.
+- Product and category administration were extracted into
+  `catalog_service.py`; all 13 existing method/path pairs remain unique and
+  category rename propagation remains transactional.
 - Acknowledgements now serialize per message/user before the idempotency check.
 - Freezer mutations now serialize per product and reload the current balance
   after acquiring the lock.
-- `services.py` was reduced without changing route paths, templates or the
-  external Operations inventory contract.
+- `services.py` was reduced from 2,700+ physical lines to 2,146 without
+  changing route paths, templates or the external Operations inventory
+  contract.
 
 ## Findings that require a versioned migration
 
@@ -57,14 +61,14 @@ These should not be patched through startup DDL or guessed against production:
    numeric threshold, database invariants and acknowledgement uniqueness.
 4. Extract label routes without behaviour changes, then add persistent,
    expiring print-job claims in a later migration.
-5. Extract catalog and freezer routes; introduce the freezer ledger with a
-   guarded backfill/opening-balance event.
+5. Extract the freezer routes; introduce the freezer ledger with a guarded
+   backfill/opening-balance event. Catalog extraction is already complete.
 6. Only after isolated PostgreSQL concurrency and rollback verification,
    request separate staging approval. Production remains out of scope.
 
 ## Local verification
 
-- Complete suite: 81 passed.
-- Route uniqueness verifies the extracted messaging module.
+- Complete suite: 84 passed.
+- Route uniqueness verifies the extracted messaging and catalog modules.
 - No schema migration was added or executed.
 - No network publication, push or deployment was performed.
