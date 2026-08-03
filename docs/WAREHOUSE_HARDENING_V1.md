@@ -1,7 +1,7 @@
 # Warehouse Hardening v1
 
 Status: verified on the isolated Warehouse staging source at exact runtime
-commit `b04dd6e16738d2310d374491bacf2a383aa2dfa1`. Warehouse production, SR and
+commit `e117f46ba29d71173aeea8fd11aad28d938e0b40`. Warehouse production, SR and
 Sklavounos One production remain unchanged.
 
 ## Closed in this checkpoint
@@ -105,9 +105,10 @@ Sklavounos One production remain unchanged.
   created in the characterization environment. It uses service ID
   `0ba277c3-8157-430b-bd76-a298c905e13b` and the non-production URL
   `https://warehouse-full-ui-staging-characterization.up.railway.app`.
-- The service runs a clean archive of exact runtime commit
-  `b04dd6e16738d2310d374491bacf2a383aa2dfa1`; the archive SHA-256 is
-  `b2259f73749e264009edf8ff96409ea556076e6c995ecf8e06d5743329a5ad42`.
+- The database/schema checkpoint was established at exact runtime commit
+  `b04dd6e16738d2310d374491bacf2a383aa2dfa1`. The current schema-neutral UI
+  runtime is exact commit `e117f46ba29d71173aeea8fd11aad28d938e0b40`; its clean archive SHA-256 is
+  `755fa566d8a957b779d396732c8f369202e8ab6f712debc96c69516b2e808d2c`.
 - It has a dedicated database, `warehouse_fullui_staging`, and a dedicated
   least-privilege login role with a five-connection limit. The database was
   restored from the private staging backup, then accepted migration
@@ -157,12 +158,28 @@ Sklavounos One production remain unchanged.
   Three ephemeral role users and all catalog, freezer, consumable, supplier and
   message fixtures were removed. The 50,507-row baseline, 11 validated
   constraints and zero HTTP `5xx` responses were reconfirmed once more.
+- A browser-based visual walkthrough then covered Dashboard, Stock,
+  Consumables Take, Purchase Orders and Freezer at `390x844` mobile and
+  `1280`-pixel desktop viewports. It found and corrected three layout defects:
+  the Dashboard action row and weekly reminder overlay, Stock page-wide table
+  overflow, and hidden mobile navigation/table actions in Consumables and
+  Purchase Orders. Wide data tables now scroll only inside their labelled
+  regions, while page bodies and navigation stay within the viewport.
+- GitHub CI and the local suite passed at the final runtime (`94` tests). The
+  controlled Railway deployment `3b33f482-6ef0-442a-84f8-137c38304050`
+  completed successfully. The post-deploy guarded HTTP/session smoke matched
+  all expected statuses and redirects; its disposable account and the visual
+  walkthrough account were deleted. Final read-only verification returned 20
+  business tables, 50,507 rows, migration `20260803_001` applied by the schema
+  checkpoint commit, and all 11 constraints validated. HTTP logs contained no
+  `5xx` response.
 
 ## Remaining human and provider staging gate
 
-1. Perform a short real-device human walkthrough of Stock, Consumables,
-   Purchase Orders and Freezer to catch interaction or layout defects that an
-   HTTP verifier cannot see.
+1. Perform only the short physical touch-device confirmation of horizontal
+   table swiping and the main Stock/Consumables buttons. The responsive browser
+   visual gate is complete; this is a human-device acceptance check, not a
+   technical staging blocker.
 2. Keep Telegram/daily/weekly HTTP cron callers and all providers disabled until
    a separately approved test-recipient rehearsal changes callers atomically to
    `POST` plus `X-Digest-Token` or `X-Report-Token` headers.
