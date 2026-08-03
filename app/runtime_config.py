@@ -22,6 +22,14 @@ _MANAGED_ENVIRONMENT_HINTS = (
     "RAILWAY_PROJECT_ID",
     "RAILWAY_SERVICE_ID",
 )
+_POSTGRESQL_SCHEMES = frozenset(
+    {
+        "postgres",
+        "postgresql",
+        "postgresql+psycopg",
+    }
+)
+_MIN_INTEGRATION_TOKEN_LENGTH = 32
 
 
 def _boolean_environment(name: str, *, default: bool) -> bool:
@@ -43,6 +51,15 @@ class WarehouseRuntimeSettings:
     startup_mutations_enabled: bool
     schedulers_enabled: bool
     strict_startup_ddl: bool
+
+
+@dataclass(frozen=True)
+class WarehousePredeployReport:
+    managed_environment: bool
+    operations_source_mode: bool
+    operations_read_enabled: bool
+    inventory_read_enabled: bool
+    database_backend: str
 
 
 def _is_managed_environment() -> bool:
@@ -80,6 +97,53 @@ def resolve_session_secret(settings: WarehouseRuntimeSettings) -> str | None:
         raise RuntimeError("SECRET_KEY is required in managed Warehouse environments")
 
     return secrets.token_urlsafe(48)
+
+
+def validate_predeploy_environment() -> WarehousePredeployReport:
+    """Validate deployment configuration without touching a database or provider."""
+    settings = load_runtime_settings()
+    managed_environment = _is_managed_environment()
+    resolve_session_secret(settings)
+
+    database_url = (os.getenv("DATABASE_URL") or "").strip()
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is required")
+    database_backend = database_url.partition(":")[0].casefold()
+    if managed_environment and database_backend not in _POSTGRESQL_SCHEMES:
+        raise RuntimeError(
+            "DATABASE_URL must use PostgreSQL in managed Warehouse environments"
+        )
+
+    operations_read_enabled = _boolean_environment(
+        "OPERATIONS_READ_API_ENABLED",
+        default=False,
+    )
+    inventory_read_enabled = _boolean_environment(
+        "OPERATIONS_INVENTORY_READ_API_ENABLED",
+        default=False,
+    )
+    if inventory_read_enabled and not operations_read_enabled:
+        raise RuntimeError(
+            "Warehouse inventory reads require the base Operations read API"
+        )
+    if settings.operations_source_mode and not operations_read_enabled:
+        raise RuntimeError(
+            "Warehouse Operations source mode requires the Operations read API"
+        )
+    if operations_read_enabled:
+        read_token = (os.getenv("OPERATIONS_READ_API_TOKEN") or "").strip()
+        if len(read_token) < _MIN_INTEGRATION_TOKEN_LENGTH:
+            raise RuntimeError(
+                "OPERATIONS_READ_API_TOKEN must contain at least 32 characters"
+            )
+
+    return WarehousePredeployReport(
+        managed_environment=managed_environment,
+        operations_source_mode=settings.operations_source_mode,
+        operations_read_enabled=operations_read_enabled,
+        inventory_read_enabled=inventory_read_enabled,
+        database_backend=database_backend,
+    )
 
 
 def load_runtime_settings() -> WarehouseRuntimeSettings:
