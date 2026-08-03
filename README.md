@@ -28,6 +28,12 @@ The product-level `GET /api/v1/operations/inventory` candidate has a second inde
 read boundary and this switch are enabled. The route is local-only and must not be enabled on an
 existing source deployment without the gates in `docs/OPERATIONS_INVENTORY_HANDOFF.md`.
 
+Consumables use a separate ledger and a separate GET-only projection at
+`/api/v1/operations/consumables`. It additionally requires
+`OPERATIONS_CONSUMABLES_READ_API_ENABLED=true`, which defaults off. It is not part of product
+inventory or Product Master mapping. See `docs/OPERATIONS_CONSUMABLES_HANDOFF.md` before any
+environment activation.
+
 ### Non-production Operations source mode
 
 The narrow source deployment must use a dedicated database clone and a SELECT-only PostgreSQL
