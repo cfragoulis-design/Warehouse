@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DATABASE_URL: sqlite+pysqlite:///:memory:
+      DATABASE_URL: "sqlite+pysqlite:///:memory:"
       SECRET_KEY: warehouse-ci-session-secret-is-at-least-32-characters
     steps:
       - uses: actions/checkout@v4
