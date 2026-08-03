@@ -27,6 +27,12 @@ been performed.
   pass the current advisory audit.
 - GitHub CI now compiles, lints correctness rules and runs the complete test
   suite on Python 3.12.
+- Quantity parsing and the canonical signed-stock/missing-stock rules now live
+  in `app/stock_domain.py`; invalid and non-finite quantities fail closed.
+- CENTRAL-to-WORKSHOP messaging now has its own router, direct role checks,
+  bounded message content and serialized acknowledgement writes.
+- Freezer balance writes now share a product-level transaction lock and reject
+  inactive products and non-finite quantities.
 
 ## Verified evidence
 
@@ -35,6 +41,8 @@ been performed.
 - `python -m compileall -q app tests`: passed.
 - `ruff check app tests`: passed with correctness rules.
 - `pip-audit -r requirements.txt`: no known vulnerabilities found.
+- Structural follow-up environment: 81 tests passed, including direct route,
+  quantity, messaging-idempotency and freezer-concurrency boundary tests.
 
 ## Required staging gate
 
@@ -64,9 +72,14 @@ been performed.
   baseline.
 - Add persistent, expiring worker claims for label jobs. This is a schema change
   and belongs in the first versioned migration after the baseline.
-- Split `services.py` into products, stock, labels and messaging routers in
-  behaviour-preserving checkpoints.
+- Continue splitting `services.py` into catalog, stock, labels and freezer
+  routers in behaviour-preserving checkpoints. Workshop messaging and the
+  stock-domain rules are already extracted.
 - Move PIN failure counters to shared persistent storage if Warehouse is scaled
   beyond one web process/instance.
 - Replace product-history `ON DELETE CASCADE` constraints after the migration
   baseline. Runtime deletion is already disabled by this checkpoint.
+- Add an append-only freezer movement ledger and database constraints for
+  quantity/movement invariants after the migration baseline. Runtime freezer
+  writes are serialized now, but the legacy table stores only the current
+  balance.

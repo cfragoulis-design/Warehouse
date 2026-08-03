@@ -190,6 +190,21 @@ label_routes = [route for route in routes if getattr(route, "path", None) == "/a
 assert len(label_routes) == 1
 assert label_routes[0].name == "labels_center"
 assert not any(getattr(route, "path", None) == "/admin/labels/print" for route in routes)
+
+expected_workshop_routes = {
+    ("POST", "/admin/workshop-message"),
+    ("GET", "/api/workshop/messages/pending"),
+    ("POST", "/api/workshop/messages/{message_id}/ack"),
+}
+for method, path in expected_workshop_routes:
+    matching = [
+        route
+        for route in routes
+        if getattr(route, "path", None) == path
+        and method in (getattr(route, "methods", set()) or set())
+    ]
+    assert len(matching) == 1
+    assert matching[0].endpoint.__module__ == "app.workshop_message_service"
 """
     result = subprocess.run(
         [sys.executable, "-c", command],

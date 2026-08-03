@@ -16,7 +16,7 @@ import urllib.request
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from sqlalchemy import select, func, case, exists
+from sqlalchemy import select, func, case
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -24,12 +24,34 @@ from sqlalchemy.orm import Session
 try:
     from app.auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from app.db import acquire_transaction_lock, get_db
-    from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
+    from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag
+    from app.stock_domain import (
+        get_missing_map,
+        get_stock_for_product,
+        get_stock_qty,
+        missing_add_shortfall,
+        missing_reduce_on_delivery,
+        parse_qty,
+        parse_qty_any,
+        parse_qty_signed,
+        signed_qty_expr,
+    )
     from app.templating import WarehouseJinja2Templates
 except ImportError:
     from auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from db import acquire_transaction_lock, get_db
-    from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag, WorkshopMessage, WorkshopMessageAck
+    from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, FreezerItem, AppFlag
+    from stock_domain import (
+        get_missing_map,
+        get_stock_for_product,
+        get_stock_qty,
+        missing_add_shortfall,
+        missing_reduce_on_delivery,
+        parse_qty,
+        parse_qty_any,
+        parse_qty_signed,
+        signed_qty_expr,
+    )
     from templating import WarehouseJinja2Templates
 
 router = APIRouter()
@@ -67,6 +89,7 @@ templates.env.filters["fmtqty"] = fmtqty
 # auth helpers
 # --------------------
 def require_admin(user: User = Depends(require_user)) -> User:
+    """Preserve the existing 403 contract for Warehouse admin mutations."""
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     return user
@@ -199,111 +222,6 @@ def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
     }
 
 # --------------------
-# workshop messaging (CENTRAL -> WORKSHOP)
-# --------------------
-@router.post("/admin/workshop-message")
-def admin_send_workshop_message(
-    request: Request,
-    body: str = Form(...),
-    title: str = Form(""),
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    msg_body = (body or "").strip()
-    if not msg_body:
-        return RedirectResponse(url="/dashboard?msg=" + urllib.parse.quote("Empty message") + "&level=warning", status_code=303)
-
-    msg_title = (title or "").strip() or None
-
-    msg = WorkshopMessage(
-        created_by_user_id=user.id,
-        target_role="workshop",
-        title=msg_title,
-        body=msg_body,
-        require_ack=True,
-        is_active=True,
-    )
-    db.add(msg)
-    db.commit()
-    return RedirectResponse(url="/dashboard?msg=" + urllib.parse.quote("Message sent to workshop") + "&level=info", status_code=303)
-
-
-@router.get("/api/workshop/messages/pending", response_class=JSONResponse)
-def workshop_pending_message(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    # Non-workshop users should never see messages; also keeps script safe if included everywhere.
-    if (user.role or "").lower() != "workshop":
-        return {"ok": True, "message": None}
-
-    ack_exists = exists().where(
-        (WorkshopMessageAck.message_id == WorkshopMessage.id) &
-        (WorkshopMessageAck.user_id == user.id)
-    )
-
-    msg = (
-        db.execute(
-            select(WorkshopMessage)
-            .where(
-                WorkshopMessage.is_active.is_(True),
-                WorkshopMessage.target_role == "workshop",
-                ~ack_exists,
-            )
-            .order_by(WorkshopMessage.created_at.desc())
-            .limit(1)
-        )
-        .scalars()
-        .first()
-    )
-
-    if not msg:
-        return {"ok": True, "message": None}
-
-    return {
-        "ok": True,
-        "message": {
-            "id": msg.id,
-            "title": msg.title or "Message",
-            "body": msg.body,
-            "created_at": msg.created_at.isoformat() if msg.created_at else None,
-            "require_ack": bool(msg.require_ack),
-        },
-    }
-
-
-@router.post("/api/workshop/messages/{message_id}/ack", response_class=JSONResponse)
-def workshop_ack_message(
-    message_id: int,
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
-    if (user.role or "").lower() != "workshop":
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    msg = db.get(WorkshopMessage, message_id)
-    if not msg or not msg.is_active:
-        return {"ok": True}
-
-    # Best-effort dedupe
-    existing = db.execute(
-        select(WorkshopMessageAck.id).where(
-            WorkshopMessageAck.message_id == message_id,
-            WorkshopMessageAck.user_id == user.id,
-        )
-    ).first()
-
-    if not existing:
-        db.add(WorkshopMessageAck(message_id=message_id, user_id=user.id))
-        db.commit()
-
-    return {"ok": True}
-
-
-
-# --------------------
 # data helpers
 # --------------------
 def get_locations(db: Session) -> dict[str, Location]:
@@ -319,96 +237,11 @@ def get_categories(db: Session, include_inactive: bool = False) -> list[Category
     return db.execute(stmt).scalars().all()
 
 
-def parse_qty(qty: str) -> Decimal | None:
-    try:
-        q = Decimal(qty.replace(",", ".").strip())
-        if q <= 0:
-            return None
-        return q
-    except Exception:
-        return None
-
-
-
-def parse_qty_any(qty: str) -> Decimal | None:
-    """Parse qty that may be zero (for set operations)."""
-    try:
-        q = Decimal(qty.replace(",", ".").strip())
-        if q < 0:
-            return None
-        return q
-    except Exception:
-        return None
-
-
-
-def parse_qty_signed(qty: str) -> Decimal | None:
-    """Parse qty that may be negative (for +/- adjustments)."""
-    try:
-        s = qty.replace(",", ".").strip()
-        if not s:
-            return None
-        q = Decimal(s)
-        if q == 0:
-            return None
-        return q
-    except Exception:
-        return None
-
-
 def _truthy_flag(val: str | None) -> bool:
     if val is None:
         return False
     v = str(val).strip().lower()
     return v in {"1", "true", "yes", "on", "y"}
-
-
-def signed_qty_expr():
-    # OUT & ADJ- negative, everything else positive
-    return case(
-        (StockMovement.movement_type.in_(["OUT", "ADJ-"]), -StockMovement.qty),
-        else_=StockMovement.qty,
-    )
-
-
-def _get_missing_map(db: Session) -> dict[int, Decimal]:
-    rows = db.execute(select(StockMissing.product_id, StockMissing.qty_missing)).all()
-    out: dict[int, Decimal] = {}
-    for pid, qty in rows:
-        try:
-            out[int(pid)] = Decimal(qty or 0)
-        except Exception:
-            out[int(pid)] = Decimal("0")
-    return out
-
-
-def _missing_decrease_on_delivery(db: Session, product_id: int, delivered_qty: Decimal) -> None:
-    """Decrease missing only on WORKSHOP -> CENTRAL delivery."""
-    if delivered_qty <= 0:
-        return
-    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
-    if not rec:
-        return
-    new_val = Decimal(rec.qty_missing or 0) - delivered_qty
-    if new_val <= 0:
-        db.delete(rec)
-    else:
-        rec.qty_missing = new_val
-
-
-def _missing_add_shortfall(db: Session, product_id: int, shortfall_qty: Decimal) -> None:
-    """Add missing only when a fulfill request could not be fully satisfied."""
-    if shortfall_qty <= 0:
-        return
-    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
-    if not rec:
-        rec = StockMissing(product_id=product_id, qty_missing=shortfall_qty)
-        db.add(rec)
-    else:
-        rec.qty_missing = Decimal(rec.qty_missing or 0) + shortfall_qty
-
-
-
 
 
 # --------------------
@@ -462,77 +295,6 @@ def get_dashboard_stats(db: Session) -> dict:
         "low_stock_count": int(low_stock_count or 0),
         "movements_today": int(movements_today or 0),
     }
-
-def get_stock_for_product(db: Session, product_id: int, location_id: int) -> Decimal:
-    signed_qty = signed_qty_expr()
-    val = db.execute(
-        select(func.coalesce(func.sum(signed_qty), 0))
-        .where(StockMovement.product_id == product_id)
-        .where(StockMovement.location_id == location_id)
-    ).scalar_one()
-    return Decimal(val)
-
-
-# compatibility alias (you used get_stock_qty later)
-def get_stock_qty(db: Session, product_id: int, location_id: int) -> Decimal:
-    return get_stock_for_product(db, product_id, location_id)
-
-
-def get_missing_map(db: Session) -> dict[int, Decimal]:
-    """Returns current Missing/Owed per product.
-
-    Missing is a persisted value (not derived from Target/Central).
-    """
-    rows = db.execute(select(StockMissing.product_id, StockMissing.qty_missing)).all()
-    out: dict[int, Decimal] = {}
-    for pid, q in rows:
-        try:
-            out[int(pid)] = Decimal(q or 0)
-        except Exception:
-            out[int(pid)] = Decimal("0")
-    return out
-
-
-def _set_missing(db: Session, product_id: int, new_qty: Decimal) -> None:
-    new_qty = Decimal(new_qty or 0)
-    if new_qty < 0:
-        new_qty = Decimal("0")
-    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
-    if not rec:
-        rec = StockMissing(product_id=product_id, qty_missing=new_qty)
-        db.add(rec)
-    else:
-        rec.qty_missing = new_qty
-
-
-def missing_reduce_on_delivery(db: Session, product_id: int, delivered_qty: Decimal) -> Decimal:
-    """Reduce Missing by delivered quantity.
-
-    Returns the amount that was used to cover Missing.
-    """
-    delivered_qty = Decimal(delivered_qty or 0)
-    if delivered_qty <= 0:
-        return Decimal("0")
-    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
-    if not rec:
-        return Decimal("0")
-    cur = Decimal(rec.qty_missing or 0)
-    used = min(cur, delivered_qty)
-    rec.qty_missing = cur - used
-    return used
-
-
-def missing_add_shortfall(db: Session, product_id: int, shortfall_qty: Decimal) -> None:
-    shortfall_qty = Decimal(shortfall_qty or 0)
-    if shortfall_qty <= 0:
-        return
-    rec = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
-    if not rec:
-        rec = StockMissing(product_id=product_id, qty_missing=shortfall_qty)
-        db.add(rec)
-    else:
-        rec.qty_missing = Decimal(rec.qty_missing or 0) + shortfall_qty
-
 
 # --------------------
 # ROOT / DASHBOARD
@@ -2523,6 +2285,17 @@ def _can_freezer_adjust(user: User) -> bool:
     return user.role in {"admin", "workshop"}
 
 
+def _locked_freezer_item(db: Session, item_id: int) -> FreezerItem | None:
+    """Lock the product-level freezer balance, then reload the current row."""
+    product_id = db.execute(
+        select(FreezerItem.product_id).where(FreezerItem.id == int(item_id))
+    ).scalar_one_or_none()
+    if product_id is None:
+        return None
+    acquire_transaction_lock(db, "freezer-stock", product_id)
+    return db.get(FreezerItem, int(item_id))
+
+
 @router.get("/freezer", response_class=HTMLResponse)
 def freezer_view(
     request: Request,
@@ -2598,6 +2371,11 @@ def freezer_add(
     if q is None:
         return RedirectResponse(url="/freezer?err=qty", status_code=303)
 
+    product = db.get(Product, product_id)
+    if product is None or not product.is_active:
+        return RedirectResponse(url="/freezer?err=product", status_code=303)
+
+    acquire_transaction_lock(db, "freezer-stock", product_id)
     fi = db.execute(select(FreezerItem).where(FreezerItem.product_id == product_id)).scalar_one_or_none()
     if fi:
         fi.qty = Decimal(str(fi.qty)) + q
@@ -2629,7 +2407,7 @@ def freezer_adjust(
     if d is None:
         return JSONResponse({"ok": False, "error": "bad_qty"}, status_code=400)
 
-    fi = db.get(FreezerItem, int(item_id))
+    fi = _locked_freezer_item(db, item_id)
     if not fi:
         return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
 
@@ -2658,7 +2436,7 @@ def freezer_set(
     if q is None:
         return JSONResponse({"ok": False, "error": "bad_qty"}, status_code=400)
 
-    fi = db.get(FreezerItem, int(item_id))
+    fi = _locked_freezer_item(db, item_id)
     if not fi:
         return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
 
@@ -2677,7 +2455,7 @@ def freezer_delete(
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
 
-    fi = db.get(FreezerItem, int(item_id))
+    fi = _locked_freezer_item(db, item_id)
     if fi:
         db.delete(fi)
         db.commit()

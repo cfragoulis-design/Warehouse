@@ -33,6 +33,7 @@ if not runtime_settings.operations_source_mode:
         from app.production_report_service import router as production_report_router
         from app.seed import seed_categories, seed_locations
         from app.services import router as services_router
+        from app.workshop_message_service import router as workshop_message_router
     except ImportError:
         from auth import router as auth_router
         from auth import seed_admins
@@ -41,6 +42,7 @@ if not runtime_settings.operations_source_mode:
         from production_report_service import router as production_report_router
         from seed import seed_categories, seed_locations
         from services import router as services_router
+        from workshop_message_service import router as workshop_message_router
 
 logger = logging.getLogger(__name__)
 weekly_report_task = None
@@ -132,6 +134,7 @@ if not runtime_settings.operations_source_mode:
 
     app.include_router(auth_router)
     app.include_router(services_router)
+    app.include_router(workshop_message_router)
     app.include_router(consumables_router)
     app.include_router(digest_router)
     app.include_router(production_report_router)
