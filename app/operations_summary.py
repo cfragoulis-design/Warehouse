@@ -16,22 +16,28 @@ from sqlalchemy.orm import Session
 try:
     from app.db import get_db
     from app.models import (
+        Consumable,
+        ConsumableStock,
         Location,
         FreezerItem,
         Product,
         ProductLot,
         PurchaseOrder,
+        PurchaseOrderItem,
         StockMissing,
         StockMovement,
     )
 except ImportError:
     from db import get_db
     from models import (
+        Consumable,
+        ConsumableStock,
         Location,
         FreezerItem,
         Product,
         ProductLot,
         PurchaseOrder,
+        PurchaseOrderItem,
         StockMissing,
         StockMovement,
     )
@@ -42,6 +48,7 @@ router = APIRouter(prefix="/api/v1/operations", tags=["operations-read"])
 _ATHENS = ZoneInfo("Europe/Athens")
 _ENABLED_ENV = "OPERATIONS_READ_API_ENABLED"
 _INVENTORY_ENABLED_ENV = "OPERATIONS_INVENTORY_READ_API_ENABLED"
+_CONSUMABLES_ENABLED_ENV = "OPERATIONS_CONSUMABLES_READ_API_ENABLED"
 _TOKEN_ENV = "OPERATIONS_READ_API_TOKEN"
 _MIN_TOKEN_LENGTH = 32
 _OPEN_PURCHASE_ORDER_STATUSES = ("DRAFT", "SUBMITTED", "PARTIAL")
@@ -106,6 +113,42 @@ class WarehouseOperationsInventory(BaseModel):
             extra = "forbid"
 
 
+class WarehouseOperationsConsumable(BaseModel):
+    if _PYDANTIC_V2:
+        model_config = ConfigDict(extra="forbid")
+
+    external_id: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255)
+    category: str | None = Field(default=None, max_length=128)
+    unit: str | None = Field(default=None, max_length=40)
+    is_active: bool
+    workshop_qty: Decimal = Field(ge=0)
+    min_qty: Decimal = Field(ge=0)
+    desired_qty: Decimal = Field(ge=0)
+    on_order_qty: Decimal = Field(ge=0)
+    suggested_order_qty: Decimal = Field(ge=0)
+    is_low: bool
+
+    if not _PYDANTIC_V2:
+
+        class Config:
+            extra = "forbid"
+
+
+class WarehouseOperationsConsumables(BaseModel):
+    if _PYDANTIC_V2:
+        model_config = ConfigDict(extra="forbid")
+
+    contract_version: Literal[1] = 1
+    as_of: datetime
+    consumables: list[WarehouseOperationsConsumable]
+
+    if not _PYDANTIC_V2:
+
+        class Config:
+            extra = "forbid"
+
+
 def _read_api_enabled() -> bool:
     return os.getenv(_ENABLED_ENV, "").strip().casefold() == "true"
 
@@ -136,6 +179,14 @@ def require_operations_inventory_token(
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
 ) -> None:
     if os.getenv(_INVENTORY_ENABLED_ENV, "").strip().casefold() != "true":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    require_operations_read_token(authorization)
+
+
+def require_operations_consumables_token(
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> None:
+    if os.getenv(_CONSUMABLES_ENABLED_ENV, "").strip().casefold() != "true":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     require_operations_read_token(authorization)
 
@@ -352,6 +403,102 @@ def build_operations_inventory(
     )
 
 
+def build_operations_consumables(
+    db: Session,
+    *,
+    now: datetime | None = None,
+) -> WarehouseOperationsConsumables:
+    """Build the bounded consumables projection consumed by Sklavounos One.
+
+    Consumables remain an independent Warehouse-owned ledger. The projection exposes no
+    suppliers, costs, notes, movement history, users or mutation capability.
+    """
+
+    observed_at = now or datetime.now(timezone.utc)
+    if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+        raise ValueError("Consumables clock must be timezone-aware")
+
+    workshop_stock = (
+        select(
+            ConsumableStock.consumable_id.label("consumable_id"),
+            func.coalesce(func.sum(ConsumableStock.qty), 0).label("workshop_qty"),
+        )
+        .where(ConsumableStock.location_code == "WORKSHOP")
+        .group_by(ConsumableStock.consumable_id)
+        .subquery()
+    )
+    outstanding_quantity = case(
+        (
+            PurchaseOrderItem.qty_ordered > PurchaseOrderItem.qty_received,
+            PurchaseOrderItem.qty_ordered - PurchaseOrderItem.qty_received,
+        ),
+        else_=0,
+    )
+    open_orders = (
+        select(
+            PurchaseOrderItem.consumable_id.label("consumable_id"),
+            func.coalesce(func.sum(outstanding_quantity), 0).label("on_order_qty"),
+        )
+        .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.purchase_order_id)
+        .where(PurchaseOrder.status.in_(_OPEN_PURCHASE_ORDER_STATUSES))
+        .group_by(PurchaseOrderItem.consumable_id)
+        .subquery()
+    )
+    rows = db.execute(
+        select(
+            Consumable.id,
+            Consumable.name,
+            Consumable.category,
+            Consumable.unit,
+            Consumable.is_active,
+            Consumable.min_qty,
+            Consumable.desired_qty,
+            func.coalesce(workshop_stock.c.workshop_qty, 0).label("workshop_qty"),
+            func.coalesce(open_orders.c.on_order_qty, 0).label("on_order_qty"),
+        )
+        .outerjoin(
+            workshop_stock,
+            workshop_stock.c.consumable_id == Consumable.id,
+        )
+        .outerjoin(open_orders, open_orders.c.consumable_id == Consumable.id)
+        .order_by(Consumable.id)
+        .limit(501)
+    ).all()
+    if len(rows) > 500:
+        raise RuntimeError("Warehouse consumables exceed the v1 contract row limit")
+
+    consumables: list[WarehouseOperationsConsumable] = []
+    for row in rows:
+        workshop_qty = max(Decimal(row.workshop_qty or 0), Decimal("0"))
+        min_qty = max(Decimal(row.min_qty or 0), Decimal("0"))
+        desired_qty = max(Decimal(row.desired_qty or 0), Decimal("0"))
+        on_order_qty = max(Decimal(row.on_order_qty or 0), Decimal("0"))
+        suggested_order_qty = max(
+            desired_qty - workshop_qty - on_order_qty,
+            Decimal("0"),
+        )
+        consumables.append(
+            WarehouseOperationsConsumable(
+                external_id=str(row.id),
+                name=row.name,
+                category=row.category,
+                unit=row.unit,
+                is_active=row.is_active,
+                workshop_qty=workshop_qty,
+                min_qty=min_qty,
+                desired_qty=desired_qty,
+                on_order_qty=on_order_qty,
+                suggested_order_qty=suggested_order_qty,
+                is_low=bool(row.is_active and min_qty > 0 and workshop_qty < min_qty),
+            )
+        )
+
+    return WarehouseOperationsConsumables(
+        as_of=observed_at.astimezone(timezone.utc),
+        consumables=consumables,
+    )
+
+
 @router.get("/summary", response_model=WarehouseOperationsSummary)
 def operations_summary(
     response: Response,
@@ -381,4 +528,20 @@ def operations_inventory(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Warehouse inventory is temporarily unavailable",
+        ) from exc
+
+
+@router.get("/consumables", response_model=WarehouseOperationsConsumables)
+def operations_consumables(
+    response: Response,
+    _authorized: Annotated[None, Depends(require_operations_consumables_token)],
+    db: Annotated[Session, Depends(get_db)],
+) -> WarehouseOperationsConsumables:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return build_operations_consumables(db)
+    except (RuntimeError, ValueError, SQLAlchemyError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Warehouse consumables are temporarily unavailable",
         ) from exc

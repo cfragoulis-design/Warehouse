@@ -19,18 +19,23 @@ os.environ.setdefault("DATABASE_URL", configured_test_database_url())
 
 from app.db import Base, get_db  # noqa: E402
 from app.models import (  # noqa: E402
+    Consumable,
+    ConsumableStock,
     FreezerItem,
     Location,
     Product,
     ProductLot,
     PurchaseOrder,
+    PurchaseOrderItem,
     StockMissing,
     StockMovement,
     Supplier,
 )
 from app.operations_summary import (  # noqa: E402
+    build_operations_consumables,
     build_operations_inventory,
     build_operations_summary,
+    require_operations_consumables_token,
     require_operations_inventory_token,
     require_operations_read_token,
     router,
@@ -165,6 +170,75 @@ def _seed_summary_scenario(db: Session, observed_at: datetime) -> None:
     db.commit()
 
 
+def _seed_consumables_scenario(db: Session) -> None:
+    supplier = Supplier(name="Consumables supplier", is_active=True)
+    low = Consumable(
+        name="Vacuum bags",
+        category="Packaging",
+        unit="pack",
+        min_qty=Decimal("5"),
+        desired_qty=Decimal("10"),
+        is_active=True,
+    )
+    healthy = Consumable(
+        name="Disposable gloves",
+        category="Safety",
+        unit="box",
+        min_qty=Decimal("5"),
+        desired_qty=Decimal("10"),
+        is_active=True,
+    )
+    inactive = Consumable(
+        name="Old packaging",
+        unit=None,
+        min_qty=Decimal("5"),
+        desired_qty=Decimal("8"),
+        is_active=False,
+    )
+    db.add_all([supplier, low, healthy, inactive])
+    db.flush()
+    db.add_all(
+        [
+            ConsumableStock(
+                consumable_id=low.id,
+                location_code="WORKSHOP",
+                qty=Decimal("2"),
+            ),
+            ConsumableStock(
+                consumable_id=low.id,
+                location_code="CENTRAL",
+                qty=Decimal("99"),
+            ),
+            ConsumableStock(
+                consumable_id=healthy.id,
+                location_code="WORKSHOP",
+                qty=Decimal("10"),
+            ),
+        ]
+    )
+    open_order = PurchaseOrder(supplier_id=supplier.id, status="PARTIAL")
+    received_order = PurchaseOrder(supplier_id=supplier.id, status="RECEIVED")
+    db.add_all([open_order, received_order])
+    db.flush()
+    db.add_all(
+        [
+            PurchaseOrderItem(
+                purchase_order_id=open_order.id,
+                consumable_id=low.id,
+                qty_ordered=Decimal("3"),
+                qty_received=Decimal("1"),
+            ),
+            PurchaseOrderItem(
+                purchase_order_id=received_order.id,
+                consumable_id=low.id,
+                qty_ordered=Decimal("100"),
+                qty_received=Decimal("0"),
+            ),
+        ]
+    )
+    db.commit()
+
+
 def test_summary_matches_existing_stock_and_purchase_order_semantics(db: Session) -> None:
     observed_at = datetime(2026, 7, 26, 9, 30, tzinfo=timezone.utc)
     _seed_summary_scenario(db, observed_at)
@@ -219,6 +293,49 @@ def test_inventory_contract_matches_current_stock_and_product_semantics(db: Sess
     assert inactive.missing_qty == Decimal("3")
     assert result.contract_version == 1
     assert result.as_of == observed_at
+
+
+def test_consumables_contract_is_separate_and_matches_existing_ledger(db: Session) -> None:
+    observed_at = datetime(2026, 8, 3, 8, 0, tzinfo=timezone.utc)
+    _seed_consumables_scenario(db)
+
+    result = build_operations_consumables(db, now=observed_at)
+    by_name = {item.name: item for item in result.consumables}
+
+    low = by_name["Vacuum bags"]
+    assert low.workshop_qty == Decimal("2")
+    assert low.min_qty == Decimal("5")
+    assert low.desired_qty == Decimal("10")
+    assert low.on_order_qty == Decimal("2")
+    assert low.suggested_order_qty == Decimal("6")
+    assert low.is_low is True
+
+    healthy = by_name["Disposable gloves"]
+    assert healthy.workshop_qty == Decimal("10")
+    assert healthy.suggested_order_qty == Decimal("0")
+    assert healthy.is_low is False
+
+    inactive = by_name["Old packaging"]
+    assert inactive.unit is None
+    assert inactive.is_low is False
+    assert inactive.suggested_order_qty == Decimal("8")
+    assert result.contract_version == 1
+    assert result.as_of == observed_at
+
+
+def test_consumables_reject_naive_clock_and_contract_overflow(db: Session) -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        build_operations_consumables(db, now=datetime(2026, 8, 3, 8, 0))
+
+    db.add_all(
+        [
+            Consumable(name=f"Bounded consumable {index}", is_active=True)
+            for index in range(501)
+        ]
+    )
+    db.commit()
+    with pytest.raises(RuntimeError, match="row limit"):
+        build_operations_consumables(db)
 
 
 def test_inventory_rejects_naive_clock_and_missing_canonical_locations(db: Session) -> None:
@@ -316,16 +433,37 @@ def test_inventory_auth_requires_its_own_default_off_activation(
     assert require_operations_inventory_token(f"Bearer {token}") is None
 
 
+def test_consumables_auth_requires_its_own_default_off_activation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = "c" * 48
+    monkeypatch.setenv("OPERATIONS_READ_API_ENABLED", "true")
+    monkeypatch.setenv("OPERATIONS_READ_API_TOKEN", token)
+    monkeypatch.delenv("OPERATIONS_CONSUMABLES_READ_API_ENABLED", raising=False)
+
+    with pytest.raises(HTTPException) as disabled:
+        require_operations_consumables_token(f"Bearer {token}")
+    assert disabled.value.status_code == 404
+
+    monkeypatch.setenv("OPERATIONS_CONSUMABLES_READ_API_ENABLED", "true")
+    with pytest.raises(HTTPException) as missing:
+        require_operations_consumables_token(None)
+    assert missing.value.status_code == 401
+    assert require_operations_consumables_token(f"Bearer {token}") is None
+
+
 def test_http_contract_is_closed_no_store_and_get_only(
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed_at = datetime.now(timezone.utc)
     _seed_summary_scenario(db, observed_at)
+    _seed_consumables_scenario(db)
     token = "c" * 48
     monkeypatch.setenv("OPERATIONS_READ_API_ENABLED", "true")
     monkeypatch.setenv("OPERATIONS_READ_API_TOKEN", token)
     monkeypatch.setenv("OPERATIONS_INVENTORY_READ_API_ENABLED", "true")
+    monkeypatch.setenv("OPERATIONS_CONSUMABLES_READ_API_ENABLED", "true")
 
     app = FastAPI()
     app.include_router(router)
@@ -386,5 +524,32 @@ def test_http_contract_is_closed_no_store_and_get_only(
     }
     assert client.post(
         "/api/v1/operations/inventory",
+        headers={"Authorization": f"Bearer {token}"},
+    ).status_code == 405
+
+    consumables = client.get(
+        "/api/v1/operations/consumables",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert consumables.status_code == 200
+    assert consumables.headers["cache-control"] == "no-store"
+    assert set(consumables.json()) == {"contract_version", "as_of", "consumables"}
+    assert consumables.json()["contract_version"] == 1
+    assert consumables.json()["consumables"]
+    assert set(consumables.json()["consumables"][0]) == {
+        "external_id",
+        "name",
+        "category",
+        "unit",
+        "is_active",
+        "workshop_qty",
+        "min_qty",
+        "desired_qty",
+        "on_order_qty",
+        "suggested_order_qty",
+        "is_low",
+    }
+    assert client.post(
+        "/api/v1/operations/consumables",
         headers={"Authorization": f"Bearer {token}"},
     ).status_code == 405

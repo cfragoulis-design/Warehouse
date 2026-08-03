@@ -59,6 +59,7 @@ class WarehousePredeployReport:
     operations_source_mode: bool
     operations_read_enabled: bool
     inventory_read_enabled: bool
+    consumables_read_enabled: bool
     database_backend: str
 
 
@@ -122,9 +123,17 @@ def validate_predeploy_environment() -> WarehousePredeployReport:
         "OPERATIONS_INVENTORY_READ_API_ENABLED",
         default=False,
     )
+    consumables_read_enabled = _boolean_environment(
+        "OPERATIONS_CONSUMABLES_READ_API_ENABLED",
+        default=False,
+    )
     if inventory_read_enabled and not operations_read_enabled:
         raise RuntimeError(
             "Warehouse inventory reads require the base Operations read API"
+        )
+    if consumables_read_enabled and not operations_read_enabled:
+        raise RuntimeError(
+            "Warehouse consumables reads require the base Operations read API"
         )
     if settings.operations_source_mode and not operations_read_enabled:
         raise RuntimeError(
@@ -142,6 +151,7 @@ def validate_predeploy_environment() -> WarehousePredeployReport:
         operations_source_mode=settings.operations_source_mode,
         operations_read_enabled=operations_read_enabled,
         inventory_read_enabled=inventory_read_enabled,
+        consumables_read_enabled=consumables_read_enabled,
         database_backend=database_backend,
     )
 

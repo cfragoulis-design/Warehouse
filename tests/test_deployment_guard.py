@@ -30,6 +30,7 @@ def _clear_deployment_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "WAREHOUSE_STRICT_STARTUP_DDL",
         "OPERATIONS_READ_API_ENABLED",
         "OPERATIONS_INVENTORY_READ_API_ENABLED",
+        "OPERATIONS_CONSUMABLES_READ_API_ENABLED",
         "OPERATIONS_READ_API_TOKEN",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -47,6 +48,7 @@ def test_managed_web_predeploy_accepts_strong_configuration(
 
     assert report.managed_environment is True
     assert report.operations_source_mode is False
+    assert report.consumables_read_enabled is False
     assert report.database_backend == "postgresql"
 
 
@@ -108,6 +110,22 @@ def test_inventory_read_requires_base_read_boundary(
         validate_predeploy_environment()
 
 
+def test_consumables_read_requires_base_read_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_deployment_environment(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    monkeypatch.setenv("OPERATIONS_CONSUMABLES_READ_API_ENABLED", "true")
+
+    with pytest.raises(RuntimeError, match="require the base Operations read API"):
+        validate_predeploy_environment()
+
+    monkeypatch.setenv("OPERATIONS_READ_API_ENABLED", "true")
+    monkeypatch.setenv("OPERATIONS_READ_API_TOKEN", "t" * 64)
+    report = validate_predeploy_environment()
+    assert report.consumables_read_enabled is True
+
+
 def test_predeploy_cli_is_privacy_safe() -> None:
     secret = "warehouse-secret-that-must-never-be-printed"
     environment = os.environ.copy()
@@ -118,6 +136,7 @@ def test_predeploy_cli_is_privacy_safe() -> None:
             "SECRET_KEY": secret,
             "OPERATIONS_READ_API_ENABLED": "false",
             "OPERATIONS_INVENTORY_READ_API_ENABLED": "false",
+            "OPERATIONS_CONSUMABLES_READ_API_ENABLED": "false",
         }
     )
     result = subprocess.run(
