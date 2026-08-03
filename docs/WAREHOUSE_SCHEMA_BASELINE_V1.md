@@ -102,4 +102,12 @@ rows, and all 11 reviewed constraints are validated. The matching source-only
 Railway deployment `3ec02ca0-b829-4dc2-a325-a4b77b40a289` passed its complete
 read-only API boundary smoke test.
 
+The separate full-UI target `warehouse_fullui_staging` was then restored from
+the same private staging backup and migrated at the same exact runtime commit.
+Its post-smoke read-only verification reports 20 business tables, 50,507 rows,
+all 11 validated constraints and migration `20260803_001`. The matching
+full-UI deployment `da538b14-3437-40ac-8bf7-d3578a7b4838` passed login/logout,
+same-origin enforcement and authenticated page smoke with its Operations APIs,
+schedulers and providers disabled. The one ephemeral smoke user was removed.
+
 This evidence does not authorize Warehouse production migration or deployment.
