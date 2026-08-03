@@ -90,3 +90,16 @@ separate approval that names the exact final candidate commit and includes:
 6. automatic stop before deploy if any migration or verification step fails.
 
 SR and Sklavounos One are outside this migration and must remain unchanged.
+
+## Isolated staging application
+
+On 3 August 2026 the migration was applied to the isolated
+`warehouse_operations_staging` database only, after a fresh private backup and
+successful restore rehearsal. The registry records exact application commit
+`b04dd6e16738d2310d374491bacf2a383aa2dfa1`; there are no pending migrations.
+The database retained 20 original business tables and 50,507 original business
+rows, and all 11 reviewed constraints are validated. The matching source-only
+Railway deployment `3ec02ca0-b829-4dc2-a325-a4b77b40a289` passed its complete
+read-only API boundary smoke test.
+
+This evidence does not authorize Warehouse production migration or deployment.
