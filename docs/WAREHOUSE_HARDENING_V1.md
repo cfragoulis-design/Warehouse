@@ -146,18 +146,27 @@ Sklavounos One production remain unchanged.
   balance. All disposable products, stock rows, Missing row, consumables,
   movements, PO, supplier and user were deleted afterwards; the canonical
   50,507-row baseline and zero-`5xx` check were reconfirmed.
+- A final disposable session/roles matrix passed all 25 expected HTTP results.
+  It covered category create/edit/toggle with product-category propagation,
+  product create/edit/toggle/inactivation, supplier create/edit/toggle,
+  consumable create/edit/adjust/toggle, freezer add/adjust/set/delete and
+  Workshop message acknowledgement idempotency.
+- The same matrix confirmed that the warehouse-only account is redirected away
+  from Product administration, Workshop cannot mutate Products, Suppliers or
+  admin-only Freezer state, and a cross-origin category write is rejected.
+  Three ephemeral role users and all catalog, freezer, consumable, supplier and
+  message fixtures were removed. The 50,507-row baseline, 11 validated
+  constraints and zero HTTP `5xx` responses were reconfirmed once more.
 
 ## Remaining human and provider staging gate
 
-1. Exercise every remaining session-authenticated POST from the real staging
-   origin, including validation and authorization failures.
-2. Perform a short real-device human walkthrough of Stock, Consumables,
+1. Perform a short real-device human walkthrough of Stock, Consumables,
    Purchase Orders and Freezer to catch interaction or layout defects that an
    HTTP verifier cannot see.
-3. Keep Telegram/daily/weekly HTTP cron callers and all providers disabled until
+2. Keep Telegram/daily/weekly HTTP cron callers and all providers disabled until
    a separately approved test-recipient rehearsal changes callers atomically to
    `POST` plus `X-Digest-Token` or `X-Report-Token` headers.
-4. Take another fresh backup immediately before any later production migration,
+3. Take another fresh backup immediately before any later production migration,
    reconfirm the migration checksum and current version, and stop on any
    mismatch. Production still requires a separate exact-commit, backup,
    rollback and deploy approval.

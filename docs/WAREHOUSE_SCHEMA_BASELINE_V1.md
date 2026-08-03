@@ -115,4 +115,10 @@ PO receipt and concurrent stock/consumable serialization. Every fixture was
 removed and the target returned to 20 business tables, 50,507 rows and zero
 HTTP `5xx` responses.
 
+A subsequent 25-case session and role matrix verified the remaining safe
+catalog, category, supplier, consumable, Freezer and Workshop-message writes,
+including role denials and cross-origin rejection. Its three ephemeral users
+and all associated rows were removed; the same schema, row count, constraints
+and zero-`5xx` baseline were reconfirmed.
+
 This evidence does not authorize Warehouse production migration or deployment.
