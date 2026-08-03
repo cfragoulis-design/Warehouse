@@ -16,7 +16,9 @@
     .pill:hover{border-color:#35508e}
     .wrap{max-width:1100px;margin:0 auto;padding:18px}
     .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    .tableWrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
     table{width:100%;border-collapse:collapse}
+    .tbl{min-width:560px}
     th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
     th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.02);text-align:left}
     tr:hover td{background:rgba(255,255,255,.02)}
@@ -25,6 +27,7 @@
     .btn:hover{border-color:#3d5fb5}
     .btn2{border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
     .btn2:hover{border-color:#3d5fb5}
+    @media(max-width:700px){.top{position:static}.wrap{padding:14px}.app-datetime{width:100%}}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
