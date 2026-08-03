@@ -130,20 +130,34 @@ Sklavounos One production remain unchanged.
 - Post-smoke read-only verification still reports 20 business tables, 50,507
   business rows, migration `20260803_001` at the exact runtime commit and all
   11 constraints validated. Railway HTTP logs contained no `5xx` response.
+- A disposable transactional smoke then exercised normal WORKSHOP stock-in,
+  WORKSHOP-to-CENTRAL transfer, CENTRAL stock-out and overdraw rejection. The
+  paired transfer produced one transfer ID with equal `3.000` OUT/IN rows and
+  reconciled to CENTRAL `1.000`, WORKSHOP `7.000`.
+- Partial fulfillment moved the available `3.000`, recorded Missing `2.000`,
+  and a later `2.000` delivery brought CENTRAL to its `5.000` target and
+  Missing back to `0.000`.
+- Consumables exercised take, add and a complete `4.000` purchase-order
+  receipt. The resulting ledger was exactly OUT `2.000`, IN `1.000`, IN
+  `4.000`; stock reconciled to `8.000` and the PO became `RECEIVED`.
+- Two simultaneous `7.000` stock deductions against `10.000` allowed only one
+  deduction and left `3.000`. Two simultaneous consumable takes against
+  `10.000` serialized to `7.000` plus the remaining `3.000`, with no negative
+  balance. All disposable products, stock rows, Missing row, consumables,
+  movements, PO, supplier and user were deleted afterwards; the canonical
+  50,507-row baseline and zero-`5xx` check were reconfirmed.
 
-## Remaining transactional and human staging gate
+## Remaining human and provider staging gate
 
-1. Exercise the critical stock, transfer, missing, consumables and purchase
-   order mutations in the dedicated full-UI staging service using disposable
-   records, and reconcile their ledgers afterwards.
-2. Exercise two concurrent stock deductions and two concurrent consumable takes
-   against PostgreSQL; confirm the second request sees the committed balance.
-3. Exercise every remaining session-authenticated POST from the real staging
+1. Exercise every remaining session-authenticated POST from the real staging
    origin, including validation and authorization failures.
-4. Keep Telegram/daily/weekly HTTP cron callers and all providers disabled until
+2. Perform a short real-device human walkthrough of Stock, Consumables,
+   Purchase Orders and Freezer to catch interaction or layout defects that an
+   HTTP verifier cannot see.
+3. Keep Telegram/daily/weekly HTTP cron callers and all providers disabled until
    a separately approved test-recipient rehearsal changes callers atomically to
    `POST` plus `X-Digest-Token` or `X-Report-Token` headers.
-5. Take another fresh backup immediately before any later production migration,
+4. Take another fresh backup immediately before any later production migration,
    reconfirm the migration checksum and current version, and stop on any
    mismatch. Production still requires a separate exact-commit, backup,
    rollback and deploy approval.

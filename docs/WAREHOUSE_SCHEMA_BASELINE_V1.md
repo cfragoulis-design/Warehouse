@@ -109,5 +109,10 @@ all 11 validated constraints and migration `20260803_001`. The matching
 full-UI deployment `da538b14-3437-40ac-8bf7-d3578a7b4838` passed login/logout,
 same-origin enforcement and authenticated page smoke with its Operations APIs,
 schedulers and providers disabled. The one ephemeral smoke user was removed.
+Disposable HTTP transaction rehearsals then verified paired stock transfers,
+overdraw rejection, Missing creation and repayment, consumable ledger writes,
+PO receipt and concurrent stock/consumable serialization. Every fixture was
+removed and the target returned to 20 business tables, 50,507 rows and zero
+HTTP `5xx` responses.
 
 This evidence does not authorize Warehouse production migration or deployment.
