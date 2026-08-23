@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1400" role="img" aria-labelledby="title desc">
+  <title id="title">Christos Fragoulis logo on dark</title>
+  <desc id="desc">CF personal mark with Christos Fragoulis Digital Solutions wordmark on a dark field.</desc>
+  <rect width="1400" height="1400" fill="#0C0E12"/>
+  <g transform="translate(300 90) scale(.8)">
+    <g fill="#FFFFFF">
+      <path d="M250 150C205 150 171 168 146 211L61 354C40 389 59 420 98 420H349L431 322H298L335 264H625L717 150H250Z"/>
+      <path d="M355 850 596 532H854L770 636H641L602 688H730L647 791H520L475 850H355Z"/>
+    </g>
+    <path d="M118 845 386 616 500 542 637 392 882 133 707 346 584 460 480 578 335 674Z" fill="#EF302B"/>
+  </g>
+  <text x="700" y="1055" text-anchor="middle" fill="#FFFFFF" font-family="Montserrat, Arial, sans-serif" font-size="92" font-weight="800" letter-spacing="10">CHRISTOS FRAGOULIS</text>
+  <text x="700" y="1145" text-anchor="middle" fill="#EF302B" font-family="Montserrat, Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="18">DIGITAL SOLUTIONS</text>
+</svg>

@@ -32,7 +32,8 @@ try {
         'WarehouseHprtAgent.ps1',
         'HprtLpq80Print.ps1',
         'WarehouseHprtAgent.Status.ps1',
-        'Diagnose-WarehouseHprtAgent.ps1'
+        'Diagnose-WarehouseHprtAgent.ps1',
+        'favicon-64.png'
     )
     foreach ($file in $sourceFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $file) -PathType Leaf)) { throw "Λείπει το αρχείο $file από το πακέτο." }

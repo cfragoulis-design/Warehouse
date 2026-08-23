@@ -17,6 +17,8 @@ RENDERER = PACKAGE / "HprtLpq80Print.ps1"
 AGENT = PACKAGE / "WarehouseHprtAgent.ps1"
 INSTALLER = PACKAGE / "Install-WarehouseHprtAgent.ps1"
 STATUS_UI = PACKAGE / "WarehouseHprtAgent.Status.ps1"
+CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
+CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
 STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.4-STAGING.zip"
 
@@ -94,7 +96,8 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
 def test_status_ui_exposes_live_printer_queue_history_and_safe_actions():
     ui = STATUS_UI.read_text(encoding="utf-8-sig")
     assert "EFET PRINT AGENT · WORKSHOP" in ui
-    assert "SKLAVOUNOS ONE · CHRISTOS FRAGOULIS" in ui
+    assert "SKLAVOUNOS ONE" in ui
+    assert "favicon-64.png" in ui
     assert "HPRT · ΕΝΙΑΙΑ 50×70" in ui
     assert "Ουρά εκτύπωσης" in ui
     assert "ΙΣΤΟΡΙΚΟ ΕΤΙΚΕΤΩΝ · ΤΕΛΕΥΤΑΙΕΣ 10" in ui
@@ -105,6 +108,17 @@ def test_status_ui_exposes_live_printer_queue_history_and_safe_actions():
     assert "SnapshotOnly" in ui
     assert "agent-token.dpapi" in ui
     assert "ConvertTo-SecureString" not in ui
+
+
+def test_creator_assets_are_exact_approved_canonical_copies():
+    assert CREATOR_WEB_LOGO.stat().st_size == 1_099
+    assert hashlib.sha256(CREATOR_WEB_LOGO.read_bytes()).hexdigest() == (
+        "efdad8fbd6ce16eeaa221e7aa6dfd07d4b78bbcf7dc7bfb4fc7d2f1c2d6df785"
+    )
+    assert CREATOR_APP_ICON.stat().st_size == 1_559
+    assert hashlib.sha256(CREATOR_APP_ICON.read_bytes()).hexdigest() == (
+        "199b2fd197afd90dd2610aa7d002da97f6cfc7d17bc5e511ad1c609a8678360f"
+    )
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")

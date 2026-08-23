@@ -202,12 +202,32 @@ $header.Anchor = 'Top,Left,Right'
 $form.Controls.Add($header)
 
 $brand = New-Object Windows.Forms.Label
-$brand.Text = 'SKLAVOUNOS ONE · CHRISTOS FRAGOULIS'
+$brand.Text = 'SKLAVOUNOS ONE'
 $brand.Location = New-Object Drawing.Point(28, 15)
 $brand.Size = New-Object Drawing.Size(330, 18)
 $brand.ForeColor = $palette.Orange
 $brand.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
 $header.Controls.Add($brand)
+
+$creatorAsset = Join-Path $InstallRoot 'favicon-64.png'
+if (Test-Path -LiteralPath $creatorAsset -PathType Leaf) {
+    $creatorBytes = [IO.File]::ReadAllBytes($creatorAsset)
+    $creatorStream = New-Object IO.MemoryStream(,$creatorBytes)
+    try {
+        $sourceImage = [Drawing.Image]::FromStream($creatorStream)
+        try { $creatorImage = New-Object Drawing.Bitmap($sourceImage) }
+        finally { $sourceImage.Dispose() }
+    }
+    finally { $creatorStream.Dispose() }
+    $creatorMark = New-Object Windows.Forms.PictureBox
+    $creatorMark.Location = New-Object Drawing.Point(530, 13)
+    $creatorMark.Size = New-Object Drawing.Size(62, 62)
+    $creatorMark.SizeMode = 'Zoom'
+    $creatorMark.Image = $creatorImage
+    $creatorMark.Anchor = 'Top,Right'
+    $header.Controls.Add($creatorMark)
+    $form.Add_FormClosed({ if ($null -ne $creatorMark.Image) { $creatorMark.Image.Dispose() } })
+}
 
 $title = New-Object Windows.Forms.Label
 $title.Text = 'EFET PRINT AGENT · WORKSHOP'
@@ -412,7 +432,7 @@ $refreshAction = {
             [void]$historyGrid.Rows.Add('—', '—', 'Οι επόμενες εκτυπώσεις θα εμφανιστούν εδώ.', '—', '—')
         }
         $diagnosticButton.Tag = $snapshot.DiagnosticPath
-        $updatedLabel.Text = "Created by Christos Fragoulis  ·  Ανανέωση: $((Get-Date).ToString('dd/MM/yyyy HH:mm:ss'))"
+        $updatedLabel.Text = "Τελευταία ανανέωση: $((Get-Date).ToString('dd/MM/yyyy HH:mm:ss'))"
     }
     catch {
         $statusDot.ForeColor = $palette.Red

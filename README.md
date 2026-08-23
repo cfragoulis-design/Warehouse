@@ -14,16 +14,19 @@
 
 ### Dynamic HPRT labels
 
-The Stock label center supports an internal traceability profile and a distribution profile.
+The Stock label center produces one complete 50x70 label used for both internal traceability
+and the product that leaves the workshop.
 Configure the public business identity once in each Railway environment:
 
 - `WAREHOUSE_LABEL_BUSINESS_NAME`
 - `WAREHOUSE_LABEL_BUSINESS_ADDRESS`
-- `WAREHOUSE_LABEL_APPROVAL_NUMBER` (optional when not applicable)
+- `WAREHOUSE_LABEL_APPROVAL_NUMBER` (required for the unified animal-origin label)
 - `PRINT_AGENT_TOKEN_WORKSHOP` (shared only with the DPAPI-protected WORKSHOP agent)
 
-The Windows package is in `scripts/windows/hprt-warehouse-agent`. It renders TSPL directly for
+The Windows package is in `scripts/windows/hprt-warehouse-agent`. It renders a complete Greek bitmap through TSPL for
 the HPRT LPQ80 and is separate from the existing Brother restaurant-label agent.
+
+Creator branding follows [`docs/PERSONAL_BRAND_ASSET_POLICY.md`](docs/PERSONAL_BRAND_ASSET_POLICY.md).
 
 ### Disabled Operations read contract
 

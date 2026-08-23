@@ -50,7 +50,8 @@
     .toast.err{border-color:rgba(255,107,107,.55);color:#ffd2d2}
     .ready{color:#79e6ae}.notReady{color:#ffb2b2}
     .legalNotice{margin:0 0 14px;padding:11px 13px;border-radius:12px;border:1px solid rgba(202,162,74,.45);background:rgba(202,162,74,.1);color:#ffe6a8;font-size:13px}
-    .creator{padding:18px 4px 0;color:#7f8aa8;font-size:11px;text-align:right}
+    .creator{padding:18px 4px 0;display:flex;justify-content:flex-end}
+    .creator img{width:108px;height:108px;object-fit:contain;border-radius:12px}
     @media (max-width: 1200px){.layout{grid-template-columns:1fr}.tableWrap{max-height:none}.panel{overflow:auto}.row{min-width:1180px}}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
@@ -137,7 +138,7 @@
         </div>
       </div>
     </div>
-    <div class="creator">Created by Christos Fragoulis</div>
+    <div class="creator"><img src="/static/branding/cf-logo-stacked-dark.svg" alt="Christos Fragoulis Digital Solutions" /></div>
   </div>
 
   <div id="toast" class="toast"></div>
