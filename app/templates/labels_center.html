@@ -244,7 +244,10 @@ function renderProducts(){
           <input type="number" min="1" step="1" value="1" data-qty-for="${product.id}">
         </div>
       </td>
-      <td><button class="btnMini primary" data-add="${product.id}" ${ready ? '' : 'disabled'}>Add</button></td>
+      <td>${ready
+        ? `<button class="btnMini primary" data-add="${product.id}">Add</button>`
+        : `<button class="btnMini" data-complete="${product.id}" title="Λείπουν: ${missing.join(', ')}">Συμπλήρωση στοιχείων</button>`
+      }</td>
     `;
     productsBody.appendChild(tr);
   });
@@ -273,6 +276,17 @@ function renderProducts(){
       });
       renderBatch();
       showToast(`Προστέθηκε: ${product.name}`);
+    });
+  });
+
+  productsBody.querySelectorAll('[data-complete]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.getAttribute('data-complete'));
+      const product = PRODUCTS.find(p => p.id === id);
+      const distribution = labelProfileSelect.value === 'DISTRIBUTION';
+      const missing = distribution ? product.distribution_missing : product.internal_missing;
+      showToast(`Λείπουν: ${missing.join(', ')}. Άνοιγμα στοιχείων προϊόντος…`, 'err');
+      setTimeout(() => { window.location.href = `/products/${id}/edit`; }, 500);
     });
   });
 }
