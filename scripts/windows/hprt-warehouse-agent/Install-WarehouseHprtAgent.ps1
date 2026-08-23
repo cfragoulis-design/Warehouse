@@ -33,8 +33,22 @@ try {
         if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $file) -PathType Leaf)) { throw "Λείπει το αρχείο $file από το πακέτο." }
     }
 
-    $token = Read-Host 'Warehouse WORKSHOP agent token (stored once with Windows DPAPI)' -AsSecureString
-    if ($null -eq $token -or $token.Length -lt 8) { throw 'Το token δεν είναι έγκυρο.' }
+    $tokenPath = Join-Path $installRoot 'agent-token.dpapi'
+    $serializedToken = ''
+    if (Test-Path -LiteralPath $tokenPath -PathType Leaf) {
+        try {
+            $serializedToken = (Get-Content -LiteralPath $tokenPath -Raw -Encoding UTF8).TrimStart([char]0xFEFF).Trim()
+            $existingToken = ConvertTo-SecureString -String $serializedToken
+            if ($existingToken.Length -lt 8) { throw 'Existing token is invalid.' }
+            $existingToken.Dispose()
+        }
+        catch { $serializedToken = '' }
+    }
+    if (-not $serializedToken) {
+        $token = Read-Host 'Warehouse WORKSHOP agent token (stored once with Windows DPAPI)' -AsSecureString
+        if ($null -eq $token -or $token.Length -lt 8) { throw 'Το token δεν είναι έγκυρο.' }
+        $serializedToken = $token | ConvertFrom-SecureString
+    }
 
     $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if ($null -ne $existingTask) {
@@ -58,9 +72,8 @@ try {
         }
     }
 
-    $serializedToken = $token | ConvertFrom-SecureString
     $utf8WithoutBom = New-Object Text.UTF8Encoding($false)
-    [IO.File]::WriteAllText((Join-Path $installRoot 'agent-token.dpapi'), $serializedToken, $utf8WithoutBom)
+    [IO.File]::WriteAllText($tokenPath, $serializedToken, $utf8WithoutBom)
     $config = [ordered]@{
         base_url = $parsedBaseUrl.AbsoluteUri.TrimEnd('/')
         station = 'WORKSHOP'

@@ -71,10 +71,12 @@ function Add-TsplWrappedText {
         [string]$Prefix,
         [string]$Value,
         [int]$MaxY,
+        [int]$LabelWidthDots,
         [int]$Scale = 1
     )
     $lineHeight = if ($Scale -eq 2) { 38 } else { 25 }
-    $maxCharacters = if ($Scale -eq 2) { 22 } else { 42 }
+    $characterWidth = if ($Scale -eq 2) { 24 } else { 12 }
+    $maxCharacters = [Math]::Max(8, [Math]::Floor(($LabelWidthDots - 36) / $characterWidth))
     $prefixText = Get-LabelText -Value $Prefix
     $valueText = Get-LabelText -Value $Value
     $combined = if ($prefixText) { "$prefixText $valueText" } else { $valueText }
@@ -94,11 +96,13 @@ function New-Lpq80TsplDocument {
     $profile = ([string]$Payload.profile).Trim().ToUpperInvariant()
     if ($profile -notin @('INTERNAL', 'DISTRIBUTION')) { throw 'Unsupported dynamic label profile.' }
 
-    $heightMm = if ($profile -eq 'DISTRIBUTION') { 120 } else { 72 }
+    $widthMm = if ($profile -eq 'DISTRIBUTION') { 80 } else { 50 }
+    $heightMm = if ($profile -eq 'DISTRIBUTION') { 120 } else { 70 }
+    $widthDots = $widthMm * 8
     $heightDots = $heightMm * 8
     $maxY = $heightDots - 30
     $commands = New-Object Collections.Generic.List[string]
-    $commands.Add(('SIZE 80 mm,{0} mm' -f $heightMm))
+    $commands.Add(('SIZE {0} mm,{1} mm' -f $widthMm, $heightMm))
     $commands.Add('GAP 2 mm,0 mm')
     $commands.Add('DIRECTION 1')
     $commands.Add('REFERENCE 0,0')
@@ -108,45 +112,45 @@ function New-Lpq80TsplDocument {
 
     $y = 14
     $title = if ($profile -eq 'DISTRIBUTION') { 'ΕΤΙΚΕΤΑ ΔΙΑΘΕΣΗΣ' } else { 'ΕΣΩΤΕΡΙΚΗ ΙΧΝΗΛΑΣΙΜΟΤΗΤΑ' }
-    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix '' -Value $title -MaxY $maxY
-    $commands.Add(('BAR 18,{0},604,2' -f $y)); $y += 12
-    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix '' -Value (Get-LabelText $Payload.product.legal_name) -MaxY $maxY -Scale 2
-    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'LOT: ' -Value (Get-LabelText $Payload.traceability.internal_lot 64) -MaxY $maxY
+    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix '' -Value $title -MaxY $maxY -LabelWidthDots $widthDots
+    $commands.Add(('BAR 18,{0},{1},2' -f $y, ($widthDots - 36))); $y += 12
+    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix '' -Value (Get-LabelText $Payload.product.legal_name) -MaxY $maxY -LabelWidthDots $widthDots -Scale 2
+    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'LOT: ' -Value (Get-LabelText $Payload.traceability.internal_lot 64) -MaxY $maxY -LabelWidthDots $widthDots
     if (Get-LabelText $Payload.traceability.source_lot 96) {
-        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'LOT ΠΡΟΜΗΘΕΥΤΗ: ' -Value (Get-LabelText $Payload.traceability.source_lot 96) -MaxY $maxY
+        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'LOT ΠΡΟΜΗΘΕΥΤΗ: ' -Value (Get-LabelText $Payload.traceability.source_lot 96) -MaxY $maxY -LabelWidthDots $widthDots
     }
-    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΠΑΡΑΣΚΕΥΗ: ' -Value (Get-LabelText $Payload.traceability.production_date 16) -MaxY $maxY
-    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΑΝΑΛΩΣΗ ΕΩΣ: ' -Value (Get-LabelText $Payload.traceability.use_by_date 16) -MaxY $maxY
-    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΣΥΝΤΗΡΗΣΗ: ' -Value (Get-LabelText $Payload.storage 255) -MaxY $maxY
+    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΠΑΡΑΣΚΕΥΗ: ' -Value (Get-LabelText $Payload.traceability.production_date 16) -MaxY $maxY -LabelWidthDots $widthDots
+    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΑΝΑΛΩΣΗ ΕΩΣ: ' -Value (Get-LabelText $Payload.traceability.use_by_date 16) -MaxY $maxY -LabelWidthDots $widthDots
+    Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΣΥΝΤΗΡΗΣΗ: ' -Value (Get-LabelText $Payload.storage 255) -MaxY $maxY -LabelWidthDots $widthDots
 
     if ($profile -eq 'DISTRIBUTION') {
-        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΚΑΘ. ΠΟΣΟΤΗΤΑ: ' -Value (Get-LabelText $Payload.net_quantity 64) -MaxY $maxY
+        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΚΑΘ. ΠΟΣΟΤΗΤΑ: ' -Value (Get-LabelText $Payload.net_quantity 64) -MaxY $maxY -LabelWidthDots $widthDots
         if (-not [bool]$Payload.product.single_ingredient) {
-            Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΣΥΣΤΑΤΙΚΑ: ' -Value (Get-LabelText $Payload.product.ingredients) -MaxY $maxY
+            Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΣΥΣΤΑΤΙΚΑ: ' -Value (Get-LabelText $Payload.product.ingredients) -MaxY $maxY -LabelWidthDots $widthDots
         }
-        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΑΛΛΕΡΓΙΟΓΟΝΑ: ' -Value (Get-LabelText $Payload.product.allergens) -MaxY $maxY
+        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΑΛΛΕΡΓΙΟΓΟΝΑ: ' -Value (Get-LabelText $Payload.product.allergens) -MaxY $maxY -LabelWidthDots $widthDots
         if (Get-LabelText $Payload.product.origin) {
-            Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΠΡΟΕΛΕΥΣΗ: ' -Value (Get-LabelText $Payload.product.origin) -MaxY $maxY
+            Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΠΡΟΕΛΕΥΣΗ: ' -Value (Get-LabelText $Payload.product.origin) -MaxY $maxY -LabelWidthDots $widthDots
         }
         if (Get-LabelText $Payload.product.usage_instructions) {
-            Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΟΔΗΓΙΕΣ: ' -Value (Get-LabelText $Payload.product.usage_instructions) -MaxY $maxY
+            Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΟΔΗΓΙΕΣ: ' -Value (Get-LabelText $Payload.product.usage_instructions) -MaxY $maxY -LabelWidthDots $widthDots
         }
         if (Get-LabelText $Payload.product.nutrition) {
-            Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ: ' -Value (Get-LabelText $Payload.product.nutrition) -MaxY $maxY
+            Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ: ' -Value (Get-LabelText $Payload.product.nutrition) -MaxY $maxY -LabelWidthDots $widthDots
         }
-        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix '' -Value (Get-LabelText $Payload.business.name 255) -MaxY $maxY
-        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix '' -Value (Get-LabelText $Payload.business.address 500) -MaxY $maxY
+        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix '' -Value (Get-LabelText $Payload.business.name 255) -MaxY $maxY -LabelWidthDots $widthDots
+        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix '' -Value (Get-LabelText $Payload.business.address 500) -MaxY $maxY -LabelWidthDots $widthDots
         if (Get-LabelText $Payload.business.approval_number 128) {
-            Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΑΡ. ΕΓΚΡΙΣΗΣ: ' -Value (Get-LabelText $Payload.business.approval_number 128) -MaxY $maxY
+            Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΑΡ. ΕΓΚΡΙΣΗΣ: ' -Value (Get-LabelText $Payload.business.approval_number 128) -MaxY $maxY -LabelWidthDots $widthDots
         }
     }
 
     if (Get-LabelText $Payload.extra_code 64) {
-        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΚΩΔ.: ' -Value (Get-LabelText $Payload.extra_code 64) -MaxY $maxY
+        Add-TsplWrappedText -Commands $commands -Y ([ref]$y) -Prefix 'ΚΩΔ.: ' -Value (Get-LabelText $Payload.extra_code 64) -MaxY $maxY -LabelWidthDots $widthDots
     }
     $qrData = ConvertTo-TsplText -Value ('LOT:' + (Get-LabelText $Payload.traceability.internal_lot 64) + ';SKU:' + (Get-LabelText $Payload.product.sku 64))
     if ($y + 80 -le $maxY) {
-        $commands.Add(('QRCODE 540,{0},L,4,A,0,M2,S7,"{1}"' -f $y, $qrData))
+        $commands.Add(('QRCODE {0},{1},L,4,A,0,M2,S7,"{2}"' -f ($widthDots - 150), $y, $qrData))
     }
     $commands.Add(('PRINT 1,{0}' -f $PrintCopies))
     $commands.Add('')
