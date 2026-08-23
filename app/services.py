@@ -779,6 +779,17 @@ def labels_center(
         return admin_only_dialog(request, user, next_url="/dashboard")
     default_station = "CENTRAL" if (user.role or "").lower() == "admin" else "WORKSHOP"
     business = business_label_identity()
+    production_host = (request.url.hostname or "").strip().casefold() == "sklavounoswh.up.railway.app"
+    hprt_agent_download_url = (
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10.zip"
+        if production_host
+        else "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10-STAGING.zip"
+    )
+    hprt_agent_download_label = (
+        "↓ Λήψη HPRT Agent v1.0.10 · Production"
+        if production_host
+        else "↓ Λήψη HPRT Agent v1.0.10 · Staging"
+    )
     return templates.TemplateResponse(
         "labels_center.html",
         {
@@ -787,6 +798,8 @@ def labels_center(
             "products": products,
             "products_json": json.dumps(products, ensure_ascii=False),
             "default_station": default_station,
+            "hprt_agent_download_url": hprt_agent_download_url,
+            "hprt_agent_download_label": hprt_agent_download_label,
             "business_label_ready": bool(
                 business.name
                 and business.address

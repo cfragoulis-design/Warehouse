@@ -17,6 +17,8 @@ RENDERER = PACKAGE / "HprtLpq80Print.ps1"
 AGENT = PACKAGE / "WarehouseHprtAgent.ps1"
 INSTALLER = PACKAGE / "Install-WarehouseHprtAgent.ps1"
 STATUS_UI = PACKAGE / "WarehouseHprtAgent.Status.ps1"
+PRODUCTION_SETUP = PACKAGE / "SETUP-PRODUCTION.cmd"
+PRODUCTION_PACKAGE_MANIFEST = PACKAGE / "PACKAGE-MANIFEST-PRODUCTION.json"
 LABEL_CENTER = ROOT / "app" / "templates" / "labels_center.html"
 STOCK_PAGE = ROOT / "app" / "templates" / "stock.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
@@ -96,6 +98,12 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert "WScript.Shell" in installer
     assert "agent-token.dpapi" in installer
     assert "PRINT_AGENT_TOKEN" not in installer
+    assert "https://sklavounoswh.up.railway.app" in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
+    assert "staging-characterization" not in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
+    production_manifest = json.loads(PRODUCTION_PACKAGE_MANIFEST.read_text(encoding="utf-8-sig"))
+    assert production_manifest["version"] == "1.0.10"
+    assert production_manifest["environment"] == "production"
+    assert production_manifest["contains_agent_token"] is False
 
 
 def test_status_ui_exposes_live_printer_queue_history_and_safe_actions():
@@ -286,6 +294,12 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     assert "extraCodeDefault" not in html
     assert "Καθ. ποσότητα" not in html
     assert "Extra code" not in html
+    assert 'href="{{ hprt_agent_download_url }}"' in html
+    assert "{{ hprt_agent_download_label }}" in html
+    services = (ROOT / "app" / "services.py").read_text(encoding="utf-8")
+    assert 'request.url.hostname or ""' in services
+    assert '== "sklavounoswh.up.railway.app"' in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10.zip" in services
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
