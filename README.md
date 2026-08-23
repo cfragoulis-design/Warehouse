@@ -20,11 +20,13 @@ Configure the public business identity once in each Railway environment:
 
 - `WAREHOUSE_LABEL_BUSINESS_NAME`
 - `WAREHOUSE_LABEL_BUSINESS_ADDRESS`
-- `WAREHOUSE_LABEL_APPROVAL_NUMBER` (required for the unified animal-origin label)
+- `WAREHOUSE_LABEL_RED_MEAT_APPROVAL_NUMBER` (e.g. `GR A 920 CE`)
+- `WAREHOUSE_LABEL_POULTRY_APPROVAL_NUMBER` (e.g. `GR PE 620 CE`)
 - `PRINT_AGENT_TOKEN_WORKSHOP` (shared only with the DPAPI-protected WORKSHOP agent)
 
 The Windows package is in `scripts/windows/hprt-warehouse-agent`. It renders a complete Greek bitmap through TSPL for
 the HPRT LPQ80 and is separate from the existing Brother restaurant-label agent.
+The approval number is selected automatically from the product name/category; batch operators do not enter it.
 
 Creator branding follows [`docs/PERSONAL_BRAND_ASSET_POLICY.md`](docs/PERSONAL_BRAND_ASSET_POLICY.md).
 

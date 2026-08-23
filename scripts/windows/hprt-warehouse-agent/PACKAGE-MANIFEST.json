@@ -1,6 +1,6 @@
 {
   "product": "Sklavounos Warehouse HPRT Agent",
-  "version": "1.0.4-staging",
+  "version": "1.0.5-staging",
   "creator": "Christos Fragoulis",
   "printer": "HPRT LPQ80",
   "protocol": "TSPL BITMAP",

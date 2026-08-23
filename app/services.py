@@ -787,7 +787,12 @@ def labels_center(
             "products": products,
             "products_json": json.dumps(products, ensure_ascii=False),
             "default_station": default_station,
-            "business_label_ready": bool(business.name and business.address and business.approval_number),
+            "business_label_ready": bool(
+                business.name
+                and business.address
+                and (os.getenv("WAREHOUSE_LABEL_RED_MEAT_APPROVAL_NUMBER") or os.getenv("WAREHOUSE_LABEL_APPROVAL_NUMBER"))
+                and os.getenv("WAREHOUSE_LABEL_POULTRY_APPROVAL_NUMBER")
+            ),
         },
     )
 
@@ -841,9 +846,7 @@ def labels_create_batch(
         production_date = today
         expiry_date = production_date + timedelta(days=int(product.shelf_life_days or 0))
         lot_code_raw = (str(raw.get("lot_code") or "")).strip()
-        extra_code = (str(raw.get("extra_code") or "")).strip()[:64]
         source_lot_code = (str(raw.get("source_lot_code") or "")).strip()[:96]
-        net_quantity_text = (str(raw.get("net_quantity_text") or "")).strip()[:64]
         label_origin_override = (str(raw.get("label_origin_override") or "")).strip()[:255]
         lot_code = lot_code_raw or _build_lot_code(product, station_norm, production_date, db)
 
@@ -862,14 +865,10 @@ def labels_create_batch(
             created_by_user_id=user.id,
             label_profile=label_profile,
             source_lot_code=source_lot_code or None,
-            net_quantity_text=net_quantity_text or None,
             label_origin_override=label_origin_override or None,
         )
         if hasattr(lot, "batch_ref"):
             lot.batch_ref = batch_ref
-        if hasattr(lot, "extra_code"):
-            lot.extra_code = extra_code
-
         try:
             render_payload = build_label_payload(product, lot, profile=label_profile)
         except LabelValidationError as exc:
@@ -894,10 +893,8 @@ def labels_create_batch(
             "expiry_date": _fmt_label_date(lot.expiry_date),
             "shelf_life_days": int(product.shelf_life_days or 0),
             "label_template": product.label_template or "",
-            "extra_code": extra_code,
             "label_profile": label_profile,
             "source_lot_code": source_lot_code,
-            "net_quantity_text": net_quantity_text,
             "label_origin_override": label_origin_override,
             "render_payload": render_payload,
         })

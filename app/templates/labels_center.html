@@ -40,7 +40,7 @@
     .btnMini.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45);color:#8ab4ff}
     .btnMini.danger{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.45);color:#ffb2b2}
     .panel{padding:14px 16px}
-    .row{display:grid;grid-template-columns:1.2fr 72px 108px 90px 110px 110px 104px 104px 105px 54px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(36,48,85,.45)}
+    .row{display:grid;grid-template-columns:1.2fr 72px 130px 120px 115px 104px 104px 54px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(36,48,85,.45)}
     .row.header{font-size:12px;color:#c9d1ea;font-weight:800}
     .row input,.row select{width:100%;background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:8px 10px;border-radius:10px}
     .empty{padding:18px;color:var(--muted)}
@@ -79,15 +79,13 @@
       </select>
       <div class="stationBadge">HPRT · ΕΝΙΑΙΑ 50×70 · WORKSHOP</div>
       <input id="sourceLotDefault" type="text" placeholder="Παρτίδα προμηθευτή (προαιρετικά)" />
-      <input id="netQuantityDefault" type="text" placeholder="Καθαρή ποσότητα, π.χ. 2,5 kg" />
-      <input id="extraCodeDefault" type="text" placeholder="Extra code π.χ. PE 620" />
       <button id="clearBatchBtn" class="ghost">Clear batch</button>
       <button id="printBatchBtn" class="primary">🖨 Print Batch</button>
-      <a class="download" href="/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.4-STAGING.zip">↓ Λήψη HPRT Agent v1.0.4 · Ενιαία 50×70</a>
+      <a class="download" href="/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.5-STAGING.zip">↓ Λήψη HPRT Agent v1.0.5 · Λευκή 50×70</a>
     </div>
 
     {% if not business_label_ready %}
-      <div class="legalNotice">Η ενιαία ετικέτα θα παραμείνει κλειδωμένη μέχρι να οριστούν επωνυμία, διεύθυνση και κωδικός έγκρισης στο Staging.</div>
+      <div class="legalNotice">Η ενιαία ετικέτα θα παραμείνει κλειδωμένη μέχρι να οριστούν επωνυμία, διεύθυνση και οι αριθμοί έγκρισης μοσχαριού/κοτόπουλου στο Staging.</div>
     {% endif %}
 
     <div class="layout">
@@ -118,12 +116,10 @@
             <div>Προϊόν</div>
             <div>Copies</div>
             <div>Παρτίδα πηγής</div>
-            <div>Καθ. ποσότητα</div>
             <div>Προέλευση</div>
             <div>Lot</div>
             <div>Prod</div>
             <div>Expiry</div>
-            <div>Extra</div>
             <div></div>
           </div>
           <div id="batchRows"></div>
@@ -154,8 +150,6 @@ const searchBox = document.getElementById('searchBox');
 const categoryFilter = document.getElementById('categoryFilter');
 const LABEL_PROFILE = 'DISTRIBUTION';
 const sourceLotDefault = document.getElementById('sourceLotDefault');
-const netQuantityDefault = document.getElementById('netQuantityDefault');
-const extraCodeDefault = document.getElementById('extraCodeDefault');
 const toast = document.getElementById('toast');
 const batch = [];
 
@@ -263,11 +257,9 @@ function renderProducts(){
         shelf_life_days: product.shelf_life_days,
         lot_code: buildDefaultLot(product),
         source_lot_code: (sourceLotDefault.value || '').trim(),
-        net_quantity_text: (netQuantityDefault.value || '').trim(),
         label_origin_override: product.label_metadata?.origin || '',
         production_date: dates.production,
         expiry_date: dates.expiry,
-        extra_code: (extraCodeDefault.value || '').trim(),
       });
       renderBatch();
       showToast(`Προστέθηκε: ${product.name}`);
@@ -298,12 +290,10 @@ function renderBatch(){
       <div><div class="prod">${item.name}</div><div class="muted">${item.sku}</div></div>
       <div><input type="number" min="1" step="1" value="${item.copies}" data-k="copies"></div>
       <div><input type="text" value="${item.source_lot_code || ''}" data-k="source_lot_code"></div>
-      <div><input type="text" value="${item.net_quantity_text || ''}" data-k="net_quantity_text"></div>
       <div><input type="text" value="${item.label_origin_override || ''}" data-k="label_origin_override"></div>
       <div><input type="text" value="${item.lot_code}" data-k="lot_code"></div>
       <div><input type="text" value="${item.production_date}" data-k="production_date" disabled></div>
       <div><input type="text" value="${item.expiry_date}" data-k="expiry_date" disabled></div>
-      <div><input type="text" value="${item.extra_code || ''}" data-k="extra_code"></div>
       <div><button class="btnMini danger" data-remove="${item.uid}">✕</button></div>
     `;
     batchRows.appendChild(row);
@@ -342,9 +332,7 @@ document.getElementById('printBatchBtn').addEventListener('click', async () => {
       copies: Number(x.copies || 0),
       lot_code: (x.lot_code || '').trim(),
       source_lot_code: (x.source_lot_code || '').trim(),
-      net_quantity_text: (x.net_quantity_text || '').trim(),
-      label_origin_override: (x.label_origin_override || '').trim(),
-      extra_code: (x.extra_code || '').trim()
+      label_origin_override: (x.label_origin_override || '').trim()
     }))
   };
   try {

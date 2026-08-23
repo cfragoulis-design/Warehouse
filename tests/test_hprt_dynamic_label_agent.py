@@ -17,6 +17,7 @@ RENDERER = PACKAGE / "HprtLpq80Print.ps1"
 AGENT = PACKAGE / "WarehouseHprtAgent.ps1"
 INSTALLER = PACKAGE / "Install-WarehouseHprtAgent.ps1"
 STATUS_UI = PACKAGE / "WarehouseHprtAgent.Status.ps1"
+LABEL_CENTER = ROOT / "app" / "templates" / "labels_center.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
@@ -25,7 +26,7 @@ STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "profile": profile,
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
@@ -49,8 +50,6 @@ def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
             "shelf_life_days": 3,
         },
         "storage": "Διατηρείται στους 0-4°C",
-        "net_quantity": "2,5 kg",
-        "extra_code": "PE 620",
         "business": {
             "name": "Σκλαβούνος Meat",
             "address": "Διεύθυνση δοκιμής",
@@ -196,6 +195,7 @@ def test_renderer_builds_unified_greek_bitmap_label_and_chain_copies(tmp_path: P
     assert raw.startswith(b"SIZE 50 mm,70 mm\r\n")
     assert bitmap_end - bitmap_start == 50 * 560
     assert any(raw[bitmap_start:bitmap_end])
+    assert any(value != 0xFF for value in raw[bitmap_start:bitmap_end])
     png = preview.read_bytes()
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     assert struct.unpack(">II", png[16:24]) == (400, 560)
@@ -208,6 +208,15 @@ def test_renderer_source_contains_centered_greek_allergens_nutrition_and_approva
     assert "ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ ΑΝΑ 100 g" in renderer
     assert "DrawEllipse" in renderer
     assert "BITMAP 0,0,50,560,0," in renderer
+    assert "$output[$i] = 0xFF" in renderer
+
+
+def test_label_center_has_no_quantity_or_manual_code_fields():
+    html = LABEL_CENTER.read_text(encoding="utf-8")
+    assert "netQuantityDefault" not in html
+    assert "extraCodeDefault" not in html
+    assert "Καθ. ποσότητα" not in html
+    assert "Extra code" not in html
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")

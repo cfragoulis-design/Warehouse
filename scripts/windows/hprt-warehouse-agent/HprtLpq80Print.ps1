@@ -133,6 +133,7 @@ function Convert-BitmapToMonochromeBytes {
         [Runtime.InteropServices.Marshal]::Copy($data.Scan0, $source, 0, $source.Length)
         $bytesPerRow = [int][Math]::Ceiling($Bitmap.Width / 8.0)
         $output = New-Object byte[] ($bytesPerRow * $Bitmap.Height)
+        for ($i = 0; $i -lt $output.Length; $i++) { $output[$i] = 0xFF }
         for ($y = 0; $y -lt $Bitmap.Height; $y++) {
             for ($x = 0; $x -lt $Bitmap.Width; $x++) {
                 $offset = ($y * $stride) + ($x * 3)
@@ -142,7 +143,8 @@ function Convert-BitmapToMonochromeBytes {
                 $luma = (($red * 299) + ($green * 587) + ($blue * 114)) / 1000
                 if ($luma -lt 205) {
                     $target = ($y * $bytesPerRow) + [Math]::Floor($x / 8)
-                    $output[$target] = $output[$target] -bor (0x80 -shr ($x % 8))
+                    $mask = 0x80 -shr ($x % 8)
+                    $output[$target] = [byte]($output[$target] -band (0xFF -bxor $mask))
                 }
             }
         }
@@ -153,7 +155,7 @@ function Convert-BitmapToMonochromeBytes {
 
 function New-UnifiedLabelBitmap {
     param([Parameter(Mandatory)][object]$Payload)
-    if ([int]$Payload.schema_version -ne 2) { throw 'Unsupported dynamic label schema.' }
+    if ([int]$Payload.schema_version -ne 3) { throw 'Unsupported dynamic label schema.' }
     if ([string]$Payload.printer_profile -cne 'HPRT_LPQ80_BITMAP_50X70') { throw 'Wrong dynamic printer profile.' }
     if (([string]$Payload.profile).Trim().ToUpperInvariant() -cne 'DISTRIBUTION') { throw 'Unsupported dynamic label profile.' }
 
@@ -190,16 +192,12 @@ function New-UnifiedLabelBitmap {
         $dates = 'ΠΑΡΑΓΩΓΗ: {0}     ΑΝΑΛΩΣΗ ΕΩΣ: {1}' -f (Get-LabelText $Payload.traceability.production_date 16), (Get-LabelText $Payload.traceability.use_by_date 16)
         Add-LabelText -Graphics $graphics -Text $dates -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 24)) -MaximumFontPixels 13 -MinimumFontPixels 9 -Style Bold -NoWrap
         $y += 24
-        $lotAndQuantity = 'LOT: {0}     ΚΑΘ. ΠΟΣΟΤΗΤΑ: {1}' -f (Get-LabelText $Payload.traceability.internal_lot 64), (Get-LabelText $Payload.net_quantity 64)
-        Add-LabelText -Graphics $graphics -Text $lotAndQuantity -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 23)) -MaximumFontPixels 12 -MinimumFontPixels 8 -NoWrap
+        $lotLine = 'LOT: {0}' -f (Get-LabelText $Payload.traceability.internal_lot 64)
+        Add-LabelText -Graphics $graphics -Text $lotLine -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 23)) -MaximumFontPixels 12 -MinimumFontPixels 8 -NoWrap
         $y += 23
         $source = Get-LabelText $Payload.traceability.source_lot 96
-        $extra = Get-LabelText $Payload.extra_code 64
-        if ($source -or $extra) {
-            $sourceLineParts = New-Object Collections.Generic.List[string]
-            if ($source) { $sourceLineParts.Add("ΠΑΡΤΙΔΑ ΠΗΓΗΣ: $source") }
-            if ($extra) { $sourceLineParts.Add("ΚΩΔ.: $extra") }
-            Add-LabelText -Graphics $graphics -Text ($sourceLineParts -join '   ') -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 20)) -MaximumFontPixels 11 -MinimumFontPixels 8 -NoWrap
+        if ($source) {
+            Add-LabelText -Graphics $graphics -Text ("ΠΑΡΤΙΔΑ ΠΗΓΗΣ: $source") -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 20)) -MaximumFontPixels 11 -MinimumFontPixels 8 -NoWrap
             $y += 20
         }
         Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.storage 255) -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 28)) -MaximumFontPixels 13 -MinimumFontPixels 9 -Style Bold

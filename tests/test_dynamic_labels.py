@@ -52,7 +52,8 @@ def _lot(**overrides):
 def _set_business_identity(monkeypatch):
     monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_NAME", "Σκλαβούνος Meat")
     monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS", "Διεύθυνση δοκιμής")
-    monkeypatch.setenv("WAREHOUSE_LABEL_APPROVAL_NUMBER", "GR A 920 CE")
+    monkeypatch.setenv("WAREHOUSE_LABEL_RED_MEAT_APPROVAL_NUMBER", "GR A 920 CE")
+    monkeypatch.setenv("WAREHOUSE_LABEL_POULTRY_APPROVAL_NUMBER", "GR PE 620 CE")
 
 
 def test_legacy_internal_profile_maps_to_the_same_complete_unified_label(monkeypatch):
@@ -74,7 +75,7 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
     payload = build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
 
     assert payload == {
-        "schema_version": 2,
+        "schema_version": 3,
         "profile": "DISTRIBUTION",
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
@@ -98,8 +99,6 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
             "shelf_life_days": 3,
         },
         "storage": "Διατηρείται στους 0–4°C",
-        "net_quantity": "2,5 kg",
-        "extra_code": "PE 620",
         "business": {
             "name": "Σκλαβούνος Meat",
             "address": "Διεύθυνση δοκιμής",
@@ -127,20 +126,32 @@ def test_distribution_profile_blocks_missing_product_metadata(monkeypatch, overr
         build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
 
 
-def test_distribution_profile_requires_net_quantity_and_business_identity(monkeypatch):
+def test_unified_profile_requires_business_and_both_approval_numbers(monkeypatch):
     monkeypatch.delenv("WAREHOUSE_LABEL_BUSINESS_NAME", raising=False)
     monkeypatch.delenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS", raising=False)
     monkeypatch.delenv("WAREHOUSE_LABEL_APPROVAL_NUMBER", raising=False)
+    monkeypatch.delenv("WAREHOUSE_LABEL_RED_MEAT_APPROVAL_NUMBER", raising=False)
+    monkeypatch.delenv("WAREHOUSE_LABEL_POULTRY_APPROVAL_NUMBER", raising=False)
     missing = product_readiness(_product(), DISTRIBUTION_PROFILE)
     assert missing == ("επωνυμία επιχείρησης", "διεύθυνση επιχείρησης", "κωδικός έγκρισης")
 
     _set_business_identity(monkeypatch)
-    with pytest.raises(LabelValidationError, match="καθαρή ποσότητα"):
-        build_label_payload(
-            _product(),
-            _lot(net_quantity_text=""),
-            profile=DISTRIBUTION_PROFILE,
-        )
+    payload = build_label_payload(_product(), _lot(net_quantity_text="", extra_code=""), profile=DISTRIBUTION_PROFILE)
+    assert "net_quantity" not in payload
+    assert "extra_code" not in payload
+
+
+def test_poultry_uses_the_poultry_approval_number_automatically(monkeypatch):
+    _set_business_identity(monkeypatch)
+    chicken = _product(
+        name="Κοτοπουλιές Κοτόπουλο",
+        category="Κοτόπουλο",
+        label_legal_name="Παρασκεύασμα από κρέας κοτόπουλου",
+    )
+
+    payload = build_label_payload(chicken, _lot(), profile=DISTRIBUTION_PROFILE)
+
+    assert payload["business"]["approval_number"] == "GR PE 620 CE"
 
 
 def test_distribution_profile_accepts_documented_nutrition_exemption_and_lot_origin(monkeypatch):

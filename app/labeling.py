@@ -21,11 +21,28 @@ class BusinessLabelIdentity:
     approval_number: str
 
 
-def business_label_identity() -> BusinessLabelIdentity:
+def _is_poultry_product(product) -> bool:
+    searchable = " ".join(
+        str(value or "").casefold()
+        for value in (
+            getattr(product, "name", None),
+            getattr(product, "category", None),
+            getattr(product, "label_legal_name", None),
+        )
+    )
+    return any(marker in searchable for marker in ("κοτ", "ορνιθ", "γαλοπ", "chicken", "poultry"))
+
+
+def business_label_identity(product=None) -> BusinessLabelIdentity:
+    legacy_approval = (os.getenv("WAREHOUSE_LABEL_APPROVAL_NUMBER") or "").strip()
+    if product is not None and _is_poultry_product(product):
+        approval_number = (os.getenv("WAREHOUSE_LABEL_POULTRY_APPROVAL_NUMBER") or "").strip()
+    else:
+        approval_number = (os.getenv("WAREHOUSE_LABEL_RED_MEAT_APPROVAL_NUMBER") or legacy_approval).strip()
     return BusinessLabelIdentity(
         name=(os.getenv("WAREHOUSE_LABEL_BUSINESS_NAME") or "").strip(),
         address=(os.getenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS") or "").strip(),
-        approval_number=(os.getenv("WAREHOUSE_LABEL_APPROVAL_NUMBER") or "").strip(),
+        approval_number=approval_number,
     )
 
 
@@ -71,7 +88,7 @@ def product_readiness(product, profile: str) -> tuple[str, ...]:
     nutrition_exempt = bool(getattr(product, "label_nutrition_exempt", False))
     if not nutrition_exempt and not _clean(getattr(product, "label_nutrition", None)):
         missing.append("διατροφική δήλωση ή τεκμηριωμένη εξαίρεση")
-    business = business_label_identity()
+    business = business_label_identity(product)
     if not business.name:
         missing.append("επωνυμία επιχείρησης")
     if not business.address:
@@ -101,17 +118,13 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
     if missing:
         raise LabelValidationError("Λείπουν: " + ", ".join(missing))
 
-    net_quantity = _clean(getattr(lot, "net_quantity_text", None), maximum=64)
-    if not net_quantity:
-        raise LabelValidationError("Λείπει η καθαρή ποσότητα για ετικέτα διάθεσης.")
-
-    business = business_label_identity()
+    business = business_label_identity(product)
     metadata = product_label_metadata(product)
     origin_override = _clean(getattr(lot, "label_origin_override", None), maximum=255)
     if origin_override:
         metadata["origin"] = origin_override
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "profile": profile,
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
@@ -127,8 +140,6 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
             "shelf_life_days": int(getattr(product, "shelf_life_days", 0) or 0),
         },
         "storage": _clean(getattr(product, "storage_text", None), maximum=255),
-        "net_quantity": net_quantity,
-        "extra_code": _clean(getattr(lot, "extra_code", None), maximum=64),
         "business": {
             "name": business.name,
             "address": business.address,
