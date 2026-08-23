@@ -28,7 +28,12 @@ try {
     if ($WindowsAccount -cne $currentAccount) {
         throw 'Για ασφαλή αποθήκευση DPAPI, ο Windows λογαριασμός πρέπει να είναι ο τρέχων συνδεδεμένος χρήστης.'
     }
-    $sourceFiles = @('WarehouseHprtAgent.ps1', 'HprtLpq80Print.ps1')
+    $sourceFiles = @(
+        'WarehouseHprtAgent.ps1',
+        'HprtLpq80Print.ps1',
+        'WarehouseHprtAgent.Status.ps1',
+        'Diagnose-WarehouseHprtAgent.ps1'
+    )
     foreach ($file in $sourceFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $file) -PathType Leaf)) { throw "Λείπει το αρχείο $file από το πακέτο." }
     }
@@ -94,10 +99,23 @@ try {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
     Start-ScheduledTask -TaskName $taskName
 
+    $statusScript = Join-Path $installRoot 'WarehouseHprtAgent.Status.ps1'
+    $desktopPath = [Environment]::GetFolderPath('Desktop')
+    $shortcutPath = Join-Path $desktopPath 'EFET Print Agent - Status.lnk'
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $powerShell
+    $shortcut.Arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $statusScript
+    $shortcut.WorkingDirectory = $installRoot
+    $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,138"
+    $shortcut.Description = 'Sklavounos EFET Print Agent status — Created by Christos Fragoulis'
+    $shortcut.Save()
+
     Write-Host ''
     Write-Host 'Η εγκατάσταση ολοκληρώθηκε.' -ForegroundColor Green
     Write-Host "Printer: $PrinterName"
     Write-Host 'Agent: RUNNING — οι HPRT ετικέτες θα εκτυπώνονται αυτόματα από το Stock.'
+    Write-Host 'UI: δημιουργήθηκε συντόμευση «EFET Print Agent - Status» στην επιφάνεια εργασίας.'
     Write-Host 'Created by Christos Fragoulis'
 }
 catch {

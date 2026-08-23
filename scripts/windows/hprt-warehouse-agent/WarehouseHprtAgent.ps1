@@ -19,6 +19,67 @@ function Write-AgentLog {
     catch { }
 }
 
+function Write-AgentState {
+    param(
+        [Parameter(Mandatory)][ValidateSet('STARTING', 'CONNECTED', 'PRINTING', 'ERROR')][string]$State,
+        [ValidateSet('STARTING', 'WAITING', 'ACTIVE', 'ERROR')][string]$QueueState = 'WAITING',
+        [int]$CurrentJobId = 0,
+        [string]$LastError = '',
+        [switch]$ContactSucceeded,
+        [switch]$PrintSucceeded
+    )
+    try {
+        $path = Join-Path $PSScriptRoot 'agent-status.json'
+        $existing = $null
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            try { $existing = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json }
+            catch { $existing = $null }
+        }
+        $now = [DateTimeOffset]::Now.ToString('o')
+        $lastContact = if ($ContactSucceeded) { $now } elseif ($existing) { [string]$existing.last_contact } else { '' }
+        $lastPrint = if ($PrintSucceeded) { $now } elseif ($existing) { [string]$existing.last_print } else { '' }
+        $status = [ordered]@{
+            schema_version = 1
+            station = 'WORKSHOP'
+            state = $State
+            queue_state = $QueueState
+            current_job_id = if ($CurrentJobId -gt 0) { $CurrentJobId } else { $null }
+            last_contact = $lastContact
+            last_print = $lastPrint
+            last_error = $LastError
+            updated_at = $now
+        }
+        $json = $status | ConvertTo-Json -Compress
+        [IO.File]::WriteAllText($path, $json, (New-Object Text.UTF8Encoding($false)))
+    }
+    catch { }
+}
+
+function Save-PrintHistoryEvent {
+    param(
+        [Parameter(Mandatory)][int]$JobId,
+        [Parameter(Mandatory)][string]$Profile,
+        [Parameter(Mandatory)][string]$Product,
+        [Parameter(Mandatory)][int]$Copies
+    )
+    $path = Join-Path $PSScriptRoot 'print-history.jsonl'
+    $event = [ordered]@{
+        timestamp = [DateTimeOffset]::Now.ToString('o')
+        job_id = $JobId
+        profile = $Profile
+        product = $Product
+        copies = $Copies
+        result = 'PRINTED'
+    }
+    $line = ($event | ConvertTo-Json -Compress) + [Environment]::NewLine
+    [IO.File]::AppendAllText($path, $line, (New-Object Text.UTF8Encoding($false)))
+    $lines = @(Get-Content -LiteralPath $path -Encoding UTF8)
+    if ($lines.Count -gt 200) {
+        $trimmed = (@($lines | Select-Object -Last 200) -join [Environment]::NewLine) + [Environment]::NewLine
+        [IO.File]::WriteAllText($path, $trimmed, (New-Object Text.UTF8Encoding($false)))
+    }
+}
+
 function Read-ExactConfig {
     if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) { throw 'Agent configuration is missing.' }
     try { $value = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop }
@@ -126,7 +187,10 @@ function Invoke-OnePoll {
     $nextUri = '{0}/api/print-jobs/next?station={1}' -f $Config.BaseUrl, $Config.Station
     $response = Invoke-AgentRequest -Method GET -Uri $nextUri -Token $Token
     if ($null -eq $response -or [bool]$response.ok -ne $true) { throw 'Print queue response is invalid.' }
-    if ($null -eq $response.job) { return $false }
+    if ($null -eq $response.job) {
+        Write-AgentState -State CONNECTED -QueueState WAITING -ContactSucceeded
+        return $false
+    }
 
     $job = $response.job
     $jobId = [int]$job.id
@@ -135,6 +199,8 @@ function Invoke-OnePoll {
     if ([string]$job.target_station -cne $Config.Station) { throw 'Print station does not match.' }
     if ([string]$job.label_key -notin @('HPRT_EFET_INTERNAL_80', 'HPRT_EFET_DISTRIBUTION_80')) { throw 'Print job is not an HPRT dynamic label.' }
     if ($null -eq $job.render_payload) { throw 'Print job has no render payload.' }
+
+    Write-AgentState -State PRINTING -QueueState ACTIVE -CurrentJobId $jobId -ContactSucceeded
 
     if (-not (Test-JobAlreadyPrinted -JobId $jobId)) {
         try {
@@ -147,11 +213,20 @@ function Invoke-OnePoll {
             }
             catch { }
             Write-AgentLog -Message ('FAILED job={0} category=HPRT_PRINT_FAILED' -f $jobId)
+            Write-AgentState -State ERROR -QueueState ERROR -CurrentJobId $jobId -LastError 'HPRT_PRINT_FAILED' -ContactSucceeded
             return $true
         }
         try { Save-PrintedJobId -JobId $jobId }
         catch { Write-AgentLog -Message ('JOURNAL_FAILED job={0}' -f $jobId) }
+        try {
+            $profile = ([string]$job.render_payload.profile).Trim()
+            $product = ([string]$job.render_payload.product.legal_name).Trim()
+            if (-not $product) { $product = 'Δυναμική ετικέτα' }
+            Save-PrintHistoryEvent -JobId $jobId -Profile $profile -Product $product -Copies ([int]$job.copies)
+        }
+        catch { Write-AgentLog -Message ('HISTORY_FAILED job={0}' -f $jobId) }
         Write-AgentLog -Message ('PRINTED job={0} copies={1}' -f $jobId, [int]$job.copies)
+        Write-AgentState -State CONNECTED -QueueState WAITING -PrintSucceeded -ContactSucceeded
     }
 
     try {
@@ -161,19 +236,23 @@ function Invoke-OnePoll {
     }
     catch {
         Write-AgentLog -Message ('COMPLETION_UNCONFIRMED job={0}' -f $jobId)
+        Write-AgentState -State ERROR -QueueState ERROR -CurrentJobId $jobId -LastError 'COMPLETION_UNCONFIRMED' -ContactSucceeded
         return $true
     }
+    Write-AgentState -State CONNECTED -QueueState WAITING -ContactSucceeded
     return $true
 }
 
 $config = Read-ExactConfig
 $token = Read-DpapiToken -Path $config.TokenPath
 Write-AgentLog -Message 'STARTED station=WORKSHOP renderer=HPRT_LPQ80_TSPL'
+Write-AgentState -State STARTING -QueueState STARTING
 
 do {
     try { [void](Invoke-OnePoll -Config $config -Token $token) }
     catch {
         Write-AgentLog -Message 'POLL_FAILED category=CONNECTION_OR_RESPONSE'
+        Write-AgentState -State ERROR -QueueState ERROR -LastError 'CONNECTION_OR_RESPONSE'
         if ($RunOnce) { throw }
     }
     if (-not $RunOnce) { Start-Sleep -Seconds $config.PollSeconds }
