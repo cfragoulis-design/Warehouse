@@ -161,18 +161,66 @@
 .labelToast.err{border-color:rgba(255,107,107,.55); color:#ffd2d2}
 .labelBtn.isBusy{opacity:.65; pointer-events:none}
 
-    @media (max-width:700px){
-      .top{flex-direction:column;align-items:flex-start;gap:12px;padding:16px}
-      .nav{width:100%;gap:8px 12px;flex-wrap:wrap}
-      .nav .app-datetime{width:100%;white-space:normal}
-      .wrap{padding-left:12px;padding-right:12px}
-      .cardHead{align-items:stretch;flex-direction:column}
+    /* Tablet-first stock view: turn the wide desktop grid into touch-friendly cards. */
+    @media (max-width:1100px){
+      body{font-size:16px}
+      .top{flex-direction:column;align-items:flex-start;gap:14px;padding:18px 16px 14px}
+      .brand{font-size:30px}
+      .sub{font-size:13px;line-height:1.45}
+      .nav{width:100%;gap:8px;flex-wrap:wrap}
+      .nav .app-datetime{width:100%;font-size:15px;white-space:normal}
+      .nav a,.live{min-height:42px;display:inline-flex;align-items:center;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(15,23,42,.82)}
+      .wrap{max-width:none;padding-left:14px;padding-right:14px}
+      .card{overflow:visible;background:transparent!important;border:0!important;box-shadow:none}
+      .cardHead{align-items:stretch;flex-direction:column;border:1px solid var(--line);border-radius:16px;margin-bottom:14px;padding:14px}
       .filters,.filters form,.rightHead{width:100%}
-      .filters form{display:grid;grid-template-columns:1fr auto}
-      .filters select,.filters input[type=text]{width:100%;min-width:0}
+      .filters form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}
       .filters select{grid-column:1 / -1}
-      .rightHead{align-items:flex-start}
-      .rightHead .btn{white-space:normal}
+      .filters select,.filters input[type=text]{width:100%;min-width:0;min-height:48px;font-size:16px}
+      .filters .btn{min-width:88px;min-height:48px}
+      .rightHead{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:stretch}
+      .rightHead .btn,.rightHead > label{min-height:46px;width:100%;margin:0!important;display:flex!important;align-items:center;justify-content:center;text-align:center;white-space:normal}
+      .rightHead .pill{min-height:38px;justify-content:center}
+      .tableScroll{overflow:visible}
+      table,tbody{display:block;width:100%;min-width:0}
+      thead{display:none}
+      tr.catrow{display:block;margin:18px 0 8px}
+      tr.catrow:first-child{margin-top:0}
+      tr.catrow td{display:block;position:sticky;top:0;z-index:10;width:100%;padding:13px 14px 13px 18px;border:1px solid var(--line);border-radius:14px;font-size:18px}
+      tr.stock-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px;margin:0 0 12px;padding:15px;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:16px;background:rgba(15,23,42,.90);box-shadow:0 10px 30px rgba(0,0,0,.22)}
+      tr.stock-row.rowPending{border-left-color:var(--warn)}
+      tr.stock-row.rowLow{border-left-color:var(--danger)}
+      tr.stock-row > td{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;min-height:48px;padding:10px 4px;border:0!important;border-bottom:1px solid rgba(51,65,85,.62)!important;box-shadow:none!important}
+      tr.stock-row > td::before{content:attr(data-label);flex:0 0 auto;color:var(--muted);font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+      tr.stock-row > td.productCell{grid-column:1 / -1;display:block;min-height:auto;padding:2px 4px 12px;border-bottom:1px solid var(--line)!important}
+      tr.stock-row > td.productCell::before{display:none}
+      .productCell .prod{font-size:19px;line-height:1.25}
+      .productCell .sku{font-size:13px;margin-top:5px}
+      .statusCell .pill,.pendingCell .pill{min-width:64px;justify-content:center}
+      tr.stock-row > td.actionsCell{grid-column:1 / -1;display:block;padding:13px 4px 0;border-bottom:0!important}
+      tr.stock-row > td.actionsCell::before{display:block;margin-bottom:10px}
+      .actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:100%}
+      .actions > .tag{display:none}
+      .actions > form{margin:0!important}
+      .actions .pm{display:grid;grid-template-columns:48px minmax(58px,1fr) 48px;width:100%;gap:8px}
+      .actions .pm::before{content:attr(data-zone);grid-column:1 / -1;color:var(--muted);font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+      .actions .pm button,.transferBtn,.needBtn,.labelBtn{width:48px;height:48px;border-radius:12px;font-size:17px;touch-action:manipulation}
+      .actions .pmQty,.needQty{width:100%;min-width:0;height:48px;font-size:17px}
+      .actions .targetInput{font-size:16px}
+      .actions .needForm{display:grid;grid-template-columns:minmax(58px,1fr) 48px;width:100%;gap:8px}
+      .actions .labelBtn{width:100%;min-width:0}
+      .targetBox{width:100%;justify-content:flex-end}
+      .targetInput{width:82px;min-width:82px;min-height:44px;font-size:16px}
+      .pendingForm .pillBtn{min-height:42px;padding:8px 14px}
+      .labelToast{left:14px;right:14px;bottom:14px;max-width:none;font-size:15px}
+    }
+
+    @media (max-width:700px){
+      .wrap{padding-left:12px;padding-right:12px}
+      .rightHead{grid-template-columns:1fr}
+      tr.stock-row{grid-template-columns:1fr;padding:13px}
+      tr.stock-row > td.productCell,tr.stock-row > td.actionsCell{grid-column:1}
+      .actions{grid-template-columns:1fr}
     }
 
  </style>
@@ -272,7 +320,7 @@
           <tr class="catrow category-row"><td colspan="8">{{ cat }}</td></tr>
           {% for it in items %}
             <tr data-product-id="{{ it.id }}" data-pending="{{ it.pending }}" class="stock-row {% if it.is_low %}rowLow {% endif %}{% if it.pending > 0 %}rowPending{% endif %}">
-              <td>
+              <td class="productCell">
                 <div class="prodRow">
                   {% if user and user.role == 'admin' %}
                     <div class="prod"><a href="/products/{{ it.id }}/edit" style="color:inherit;text-decoration:none">{{ it.name }}</a></div>
@@ -283,14 +331,15 @@
                 </div>
                 <div class="sku">{{ it.sku or '' }}</div>
               </td>
-              <td>
+              <td class="statusCell" data-label="Κατάσταση">
                 <span class="pill danger lowBadge" data-low-badge {% if not it.is_low %}style="display:none"{% endif %}>LOW</span>
+                <span class="pill ok" data-ok-badge {% if it.is_low %}style="display:none"{% endif %}>OK</span>
               </td>
-              <td class="muted">{{ it.unit_label }}</td>
-              <td><span data-field="central_qty">{{ it.central_qty|fmtqty(it.unit) }}</span></td>
-              <td><span data-field="workshop_qty">{{ it.workshop_qty|fmtqty(it.unit) }}</span></td>
+              <td class="muted unitCell" data-label="Μονάδα">{{ it.unit_label }}</td>
+              <td class="qtyCell centralCell" data-label="Central"><span data-field="central_qty">{{ it.central_qty|fmtqty(it.unit) }}</span></td>
+              <td class="qtyCell workshopCell" data-label="Workshop"><span data-field="workshop_qty">{{ it.workshop_qty|fmtqty(it.unit) }}</span></td>
 
-              <td>
+              <td class="targetCell" data-label="Στόχος Central">
                 {% if can_edit_target %}
                   <form method="post" action="/stock/target" class="targetBox">
                     <input type="hidden" name="product_id" value="{{ it.id }}" />
@@ -302,7 +351,7 @@
                 {% endif %}
               </td>
 
-              <td data-field="pending">
+              <td class="pendingCell" data-label="Εκκρεμεί" data-field="pending">
                 <form method="post" action="/stock/fulfill" class="pendingForm" data-pending-form {% if not (it.pending > 0) %}style="display:none"{% endif %}>
                     <input type="hidden" name="product_id" value="{{ it.id }}" />
                     <button class="pill warn pillBtn" type="submit">+{{ it.pending|fmtqty(it.unit) }}</button>
@@ -310,11 +359,11 @@
                   <span class="pill" data-pending-zero {% if it.pending > 0 %}style="display:none"{% endif %}>0</span>
               </td>
 
-              <td>
+              <td class="actionsCell" data-label="Ενέργειες">
                 <div class="actions">
                   {% if can_adjust_central %}
                     <span class="tag">C</span>
-                    <form method="post" action="/stock/adjust" class="pm">
+                    <form method="post" action="/stock/adjust" class="pm" data-zone="Central">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input type="hidden" name="location" value="central" />
                       <button class="btnTiny minus" name="direction" value="minus" type="submit" title="Αφαίρεση ποσότητας">−</button>
@@ -325,7 +374,7 @@
 
                   {% if can_adjust_workshop %}
                     <span class="tag">W</span>
-                    <form method="post" action="/stock/adjust" class="pm">
+                    <form method="post" action="/stock/adjust" class="pm" data-zone="Workshop">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input type="hidden" name="location" value="workshop" />
                       <button class="btnTiny minus" name="direction" value="minus" type="submit" title="Αφαίρεση ποσότητας">−</button>
@@ -496,8 +545,9 @@ document.querySelectorAll(".js-label-print-form").forEach(form => {
   function setLowBadge(row, isLow){
     if (!row) return;
     const badge = row.querySelector('[data-low-badge]');
-    if (!badge) return;
-    badge.style.display = isLow ? "inline-flex" : "none";
+    const okBadge = row.querySelector('[data-ok-badge]');
+    if (badge) badge.style.display = isLow ? "inline-flex" : "none";
+    if (okBadge) okBadge.style.display = isLow ? "none" : "inline-flex";
   }
 
   async function refreshStockLive(){

@@ -16,15 +16,18 @@ def test_dashboard_reminder_is_in_flow_and_mobile_header_can_wrap() -> None:
     assert 'banner.style.position = "fixed"' not in template
 
 
-def test_stock_uses_a_bounded_horizontal_table_region_on_mobile() -> None:
+def test_stock_switches_to_touch_friendly_cards_on_tablets() -> None:
     template = (ROOT / "app" / "templates" / "stock.html").read_text(
         encoding="utf-8"
     )
 
-    assert '@media (max-width:700px)' in template
+    assert '@media (max-width:1100px)' in template
     assert 'class="tableScroll"' in template
     assert ".tableScroll{width:100%;overflow-x:auto" in template
-    assert ".nav{width:100%;gap:8px 12px;flex-wrap:wrap}" in template
+    assert ".tableScroll{overflow:visible}" in template
+    assert "tr.stock-row{display:grid" in template
+    assert 'class="productCell"' in template
+    assert 'data-label="Ενέργειες"' in template
 
 
 def test_consumables_mobile_navigation_wraps_without_hiding_actions() -> None:
