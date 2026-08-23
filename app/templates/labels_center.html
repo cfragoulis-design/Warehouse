@@ -184,8 +184,7 @@ function yymmdd(d){
 function buildDefaultLot(product){
   const d = new Date();
   const raw = (product.sku || product.name || 'PRD').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0,8) || 'PRD';
-  const st = stationSelect.value === 'CENTRAL' ? 'C' : 'W';
-  return `${raw}-${yymmdd(d)}-${st}`;
+  return `${raw}-${yymmdd(d)}-W`;
 }
 
 function calcExpiry(days){
@@ -377,14 +376,6 @@ labelProfileSelect.addEventListener('change', () => {
   renderProducts();
   showToast(labelProfileSelect.value === 'DISTRIBUTION' ? 'Πλήρης ετικέτα διάθεσης' : 'Εσωτερική ετικέτα ΕΦΕΤ');
 });
-stationSelect.addEventListener('change', () => {
-  batch.forEach(item => {
-    const product = PRODUCTS.find(p => p.id === item.product_id);
-    if (product) item.lot_code = buildDefaultLot(product);
-  });
-  renderBatch();
-});
-
 renderCategoryFilter();
 renderProducts();
 renderBatch();
