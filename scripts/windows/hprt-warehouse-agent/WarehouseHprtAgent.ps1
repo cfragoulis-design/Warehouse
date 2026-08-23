@@ -129,16 +129,24 @@ function ConvertTo-Base64UrlUtf8 {
 }
 
 function Test-JobAlreadyPrinted {
-    param([Parameter(Mandatory)][int]$JobId)
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][int]$JobId
+    )
     $journal = Join-Path $PSScriptRoot 'printed-job-ids.log'
     if (-not (Test-Path -LiteralPath $journal -PathType Leaf)) { return $false }
-    return @(Get-Content -LiteralPath $journal -Encoding ASCII -Tail 1000) -contains ([string]$JobId)
+    $journalKey = '{0}|{1}' -f $BaseUrl.TrimEnd('/'), $JobId
+    return @(Get-Content -LiteralPath $journal -Encoding ASCII -Tail 1000) -contains $journalKey
 }
 
 function Save-PrintedJobId {
-    param([Parameter(Mandatory)][int]$JobId)
+    param(
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][int]$JobId
+    )
     $journal = Join-Path $PSScriptRoot 'printed-job-ids.log'
-    Add-Content -LiteralPath $journal -Encoding ASCII -Value ([string]$JobId)
+    $journalKey = '{0}|{1}' -f $BaseUrl.TrimEnd('/'), $JobId
+    Add-Content -LiteralPath $journal -Encoding ASCII -Value $journalKey
     $lines = @(Get-Content -LiteralPath $journal -Encoding ASCII)
     if ($lines.Count -gt 1000) {
         @($lines | Select-Object -Last 1000) | Set-Content -LiteralPath $journal -Encoding ASCII
@@ -233,7 +241,7 @@ function Invoke-OnePoll {
 
     Write-AgentState -State PRINTING -QueueState ACTIVE -CurrentJobId $jobId -ContactSucceeded
 
-    if (-not (Test-JobAlreadyPrinted -JobId $jobId)) {
+    if (-not (Test-JobAlreadyPrinted -BaseUrl $Config.BaseUrl -JobId $jobId)) {
         try {
             Invoke-HprtRender -Payload $job.render_payload -Copies ([int]$job.copies) -PrinterName $Config.PrinterName
         }
@@ -251,7 +259,7 @@ function Invoke-OnePoll {
             Write-AgentState -State ERROR -QueueState ERROR -CurrentJobId $jobId -LastError $failureCategory -ContactSucceeded
             return $true
         }
-        try { Save-PrintedJobId -JobId $jobId }
+        try { Save-PrintedJobId -BaseUrl $Config.BaseUrl -JobId $jobId }
         catch { Write-AgentLog -Message ('JOURNAL_FAILED job={0}' -f $jobId) }
         try {
             $profile = ([string]$job.render_payload.profile).Trim()
