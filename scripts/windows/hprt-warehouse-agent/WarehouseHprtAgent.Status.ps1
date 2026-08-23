@@ -38,7 +38,7 @@ function Get-HprtPrintHistory {
             $event = $line | ConvertFrom-Json -ErrorAction Stop
             $profile = switch ([string]$event.profile) {
                 'INTERNAL' { 'Εσωτερική 50×70' }
-                'DISTRIBUTION' { 'Διανομής 80×120' }
+                'DISTRIBUTION' { 'Ενιαία 50×70' }
                 default { 'Δυναμική ετικέτα' }
             }
             $history.Add([pscustomobject]@{
@@ -218,7 +218,7 @@ $title.Font = New-Object Drawing.Font('Segoe UI Semibold', 20)
 $header.Controls.Add($title)
 
 $mediaBadge = New-Object Windows.Forms.Label
-$mediaBadge.Text = 'HPRT · 50×70 / 80×120'
+$mediaBadge.Text = 'HPRT · ΕΝΙΑΙΑ 50×70'
 $mediaBadge.TextAlign = 'MiddleCenter'
 $mediaBadge.Location = New-Object Drawing.Point(610, 24)
 $mediaBadge.Size = New-Object Drawing.Size(200, 36)

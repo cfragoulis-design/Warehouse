@@ -31,7 +31,11 @@ def business_label_identity() -> BusinessLabelIdentity:
 
 def normalize_label_profile(value: object) -> str:
     normalized = str(value or "").strip().upper()
-    if normalized not in VALID_LABEL_PROFILES:
+    # INTERNAL is retained only as a compatibility input for already-created rows.
+    # From v2 onward the same complete 50x70 label follows the product everywhere.
+    if normalized == INTERNAL_PROFILE:
+        normalized = DISTRIBUTION_PROFILE
+    if normalized != DISTRIBUTION_PROFILE:
         raise LabelValidationError("Μη έγκυρο προφίλ ετικέτας.")
     return normalized
 
@@ -57,27 +61,29 @@ def product_readiness(product, profile: str) -> tuple[str, ...]:
     if not _clean(getattr(product, "storage_text", None)):
         missing.append("συνθήκες συντήρησης")
 
-    if profile == DISTRIBUTION_PROFILE:
-        single_ingredient = bool(getattr(product, "label_single_ingredient", False))
-        if not single_ingredient and not _clean(getattr(product, "label_ingredients", None)):
-            missing.append("συστατικά")
-        if not _clean(getattr(product, "label_allergens", None)):
-            missing.append("δήλωση αλλεργιογόνων")
-        if not _clean(getattr(product, "label_origin", None)):
-            missing.append("χώρα καταγωγής / προέλευση")
-        nutrition_exempt = bool(getattr(product, "label_nutrition_exempt", False))
-        if not nutrition_exempt and not _clean(getattr(product, "label_nutrition", None)):
-            missing.append("διατροφική δήλωση ή τεκμηριωμένη εξαίρεση")
-        business = business_label_identity()
-        if not business.name:
-            missing.append("επωνυμία επιχείρησης")
-        if not business.address:
-            missing.append("διεύθυνση επιχείρησης")
+    single_ingredient = bool(getattr(product, "label_single_ingredient", False))
+    if not single_ingredient and not _clean(getattr(product, "label_ingredients", None)):
+        missing.append("συστατικά")
+    if not _clean(getattr(product, "label_allergens", None)):
+        missing.append("δήλωση αλλεργιογόνων")
+    if not _clean(getattr(product, "label_origin", None)):
+        missing.append("χώρα καταγωγής / προέλευση")
+    nutrition_exempt = bool(getattr(product, "label_nutrition_exempt", False))
+    if not nutrition_exempt and not _clean(getattr(product, "label_nutrition", None)):
+        missing.append("διατροφική δήλωση ή τεκμηριωμένη εξαίρεση")
+    business = business_label_identity()
+    if not business.name:
+        missing.append("επωνυμία επιχείρησης")
+    if not business.address:
+        missing.append("διεύθυνση επιχείρησης")
+    if not business.approval_number:
+        missing.append("κωδικός έγκρισης")
     return tuple(missing)
 
 
 def product_label_metadata(product) -> dict[str, object]:
     return {
+        "display_name": _clean(getattr(product, "name", None)),
         "legal_name": _clean(getattr(product, "label_legal_name", None) or getattr(product, "name", None)),
         "ingredients": _clean(getattr(product, "label_ingredients", None)),
         "allergens": _clean(getattr(product, "label_allergens", None)),
@@ -96,7 +102,7 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
         raise LabelValidationError("Λείπουν: " + ", ".join(missing))
 
     net_quantity = _clean(getattr(lot, "net_quantity_text", None), maximum=64)
-    if profile == DISTRIBUTION_PROFILE and not net_quantity:
+    if not net_quantity:
         raise LabelValidationError("Λείπει η καθαρή ποσότητα για ετικέτα διάθεσης.")
 
     business = business_label_identity()
@@ -105,9 +111,9 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
     if origin_override:
         metadata["origin"] = origin_override
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": profile,
-        "printer_profile": "HPRT_LPQ80_TSPL_80MM",
+        "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
             "id": int(product.id),
             "sku": _clean(getattr(product, "sku", None), maximum=64),

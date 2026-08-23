@@ -59,7 +59,7 @@
   <div class="top wrap" style="padding-bottom:10px">
     <div>
       <div class="brand">Label Center</div>
-      <div class="sub">Δυναμικές ετικέτες HPRT • αυτόματο shelf life • πλήρης ιχνηλασιμότητα</div>
+      <div class="sub">Μία πλήρης ετικέτα 50×70 • εσωτερική ιχνηλασιμότητα + διάθεση προϊόντος</div>
     </div>
     <div class="nav">
       <span id="app-datetime" class="app-datetime"></span>
@@ -76,21 +76,17 @@
       <select id="categoryFilter">
         <option value="">Όλες οι κατηγορίες</option>
       </select>
-      <div class="stationBadge">HPRT · WORKSHOP</div>
-      <select id="labelProfileSelect">
-        <option value="INTERNAL">Εσωτερική ΕΦΕΤ / Stock</option>
-        <option value="DISTRIBUTION">Πλήρης ετικέτα διάθεσης</option>
-      </select>
+      <div class="stationBadge">HPRT · ΕΝΙΑΙΑ 50×70 · WORKSHOP</div>
       <input id="sourceLotDefault" type="text" placeholder="Παρτίδα προμηθευτή (προαιρετικά)" />
       <input id="netQuantityDefault" type="text" placeholder="Καθαρή ποσότητα, π.χ. 2,5 kg" />
       <input id="extraCodeDefault" type="text" placeholder="Extra code π.χ. PE 620" />
       <button id="clearBatchBtn" class="ghost">Clear batch</button>
       <button id="printBatchBtn" class="primary">🖨 Print Batch</button>
-      <a class="download" href="/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.3-STAGING.zip">↓ Λήψη HPRT Agent v1.0.3 + Status UI</a>
+      <a class="download" href="/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.4-STAGING.zip">↓ Λήψη HPRT Agent v1.0.4 · Ενιαία 50×70</a>
     </div>
 
     {% if not business_label_ready %}
-      <div class="legalNotice">Η ετικέτα διάθεσης θα παραμείνει κλειδωμένη μέχρι να οριστούν μία φορά η επωνυμία και η διεύθυνση της επιχείρησης στο Staging.</div>
+      <div class="legalNotice">Η ενιαία ετικέτα θα παραμείνει κλειδωμένη μέχρι να οριστούν επωνυμία, διεύθυνση και κωδικός έγκρισης στο Staging.</div>
     {% endif %}
 
     <div class="layout">
@@ -155,7 +151,7 @@ const batchCountEl = document.getElementById('batchCount');
 const totalCopiesEl = document.getElementById('totalCopies');
 const searchBox = document.getElementById('searchBox');
 const categoryFilter = document.getElementById('categoryFilter');
-const labelProfileSelect = document.getElementById('labelProfileSelect');
+const LABEL_PROFILE = 'DISTRIBUTION';
 const sourceLotDefault = document.getElementById('sourceLotDefault');
 const netQuantityDefault = document.getElementById('netQuantityDefault');
 const extraCodeDefault = document.getElementById('extraCodeDefault');
@@ -226,9 +222,8 @@ function renderProducts(){
   filteredProducts().forEach(product => {
     const tr = document.createElement('tr');
     const storage = product.storage_text ? product.storage_text : '—';
-    const distribution = labelProfileSelect.value === 'DISTRIBUTION';
-    const ready = distribution ? product.distribution_ready : product.internal_ready;
-    const missing = distribution ? product.distribution_missing : product.internal_missing;
+    const ready = product.distribution_ready;
+    const missing = product.distribution_missing;
     const readiness = ready
       ? '<span class="ready">✓ Έτοιμο</span>'
       : `<span class="notReady" title="${missing.join(', ')}">Λείπουν: ${missing.join(', ')}</span>`;
@@ -282,8 +277,7 @@ function renderProducts(){
     btn.addEventListener('click', () => {
       const id = Number(btn.getAttribute('data-complete'));
       const product = PRODUCTS.find(p => p.id === id);
-      const distribution = labelProfileSelect.value === 'DISTRIBUTION';
-      const missing = distribution ? product.distribution_missing : product.internal_missing;
+      const missing = product.distribution_missing;
       showToast(`Λείπουν: ${missing.join(', ')}. Άνοιγμα στοιχείων προϊόντος…`, 'err');
       setTimeout(() => { window.location.href = `/products/${id}/edit`; }, 500);
     });
@@ -341,7 +335,7 @@ document.getElementById('printBatchBtn').addEventListener('click', async () => {
   }
   const payload = {
     station: 'WORKSHOP',
-    label_profile: labelProfileSelect.value,
+    label_profile: LABEL_PROFILE,
     items: batch.map(x => ({
       product_id: x.product_id,
       copies: Number(x.copies || 0),
@@ -370,12 +364,6 @@ document.getElementById('printBatchBtn').addEventListener('click', async () => {
 
 searchBox.addEventListener('input', renderProducts);
 categoryFilter.addEventListener('change', renderProducts);
-labelProfileSelect.addEventListener('change', () => {
-  batch.splice(0, batch.length);
-  renderBatch();
-  renderProducts();
-  showToast(labelProfileSelect.value === 'DISTRIBUTION' ? 'Πλήρης ετικέτα διάθεσης' : 'Εσωτερική ετικέτα ΕΦΕΤ');
-});
 renderCategoryFilter();
 renderProducts();
 renderBatch();

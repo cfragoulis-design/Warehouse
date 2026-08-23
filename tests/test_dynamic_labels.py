@@ -10,6 +10,7 @@ from app.labeling import (
     INTERNAL_PROFILE,
     LabelValidationError,
     build_label_payload,
+    normalize_label_profile,
     product_readiness,
 )
 
@@ -48,39 +49,38 @@ def _lot(**overrides):
     return SimpleNamespace(**values)
 
 
-def test_internal_profile_requires_only_operational_traceability_fields(monkeypatch):
-    monkeypatch.delenv("WAREHOUSE_LABEL_BUSINESS_NAME", raising=False)
-    monkeypatch.delenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS", raising=False)
-    product = _product(
-        label_ingredients=None,
-        label_allergens=None,
-        label_single_ingredient=False,
-    )
+def _set_business_identity(monkeypatch):
+    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_NAME", "Σκλαβούνος Meat")
+    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS", "Διεύθυνση δοκιμής")
+    monkeypatch.setenv("WAREHOUSE_LABEL_APPROVAL_NUMBER", "GR A 920 CE")
 
-    assert product_readiness(product, INTERNAL_PROFILE) == ()
-    payload = build_label_payload(product, _lot(net_quantity_text=None), profile=INTERNAL_PROFILE)
-    assert payload["profile"] == "INTERNAL"
+
+def test_legacy_internal_profile_maps_to_the_same_complete_unified_label(monkeypatch):
+    _set_business_identity(monkeypatch)
+    assert normalize_label_profile(INTERNAL_PROFILE) == DISTRIBUTION_PROFILE
+    payload = build_label_payload(_product(), _lot(), profile=INTERNAL_PROFILE)
+    assert payload["profile"] == "DISTRIBUTION"
     assert payload["traceability"]["internal_lot"] == "MB41-260823-W-01"
     assert payload["traceability"]["source_lot"] == "SUP-2026-991"
     assert payload["traceability"]["use_by_date"] == "26/08/2026"
+    assert payload["product"]["allergens"] == "Περιέχει: ΣΙΝΑΠΙ"
 
 
 def test_distribution_profile_builds_complete_immutable_render_payload(monkeypatch):
-    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_NAME", "Σκλαβούνος Meat")
-    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS", "Διεύθυνση δοκιμής")
-    monkeypatch.setenv("WAREHOUSE_LABEL_APPROVAL_NUMBER", "EL TEST")
+    _set_business_identity(monkeypatch)
     product = _product()
 
     assert product_readiness(product, DISTRIBUTION_PROFILE) == ()
     payload = build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
 
     assert payload == {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": "DISTRIBUTION",
-        "printer_profile": "HPRT_LPQ80_TSPL_80MM",
+        "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
             "id": 41,
             "sku": "MB-41",
+            "display_name": "Μοσχαρίσιο μπιφτέκι",
             "legal_name": "Παρασκεύασμα κρέατος από βόειο κρέας",
             "ingredients": "Βόειο κρέας 95%, κρεμμύδι, αλάτι, μπαχαρικά",
             "allergens": "Περιέχει: ΣΙΝΑΠΙ",
@@ -103,7 +103,7 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
         "business": {
             "name": "Σκλαβούνος Meat",
             "address": "Διεύθυνση δοκιμής",
-            "approval_number": "EL TEST",
+            "approval_number": "GR A 920 CE",
         },
     }
 
@@ -119,8 +119,7 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
     ],
 )
 def test_distribution_profile_blocks_missing_product_metadata(monkeypatch, overrides, missing):
-    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_NAME", "Σκλαβούνος Meat")
-    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS", "Διεύθυνση δοκιμής")
+    _set_business_identity(monkeypatch)
     product = _product(**overrides)
 
     assert missing in product_readiness(product, DISTRIBUTION_PROFILE)
@@ -131,11 +130,11 @@ def test_distribution_profile_blocks_missing_product_metadata(monkeypatch, overr
 def test_distribution_profile_requires_net_quantity_and_business_identity(monkeypatch):
     monkeypatch.delenv("WAREHOUSE_LABEL_BUSINESS_NAME", raising=False)
     monkeypatch.delenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS", raising=False)
+    monkeypatch.delenv("WAREHOUSE_LABEL_APPROVAL_NUMBER", raising=False)
     missing = product_readiness(_product(), DISTRIBUTION_PROFILE)
-    assert missing == ("επωνυμία επιχείρησης", "διεύθυνση επιχείρησης")
+    assert missing == ("επωνυμία επιχείρησης", "διεύθυνση επιχείρησης", "κωδικός έγκρισης")
 
-    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_NAME", "Σκλαβούνος Meat")
-    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS", "Διεύθυνση δοκιμής")
+    _set_business_identity(monkeypatch)
     with pytest.raises(LabelValidationError, match="καθαρή ποσότητα"):
         build_label_payload(
             _product(),
@@ -145,8 +144,7 @@ def test_distribution_profile_requires_net_quantity_and_business_identity(monkey
 
 
 def test_distribution_profile_accepts_documented_nutrition_exemption_and_lot_origin(monkeypatch):
-    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_NAME", "Σκλαβούνος Meat")
-    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS", "Διεύθυνση δοκιμής")
+    _set_business_identity(monkeypatch)
     product = _product(label_nutrition="", label_nutrition_exempt=True)
     lot = _lot(label_origin_override="Ιρλανδία")
 

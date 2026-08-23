@@ -213,10 +213,10 @@ def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
             candidate = None
         if isinstance(candidate, dict):
             render_payload = candidate
-    profile = (getattr(lot, 'label_profile', None) or INTERNAL_PROFILE).upper()
+    profile = normalize_label_profile(getattr(lot, 'label_profile', None) or INTERNAL_PROFILE)
     label_key = getattr(product, 'label_template', None) or 'default.btw'
     if render_payload is not None:
-        label_key = 'HPRT_EFET_DISTRIBUTION_80' if profile == DISTRIBUTION_PROFILE else 'HPRT_EFET_INTERNAL_80'
+        label_key = 'HPRT_EFET_UNIFIED_50'
     return {
         'id': lot.id,
         'batch_ref': getattr(lot, 'batch_ref', None) or '',
@@ -747,8 +747,7 @@ def _eligible_label_products(db: Session):
     )
     out = []
     for p in rows:
-        internal_missing = product_readiness(p, INTERNAL_PROFILE)
-        distribution_missing = product_readiness(p, DISTRIBUTION_PROFILE)
+        unified_missing = product_readiness(p, DISTRIBUTION_PROFILE)
         out.append({
             "id": p.id,
             "name": p.name,
@@ -759,10 +758,12 @@ def _eligible_label_products(db: Session):
             "storage_text": p.storage_text or "",
             "label_template": p.label_template or "",
             "label_metadata": product_label_metadata(p),
-            "internal_ready": not internal_missing,
-            "internal_missing": list(internal_missing),
-            "distribution_ready": not distribution_missing,
-            "distribution_missing": list(distribution_missing),
+            # Legacy names remain in the JSON for old open browser tabs. Both now
+            # describe the one unified 50x70 product label.
+            "internal_ready": not unified_missing,
+            "internal_missing": list(unified_missing),
+            "distribution_ready": not unified_missing,
+            "distribution_missing": list(unified_missing),
         })
     return out
 
@@ -786,7 +787,7 @@ def labels_center(
             "products": products,
             "products_json": json.dumps(products, ensure_ascii=False),
             "default_station": default_station,
-            "business_label_ready": bool(business.name and business.address),
+            "business_label_ready": bool(business.name and business.address and business.approval_number),
         },
     )
 

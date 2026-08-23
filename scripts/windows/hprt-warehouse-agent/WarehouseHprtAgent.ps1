@@ -197,7 +197,7 @@ function Invoke-OnePoll {
     $claimToken = ([string]$job.claim_token).Trim()
     if ($jobId -le 0 -or -not $claimToken -or $claimToken.Length -gt 256) { throw 'Print claim is invalid.' }
     if ([string]$job.target_station -cne $Config.Station) { throw 'Print station does not match.' }
-    if ([string]$job.label_key -notin @('HPRT_EFET_INTERNAL_80', 'HPRT_EFET_DISTRIBUTION_80')) { throw 'Print job is not an HPRT dynamic label.' }
+    if ([string]$job.label_key -notin @('HPRT_EFET_UNIFIED_50', 'HPRT_EFET_INTERNAL_80', 'HPRT_EFET_DISTRIBUTION_80')) { throw 'Print job is not an HPRT dynamic label.' }
     if ($null -eq $job.render_payload) { throw 'Print job has no render payload.' }
 
     Write-AgentState -State PRINTING -QueueState ACTIVE -CurrentJobId $jobId -ContactSucceeded
@@ -245,7 +245,7 @@ function Invoke-OnePoll {
 
 $config = Read-ExactConfig
 $token = Read-DpapiToken -Path $config.TokenPath
-Write-AgentLog -Message 'STARTED station=WORKSHOP renderer=HPRT_LPQ80_TSPL'
+Write-AgentLog -Message 'STARTED station=WORKSHOP renderer=HPRT_LPQ80_BITMAP_50X70'
 Write-AgentState -State STARTING -QueueState STARTING
 
 do {
