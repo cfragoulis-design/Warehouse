@@ -487,6 +487,7 @@ def test_label_queue_enforces_token_station_and_terminal_status(
         ),
         db=db,
     )
+    assert next_response.headers["content-type"] == "application/json; charset=utf-8"
     claimed_job = _json(next_response)["job"]
     assert claimed_job["id"] == central_job.id
     assert claimed_job["target_station"] == "CENTRAL"

@@ -1120,7 +1120,10 @@ def api_print_jobs_next(
         .first()
     )
     if not row:
-        return JSONResponse({'ok': True, 'job': None})
+        return JSONResponse(
+            {'ok': True, 'job': None},
+            media_type='application/json; charset=utf-8',
+        )
 
     lot, product = row
     claim_token = secrets.token_urlsafe(32)
@@ -1135,7 +1138,10 @@ def api_print_jobs_next(
         'claim_token': claim_token,
         'lease_expires_at': claim_expires_at.isoformat(),
     })
-    return JSONResponse({'ok': True, 'job': job})
+    return JSONResponse(
+        {'ok': True, 'job': job},
+        media_type='application/json; charset=utf-8',
+    )
 
 
 @router.post("/api/print-jobs/{job_id}/done", response_class=JSONResponse)
