@@ -46,7 +46,9 @@ function Read-ExactConfig {
 
 function Read-DpapiToken {
     param([Parameter(Mandatory)][string]$Path)
-    $secure = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertTo-SecureString
+    $serialized = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    $serialized = $serialized.TrimStart([char]0xFEFF).Trim()
+    $secure = ConvertTo-SecureString -String $serialized
     $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
     try {
         $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)

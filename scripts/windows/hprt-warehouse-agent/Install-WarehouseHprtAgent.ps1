@@ -17,7 +17,10 @@ try {
         throw 'Η διεύθυνση Warehouse πρέπει να είναι έγκυρο HTTPS URL.'
     }
     if (-not $PrinterName) {
-        $hprtPrinters = @(Get-Printer -ErrorAction SilentlyContinue | Where-Object Name -Like '*HPRT*')
+        $hprtPrinters = @(
+            Get-Printer -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -like '*HPRT*' -or $_.DriverName -like '*HPRT*' }
+        )
         if ($hprtPrinters.Count -eq 1) { $PrinterName = $hprtPrinters[0].Name }
         else { $PrinterName = Read-Host 'Exact HPRT printer name from Windows' }
     }
@@ -55,7 +58,9 @@ try {
         }
     }
 
-    $token | ConvertFrom-SecureString | Set-Content -LiteralPath (Join-Path $installRoot 'agent-token.dpapi') -Encoding UTF8 -Force
+    $serializedToken = $token | ConvertFrom-SecureString
+    $utf8WithoutBom = New-Object Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText((Join-Path $installRoot 'agent-token.dpapi'), $serializedToken, $utf8WithoutBom)
     $config = [ordered]@{
         base_url = $parsedBaseUrl.AbsoluteUri.TrimEnd('/')
         station = 'WORKSHOP'
