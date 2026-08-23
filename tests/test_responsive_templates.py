@@ -21,7 +21,7 @@ def test_stock_switches_to_touch_friendly_cards_on_tablets() -> None:
         encoding="utf-8"
     )
 
-    assert '@media (max-width:1100px)' in template
+    assert '@media (max-width:1100px), (hover:none) and (pointer:coarse)' in template
     assert 'class="tableScroll"' in template
     assert ".tableScroll{width:100%;overflow-x:auto" in template
     assert ".tableScroll{overflow:visible}" in template

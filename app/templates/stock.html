@@ -162,7 +162,7 @@
 .labelBtn.isBusy{opacity:.65; pointer-events:none}
 
     /* Tablet-first stock view: turn the wide desktop grid into touch-friendly cards. */
-    @media (max-width:1100px){
+    @media (max-width:1100px), (hover:none) and (pointer:coarse){
       body{font-size:16px}
       .top{flex-direction:column;align-items:flex-start;gap:14px;padding:18px 16px 14px}
       .brand{font-size:30px}
