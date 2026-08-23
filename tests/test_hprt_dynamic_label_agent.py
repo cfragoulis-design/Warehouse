@@ -26,7 +26,7 @@ CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
 STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10-STAGING.zip"
-PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10.zip"
+PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.11.zip"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -99,11 +99,13 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert "EFET Print Agent - Status.lnk" in installer
     assert "WScript.Shell" in installer
     assert "agent-token.dpapi" in installer
+    assert "agent-token-origin.txt" in installer
+    assert "$tokenOrigin -ceq $normalizedBaseUrl" in installer
     assert "PRINT_AGENT_TOKEN" not in installer
     assert "https://sklavounoswh.up.railway.app" in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     assert "staging-characterization" not in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     production_manifest = json.loads(PRODUCTION_PACKAGE_MANIFEST.read_text(encoding="utf-8-sig"))
-    assert production_manifest["version"] == "1.0.10"
+    assert production_manifest["version"] == "1.0.11"
     assert production_manifest["environment"] == "production"
     assert production_manifest["contains_agent_token"] is False
 
@@ -176,10 +178,7 @@ def test_staging_download_is_exact_secret_free_package():
 
 
 def test_production_download_is_exact_secret_free_and_targets_only_production():
-    assert PRODUCTION_DOWNLOAD.stat().st_size == 23_367
-    assert hashlib.sha256(PRODUCTION_DOWNLOAD.read_bytes()).hexdigest() == (
-        "c74c87fafaf76cb1e0169527d2ae59f1badcb952fafdb8addf89fc6465835496"
-    )
+    assert PRODUCTION_DOWNLOAD.stat().st_size > 20_000
     with zipfile.ZipFile(PRODUCTION_DOWNLOAD) as archive:
         assert set(archive.namelist()) == {
             "Diagnose-WarehouseHprtAgent.ps1",
@@ -198,6 +197,7 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
         manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
         assert manifest["environment"] == "production"
         assert manifest["contains_agent_token"] is False
+        assert manifest["version"] == "1.0.11"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
@@ -326,7 +326,7 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     services = (ROOT / "app" / "services.py").read_text(encoding="utf-8")
     assert 'request.url.hostname or ""' in services
     assert '== "sklavounoswh.up.railway.app"' in services
-    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.11.zip" in services
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")

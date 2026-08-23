@@ -39,9 +39,15 @@ try {
         if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $file) -PathType Leaf)) { throw "Λείπει το αρχείο $file από το πακέτο." }
     }
 
+    $normalizedBaseUrl = $parsedBaseUrl.AbsoluteUri.TrimEnd('/')
     $tokenPath = Join-Path $installRoot 'agent-token.dpapi'
+    $tokenOriginPath = Join-Path $installRoot 'agent-token-origin.txt'
     $serializedToken = ''
-    if (Test-Path -LiteralPath $tokenPath -PathType Leaf) {
+    $tokenOrigin = ''
+    if (Test-Path -LiteralPath $tokenOriginPath -PathType Leaf) {
+        $tokenOrigin = (Get-Content -LiteralPath $tokenOriginPath -Raw -Encoding UTF8).TrimStart([char]0xFEFF).TrimEnd('/')
+    }
+    if ($tokenOrigin -ceq $normalizedBaseUrl -and (Test-Path -LiteralPath $tokenPath -PathType Leaf)) {
         try {
             $serializedToken = (Get-Content -LiteralPath $tokenPath -Raw -Encoding UTF8).TrimStart([char]0xFEFF).Trim()
             $existingToken = ConvertTo-SecureString -String $serializedToken
@@ -80,8 +86,9 @@ try {
 
     $utf8WithoutBom = New-Object Text.UTF8Encoding($false)
     [IO.File]::WriteAllText($tokenPath, $serializedToken, $utf8WithoutBom)
+    [IO.File]::WriteAllText($tokenOriginPath, $normalizedBaseUrl, $utf8WithoutBom)
     $config = [ordered]@{
-        base_url = $parsedBaseUrl.AbsoluteUri.TrimEnd('/')
+        base_url = $normalizedBaseUrl
         station = 'WORKSHOP'
         printer_name = $PrinterName.Trim()
         poll_seconds = 5
