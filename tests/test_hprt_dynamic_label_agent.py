@@ -255,6 +255,53 @@ def test_renderer_builds_unified_greek_bitmap_label_and_chain_copies(tmp_path: P
     assert struct.unpack(">II", png[16:24]) == (400, 560)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+def test_renderer_flows_realistic_long_legal_content_into_available_space(tmp_path: Path):
+    payload = _payload()
+    payload["product"]["legal_name"] = "Παρασκεύασμα νωπού βόειου κρέατος με λαχανικά και καρυκεύματα"
+    payload["product"]["ingredients"] = (
+        "Βόειο κρέας 95%, κρεμμύδι, μαϊντανός, σκόρδο, αλάτι, πιπέρι, "
+        "φρυγανιά (σιτάρι), φυτικό έλαιο"
+    )
+    payload["product"]["allergens"] = "Περιέχει: ΓΛΟΥΤΕΝΗ. Μπορεί να περιέχει ίχνη από ΣΙΝΑΠΙ"
+    payload["product"]["usage_instructions"] = (
+        "Να καταναλώνεται μόνο μετά από πλήρη θερμική επεξεργασία στο κέντρο του προϊόντος"
+    )
+    payload["business"]["address"] = "Πλατεία Γεωργίου Θεοτόκη 25, 49100 Κέρκυρα"
+    output = tmp_path / "long-content.tspl"
+    preview = tmp_path / "long-content.png"
+
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RENDERER),
+            "-PayloadBase64Url",
+            _encoded(payload),
+            "-Copies",
+            "1",
+            "-PrinterName",
+            "DRY-RUN",
+            "-DryRunOutputPath",
+            str(output),
+            "-PreviewOutputPath",
+            str(preview),
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert output.exists()
+    assert preview.exists()
+
+
 def test_renderer_source_contains_centered_greek_allergens_nutrition_and_approval_oval():
     renderer = RENDERER.read_text(encoding="utf-8-sig")
     assert "SingleBitPerPixelGridFit" in renderer
@@ -266,6 +313,8 @@ def test_renderer_source_contains_centered_greek_allergens_nutrition_and_approva
     assert "-MaximumFontPixels 14 -MinimumFontPixels 9 -NoWrap" in renderer
     assert "-Alignment Near" not in renderer
     assert "$isUnpairedLastEntry" in renderer
+    assert "Add-FlowLabelText" in renderer
+    assert "if ($legalName -and $legalName -cne $displayName)" in renderer
     assert "LABEL_CONTENT_TOO_LARGE" in AGENT.read_text(encoding="utf-8-sig")
 
 
