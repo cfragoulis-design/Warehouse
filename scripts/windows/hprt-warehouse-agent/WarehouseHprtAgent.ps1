@@ -178,8 +178,17 @@ function Invoke-HprtRender {
     $renderer = Join-Path $PSScriptRoot 'HprtLpq80Print.ps1'
     if (-not (Test-Path -LiteralPath $renderer -PathType Leaf)) { throw 'HPRT renderer is missing.' }
     $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    & $windowsPowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $renderer -PayloadBase64Url $encoded -Copies $Copies -PrinterName $PrinterName 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'HPRT rendering failed.' }
+    $rendererOutput = @(& $windowsPowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $renderer -PayloadBase64Url $encoded -Copies $Copies -PrinterName $PrinterName 2>&1)
+    $rendererExitCode = $LASTEXITCODE
+    if ($rendererExitCode -ne 0) {
+        $rendererText = (($rendererOutput | ForEach-Object { [string]$_ }) -join ' ')
+        $category = 'HPRT_RENDER_FAILED'
+        if ($rendererText -match 'does not fit') { $category = 'LABEL_CONTENT_TOO_LARGE' }
+        elseif ($rendererText -match 'printer was not found|Configured HPRT printer was not found') { $category = 'HPRT_PRINTER_NOT_FOUND' }
+        elseif ($rendererText -match 'print document could not start|print page could not start') { $category = 'HPRT_SPOOLER_FAILED' }
+        elseif ($rendererText -match 'complete label payload') { $category = 'HPRT_WRITE_INCOMPLETE' }
+        throw $category
+    }
 }
 
 function Invoke-OnePoll {
@@ -207,13 +216,17 @@ function Invoke-OnePoll {
             Invoke-HprtRender -Payload $job.render_payload -Copies ([int]$job.copies) -PrinterName $Config.PrinterName
         }
         catch {
+            $failureCategory = ([string]$_.Exception.Message).Trim()
+            if ($failureCategory -notin @('LABEL_CONTENT_TOO_LARGE', 'HPRT_PRINTER_NOT_FOUND', 'HPRT_SPOOLER_FAILED', 'HPRT_WRITE_INCOMPLETE', 'HPRT_RENDER_FAILED')) {
+                $failureCategory = 'HPRT_PRINT_FAILED'
+            }
             try {
                 $failUri = '{0}/api/print-jobs/{1}/fail?station={2}' -f $Config.BaseUrl, $jobId, $Config.Station
-                [void](Invoke-AgentRequest -Method POST -Uri $failUri -Token $Token -ClaimToken $claimToken -Body @{ error_message = 'HPRT_PRINT_FAILED' })
+                [void](Invoke-AgentRequest -Method POST -Uri $failUri -Token $Token -ClaimToken $claimToken -Body @{ error_message = $failureCategory })
             }
             catch { }
-            Write-AgentLog -Message ('FAILED job={0} category=HPRT_PRINT_FAILED' -f $jobId)
-            Write-AgentState -State ERROR -QueueState ERROR -CurrentJobId $jobId -LastError 'HPRT_PRINT_FAILED' -ContactSucceeded
+            Write-AgentLog -Message ('FAILED job={0} category={1}' -f $jobId, $failureCategory)
+            Write-AgentState -State ERROR -QueueState ERROR -CurrentJobId $jobId -LastError $failureCategory -ContactSucceeded
             return $true
         }
         try { Save-PrintedJobId -JobId $jobId }

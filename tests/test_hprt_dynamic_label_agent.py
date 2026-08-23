@@ -22,7 +22,7 @@ STOCK_PAGE = ROOT / "app" / "templates" / "stock.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.6-STAGING.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.7-STAGING.zip"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -212,6 +212,8 @@ def test_renderer_source_contains_centered_greek_allergens_nutrition_and_approva
     assert "$output[$i] = 0xFF" in renderer
     assert "-MaximumFontPixels 14 -MinimumFontPixels 9 -NoWrap" in renderer
     assert "-Alignment Near" not in renderer
+    assert "$isUnpairedLastEntry" in renderer
+    assert "LABEL_CONTENT_TOO_LARGE" in AGENT.read_text(encoding="utf-8-sig")
 
 
 def test_stock_has_direct_hprt_print_with_independent_copy_count():

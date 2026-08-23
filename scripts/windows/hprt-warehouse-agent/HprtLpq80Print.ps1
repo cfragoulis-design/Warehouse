@@ -94,7 +94,10 @@ function Add-NutritionTable {
         for ($i = 0; $i -lt $entries.Count; $i++) {
             $column = $i % 2
             $row = [Math]::Floor($i / 2)
-            $rect = New-Object Drawing.RectangleF((14 + ($column * $cellWidth)), ($Y + 19 + ($row * $cellHeight)), $cellWidth, $cellHeight)
+            $isUnpairedLastEntry = (($entries.Count % 2) -eq 1) -and ($i -eq ($entries.Count - 1))
+            $rectWidth = if ($isUnpairedLastEntry) { [single]372 } else { [single]$cellWidth }
+            $rectX = if ($isUnpairedLastEntry) { [single]14 } else { [single](14 + ($column * $cellWidth)) }
+            $rect = New-Object Drawing.RectangleF($rectX, ($Y + 19 + ($row * $cellHeight)), $rectWidth, $cellHeight)
             $Graphics.DrawRectangle($pen, [single]$rect.X, [single]$rect.Y, [single]$rect.Width, [single]$rect.Height)
             $inner = New-Object Drawing.RectangleF(($rect.X + 4), $rect.Y, ($rect.Width - 8), $rect.Height)
             # The shared text helper starts at the largest size and shrinks only
