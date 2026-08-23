@@ -18,10 +18,11 @@ AGENT = PACKAGE / "WarehouseHprtAgent.ps1"
 INSTALLER = PACKAGE / "Install-WarehouseHprtAgent.ps1"
 STATUS_UI = PACKAGE / "WarehouseHprtAgent.Status.ps1"
 LABEL_CENTER = ROOT / "app" / "templates" / "labels_center.html"
+STOCK_PAGE = ROOT / "app" / "templates" / "stock.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.5-STAGING.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.6-STAGING.zip"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -209,6 +210,18 @@ def test_renderer_source_contains_centered_greek_allergens_nutrition_and_approva
     assert "DrawEllipse" in renderer
     assert "BITMAP 0,0,50,560,0," in renderer
     assert "$output[$i] = 0xFF" in renderer
+    assert "-MaximumFontPixels 14 -MinimumFontPixels 9 -NoWrap" in renderer
+    assert "-Alignment Near" not in renderer
+
+
+def test_stock_has_direct_hprt_print_with_independent_copy_count():
+    html = STOCK_PAGE.read_text(encoding="utf-8")
+    assert 'action="/admin/labels/create-batch"' in html
+    assert 'name="copies" value="1" min="1" max="50"' in html
+    assert 'label_profile: "DISTRIBUTION"' in html
+    assert 'items: [{product_id: productId, copies}]' in html
+    assert 'action="/labels/quick-print"' not in html
+    assert 'name="quantity" value="{{ it.workshop_qty' not in html
 
 
 def test_label_center_has_no_quantity_or_manual_code_fields():

@@ -830,9 +830,12 @@ def labels_create_batch(
     for raw in items:
         if not isinstance(raw, dict):
             continue
-        product_id = int(raw.get("product_id") or 0)
-        copies = int(raw.get("copies") or 0)
-        if product_id <= 0 or copies <= 0:
+        try:
+            product_id = int(raw.get("product_id") or 0)
+            copies = int(raw.get("copies") or 0)
+        except (TypeError, ValueError):
+            continue
+        if product_id <= 0 or copies <= 0 or copies > 50:
             continue
 
         product = db.get(Product, product_id)

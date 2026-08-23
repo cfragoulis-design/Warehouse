@@ -104,8 +104,9 @@
   .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
   .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
-    .labelBtn{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:34px;border-radius:10px;font-weight:900;cursor:pointer;border:1px solid transparent}
-    .labelBtn.central{background:rgba(47,124,246,.16);border-color:rgba(47,124,246,.45);color:#8ab4ff}
+    .directLabelForm{display:inline-flex;align-items:center;gap:5px;padding-left:4px;border-left:1px solid rgba(202,162,74,.28)}
+    .labelCopies{width:54px;min-width:54px;height:34px;padding:5px 4px;text-align:center;border-radius:10px;font-weight:900}
+    .labelBtn{display:inline-flex;align-items:center;justify-content:center;min-width:78px;height:34px;padding:0 10px;border-radius:10px;font-weight:900;cursor:pointer;border:1px solid transparent}
     .labelBtn.workshop{background:rgba(202,162,74,.16);border-color:rgba(202,162,74,.45);color:#f1d694}
     .labelBtn:hover{filter:brightness(1.08)}
     .readyBanner{
@@ -354,20 +355,13 @@
                       <input class="needQty" name="qty" value="1" inputmode="decimal" />
                       <button class="needBtn" type="submit" title="Παραγγελία ανάγκης (Telegram)">🆘</button>
                     </form>
-                    <form method="post" action="/labels/quick-print" class="js-label-print-form" data-product-id="{{ it.id }}" data-station="CENTRAL" style="display:inline">
-                      <input type="hidden" name="product_id" value="{{ it.id }}" />
-                      <input type="hidden" name="station" value="CENTRAL" />
-                      <input type="hidden" name="quantity" value="{{ it.central_qty|fmtqty(it.unit) }}" />
-                      <button class="labelBtn central" type="submit" title="Εκτύπωση labels με ποσότητα Central stock">C🏷</button>
-                    </form>
                   {% endif %}
 
-                  {% if user and user.role == 'workshop' %}
-                    <form method="post" action="/labels/quick-print" class="js-label-print-form" data-product-id="{{ it.id }}" data-station="WORKSHOP" style="display:inline">
+                  {% if user and user.role in ['admin', 'workshop'] %}
+                    <form method="post" action="/admin/labels/create-batch" class="js-label-print-form directLabelForm" data-product-id="{{ it.id }}">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
-                      <input type="hidden" name="station" value="WORKSHOP" />
-                      <input type="hidden" name="quantity" value="{{ it.workshop_qty|fmtqty(it.unit) }}" />
-                      <button class="labelBtn workshop" type="submit" title="Εκτύπωση labels με ποσότητα Workshop stock">W🏷</button>
+                      <input class="labelCopies" type="number" name="copies" value="1" min="1" max="50" step="1" inputmode="numeric" aria-label="Αντίτυπα ετικέτας" title="Αριθμός αντιτύπων" />
+                      <button class="labelBtn workshop" type="submit" title="Άμεση εκτύπωση στον HPRT του Εργαστηρίου">🖨 Print</button>
                     </form>
                   {% endif %}
                 </div>
@@ -404,7 +398,12 @@ function showLabelToast(message, kind){
 async function submitLabelFormAjax(form){
   const btn = form.querySelector('button[type="submit"]');
   const original = btn ? btn.textContent : "";
-  const body = new URLSearchParams(new FormData(form));
+  const productId = Number(form.querySelector('[name="product_id"]')?.value || 0);
+  const copies = Number(form.querySelector('[name="copies"]')?.value || 0);
+  if (!Number.isInteger(copies) || copies < 1 || copies > 50){
+    showLabelToast("Τα αντίτυπα πρέπει να είναι από 1 έως 50.", "err");
+    return;
+  }
   try{
     if (btn){
       btn.classList.add("isBusy");
@@ -414,16 +413,21 @@ async function submitLabelFormAjax(form){
       method: "POST",
       headers: {
         "X-Requested-With": "fetch",
-        "Accept": "application/json"
+        "Accept": "application/json",
+        "Content-Type": "application/json"
       },
-      body,
+      body: JSON.stringify({
+        station: "WORKSHOP",
+        label_profile: "DISTRIBUTION",
+        items: [{product_id: productId, copies}]
+      }),
       credentials: "same-origin"
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok){
-      throw new Error(data.error || "Η εκτύπωση label απέτυχε.");
+      throw new Error(data.detail || data.error || "Η εκτύπωση label απέτυχε.");
     }
-    showLabelToast(data.message || "Το label στάλθηκε.", "ok");
+    showLabelToast(`Στάλθηκαν ${copies} ${copies === 1 ? "ετικέτα" : "ετικέτες"} στον HPRT.`, "ok");
   }catch(err){
     showLabelToast(err.message || "Η εκτύπωση label απέτυχε.", "err");
   }finally{
