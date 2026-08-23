@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import struct
+import zipfile
 
 import pytest
 
@@ -25,6 +26,7 @@ CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
 STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10-STAGING.zip"
+PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10.zip"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -171,6 +173,31 @@ def test_staging_download_is_exact_secret_free_package():
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
         "13633c85d604d21b6f87b711bb14eeae13a94178cf22d806630dabaf4775593d"
     )
+
+
+def test_production_download_is_exact_secret_free_and_targets_only_production():
+    assert PRODUCTION_DOWNLOAD.stat().st_size == 23_367
+    assert hashlib.sha256(PRODUCTION_DOWNLOAD.read_bytes()).hexdigest() == (
+        "c74c87fafaf76cb1e0169527d2ae59f1badcb952fafdb8addf89fc6465835496"
+    )
+    with zipfile.ZipFile(PRODUCTION_DOWNLOAD) as archive:
+        assert set(archive.namelist()) == {
+            "Diagnose-WarehouseHprtAgent.ps1",
+            "favicon-64.png",
+            "HprtLpq80Print.ps1",
+            "Install-WarehouseHprtAgent.ps1",
+            "PACKAGE-MANIFEST.json",
+            "README.txt",
+            "SETUP.cmd",
+            "WarehouseHprtAgent.ps1",
+            "WarehouseHprtAgent.Status.ps1",
+        }
+        setup = archive.read("SETUP.cmd").decode("utf-8-sig")
+        assert "https://sklavounoswh.up.railway.app" in setup
+        assert "staging-characterization" not in setup
+        manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
+        assert manifest["environment"] == "production"
+        assert manifest["contains_agent_token"] is False
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
