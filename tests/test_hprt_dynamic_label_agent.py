@@ -21,7 +21,7 @@ LABEL_CENTER = ROOT / "app" / "templates" / "labels_center.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.4-STAGING.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.5-STAGING.zip"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -151,9 +151,9 @@ def test_status_ui_snapshot_mode_is_provider_free_and_does_not_open_a_window():
 
 
 def test_staging_download_is_exact_secret_free_package():
-    assert STAGING_DOWNLOAD.stat().st_size == 22_444
+    assert STAGING_DOWNLOAD.stat().st_size == 22_450
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
-        "f9f1b18c6c59c2fa60508d91b32a21ba4d74ed16467b747f0c553366f49288fe"
+        "0640187cad57e628fb7c48a0ceb452bf20460101f7b323143f03cc58c0cc0b62"
     )
 
 
