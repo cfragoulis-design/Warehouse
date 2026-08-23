@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ RENDERER = PACKAGE / "HprtLpq80Print.ps1"
 AGENT = PACKAGE / "WarehouseHprtAgent.ps1"
 INSTALLER = PACKAGE / "Install-WarehouseHprtAgent.ps1"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.0-STAGING.zip"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -72,6 +74,13 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert "ConvertFrom-SecureString" in installer
     assert "agent-token.dpapi" in installer
     assert "PRINT_AGENT_TOKEN" not in installer
+
+
+def test_staging_download_is_exact_secret_free_package():
+    assert STAGING_DOWNLOAD.stat().st_size == 10_768
+    assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
+        "9aa4a3810889ad79a8164c07cd152687b35f564d7df7423b11e6fd8f43630027"
+    )
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")

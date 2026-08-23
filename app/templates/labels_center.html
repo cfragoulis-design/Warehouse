@@ -22,6 +22,7 @@
     .toolbar button{cursor:pointer;font-weight:800}
     .toolbar .primary{background:var(--blue);border-color:rgba(47,124,246,.7);color:#fff}
     .toolbar .ghost{background:rgba(11,16,32,.45)}
+    .toolbar .download{padding:10px 12px;border-radius:12px;border:1px solid rgba(47,124,246,.7);background:rgba(47,124,246,.16);color:#b9d3ff;font-size:13px;font-weight:900}
     .stationBadge{padding:10px 12px;border-radius:12px;border:1px solid rgba(46,204,113,.45);background:rgba(46,204,113,.1);color:#9cf0bf;font-size:12px;font-weight:900;letter-spacing:.04em}
     .layout{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
     .card{background:rgba(17,25,54,.75);border:1px solid rgba(36,48,85,.75);border-radius:16px;box-shadow:0 12px 45px rgba(0,0,0,.35);overflow:hidden}
@@ -85,6 +86,7 @@
       <input id="extraCodeDefault" type="text" placeholder="Extra code π.χ. PE 620" />
       <button id="clearBatchBtn" class="ghost">Clear batch</button>
       <button id="printBatchBtn" class="primary">🖨 Print Batch</button>
+      <a class="download" href="/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.0-STAGING.zip">↓ Λήψη HPRT Agent</a>
     </div>
 
     {% if not business_label_ready %}
