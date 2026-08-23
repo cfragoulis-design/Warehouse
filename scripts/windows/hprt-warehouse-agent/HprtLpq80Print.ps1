@@ -51,18 +51,13 @@ function Add-LabelText {
     $format = New-Object Drawing.StringFormat
     $format.Alignment = $Alignment
     $format.LineAlignment = [Drawing.StringAlignment]::Center
-    # Never hide legal label content with an ellipsis. Measure the complete
-    # value, reduce the font until it truly fits, and fail if even the minimum
-    # size does not fit the reserved rectangle.
-    $format.Trimming = [Drawing.StringTrimming]::None
+    $format.Trimming = [Drawing.StringTrimming]::EllipsisWord
     if ($NoWrap) { $format.FormatFlags = [Drawing.StringFormatFlags]::NoWrap }
     try {
         for ($size = $MaximumFontPixels; $size -ge $MinimumFontPixels; $size--) {
             $font = New-Object Drawing.Font('Arial', [single]$size, $Style, [Drawing.GraphicsUnit]::Pixel)
             try {
-                $measureWidth = if ($NoWrap) { [single]10000 } else { [single]$Rectangle.Width }
-                $measureBounds = New-Object Drawing.SizeF($measureWidth, [single]10000)
-                $measured = $Graphics.MeasureString($value, $font, $measureBounds, $format)
+                $measured = $Graphics.MeasureString($value, $font, [int]$Rectangle.Width, $format)
                 if ($measured.Width -le ($Rectangle.Width + 1) -and $measured.Height -le ($Rectangle.Height + 1)) {
                     $Graphics.DrawString($value, $font, [Drawing.Brushes]::Black, $Rectangle, $format)
                     return
@@ -71,51 +66,6 @@ function Add-LabelText {
             finally { $font.Dispose() }
         }
         throw 'Dynamic label content does not fit the 50x70 layout.'
-    }
-    finally { $format.Dispose() }
-}
-
-function Add-FlowLabelText {
-    param(
-        [Parameter(Mandatory)][Drawing.Graphics]$Graphics,
-        [Parameter(Mandatory)][string]$Text,
-        [Parameter(Mandatory)][single]$X,
-        [Parameter(Mandatory)][single]$Y,
-        [Parameter(Mandatory)][single]$Width,
-        [Parameter(Mandatory)][int]$MaximumHeight,
-        [int]$MaximumFontPixels = 16,
-        [int]$MinimumFontPixels = 8,
-        [int]$MinimumBlockHeight = 12,
-        [Drawing.FontStyle]$Style = [Drawing.FontStyle]::Regular,
-        [Drawing.StringAlignment]$Alignment = [Drawing.StringAlignment]::Center,
-        [switch]$NoWrap,
-        [string]$FieldName = 'content'
-    )
-    $value = (Get-LabelText -Value $Text) -replace '[\x00-\x08\x0b\x0c\x0e-\x1f]', ' '
-    if (-not $value) { return 0 }
-    $format = New-Object Drawing.StringFormat
-    $format.Alignment = $Alignment
-    $format.LineAlignment = [Drawing.StringAlignment]::Center
-    $format.Trimming = [Drawing.StringTrimming]::None
-    if ($NoWrap) { $format.FormatFlags = [Drawing.StringFormatFlags]::NoWrap }
-    try {
-        for ($size = $MaximumFontPixels; $size -ge $MinimumFontPixels; $size--) {
-            $font = New-Object Drawing.Font('Arial', [single]$size, $Style, [Drawing.GraphicsUnit]::Pixel)
-            try {
-                $measureWidth = if ($NoWrap) { [single]10000 } else { $Width }
-                $bounds = New-Object Drawing.SizeF($measureWidth, [single]10000)
-                $measured = $Graphics.MeasureString($value, $font, $bounds, $format)
-                $blockHeight = [int][Math]::Ceiling($measured.Height + 2)
-                if ($blockHeight -lt $MinimumBlockHeight) { $blockHeight = $MinimumBlockHeight }
-                if ($measured.Width -le ($Width + 1) -and $blockHeight -le $MaximumHeight) {
-                    $rectangle = New-Object Drawing.RectangleF($X, $Y, $Width, [single]$blockHeight)
-                    Add-LabelText -Graphics $Graphics -Text $value -Rectangle $rectangle -MaximumFontPixels $size -MinimumFontPixels $size -Style $Style -Alignment $Alignment -NoWrap:$NoWrap
-                    return $blockHeight
-                }
-            }
-            finally { $font.Dispose() }
-        }
-        throw "Dynamic label field '$FieldName' does not fit the 50x70 layout."
     }
     finally { $format.Dispose() }
 }
@@ -133,21 +83,16 @@ function Add-NutritionTable {
     Add-LabelText -Graphics $Graphics -Text 'ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ ΑΝΑ 100 g' -Rectangle (New-Object Drawing.RectangleF(14, $Y, 372, 19)) -MaximumFontPixels 12 -MinimumFontPixels 9 -Style Bold -NoWrap
     $rows = [Math]::Ceiling($entries.Count / 2.0)
     $cellWidth = 186
-    $cellHeight = 25
+    $cellHeight = 22
     $pen = New-Object Drawing.Pen([Drawing.Color]::Black, 1)
     try {
         for ($i = 0; $i -lt $entries.Count; $i++) {
             $column = $i % 2
             $row = [Math]::Floor($i / 2)
-            $isUnpairedLastEntry = (($entries.Count % 2) -eq 1) -and ($i -eq ($entries.Count - 1))
-            $rectWidth = if ($isUnpairedLastEntry) { [single]372 } else { [single]$cellWidth }
-            $rectX = if ($isUnpairedLastEntry) { [single]14 } else { [single](14 + ($column * $cellWidth)) }
-            $rect = New-Object Drawing.RectangleF($rectX, ($Y + 19 + ($row * $cellHeight)), $rectWidth, $cellHeight)
+            $rect = New-Object Drawing.RectangleF((14 + ($column * $cellWidth)), ($Y + 19 + ($row * $cellHeight)), $cellWidth, $cellHeight)
             $Graphics.DrawRectangle($pen, [single]$rect.X, [single]$rect.Y, [single]$rect.Width, [single]$rect.Height)
             $inner = New-Object Drawing.RectangleF(($rect.X + 4), $rect.Y, ($rect.Width - 8), $rect.Height)
-            # The shared text helper starts at the largest size and shrinks only
-            # when the real value cannot fit. Nutrition cells remain centered.
-            Add-LabelText -Graphics $Graphics -Text $entries[$i] -Rectangle $inner -MaximumFontPixels 14 -MinimumFontPixels 9 -NoWrap
+            Add-LabelText -Graphics $Graphics -Text $entries[$i] -Rectangle $inner -MaximumFontPixels 11 -MinimumFontPixels 8 -Alignment Near -NoWrap
         }
     }
     finally { $pen.Dispose() }
@@ -227,45 +172,43 @@ function New-UnifiedLabelBitmap {
         $graphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
 
         $y = 7
-        $height = Add-FlowLabelText -Graphics $graphics -Text $displayName -X 14 -Y $y -Width 372 -MaximumHeight 42 -MaximumFontPixels 30 -MinimumFontPixels 14 -MinimumBlockHeight 30 -Style Bold -FieldName 'product name'
-        $y += $height + 2
-        if ($legalName -and $legalName -cne $displayName) {
-            $height = Add-FlowLabelText -Graphics $graphics -Text $legalName -X 14 -Y $y -Width 372 -MaximumHeight 29 -MaximumFontPixels 17 -MinimumFontPixels 8 -MinimumBlockHeight 15 -FieldName 'legal name'
-            $y += $height + 2
-        }
+        Add-LabelText -Graphics $graphics -Text $displayName -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 42)) -MaximumFontPixels 27 -MinimumFontPixels 17 -Style Bold
+        $y += 42
+        Add-LabelText -Graphics $graphics -Text $legalName -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 29)) -MaximumFontPixels 14 -MinimumFontPixels 9
+        $y += 29
 
         if (-not [bool]$Payload.product.single_ingredient) {
             $ingredients = 'Συστατικά: ' + (Get-LabelText -Value $Payload.product.ingredients)
-            $height = Add-FlowLabelText -Graphics $graphics -Text $ingredients -X 14 -Y $y -Width 372 -MaximumHeight 52 -MaximumFontPixels 16 -MinimumFontPixels 8 -MinimumBlockHeight 18 -FieldName 'ingredients'
-            $y += $height + 3
+            Add-LabelText -Graphics $graphics -Text $ingredients -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 52)) -MaximumFontPixels 13 -MinimumFontPixels 9
+            $y += 52
         }
         $allergens = 'ΑΛΛΕΡΓΙΟΓΟΝΑ: ' + (Get-LabelText -Value $Payload.product.allergens)
-        $height = Add-FlowLabelText -Graphics $graphics -Text $allergens -X 14 -Y $y -Width 372 -MaximumHeight 31 -MaximumFontPixels 17 -MinimumFontPixels 8 -MinimumBlockHeight 18 -Style Bold -FieldName 'allergens'
-        $y += $height + 3
+        Add-LabelText -Graphics $graphics -Text $allergens -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 31)) -MaximumFontPixels 14 -MinimumFontPixels 10 -Style Bold
+        $y += 34
 
         $nutritionHeight = Add-NutritionTable -Graphics $graphics -Nutrition (Get-LabelText -Value $Payload.product.nutrition) -Y $y
         if ($nutritionHeight -gt 0) { $y += $nutritionHeight + 4 }
 
         $dates = 'ΠΑΡΑΓΩΓΗ: {0}     ΑΝΑΛΩΣΗ ΕΩΣ: {1}' -f (Get-LabelText $Payload.traceability.production_date 16), (Get-LabelText $Payload.traceability.use_by_date 16)
-        Add-LabelText -Graphics $graphics -Text $dates -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 24)) -MaximumFontPixels 16 -MinimumFontPixels 9 -Style Bold -NoWrap
+        Add-LabelText -Graphics $graphics -Text $dates -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 24)) -MaximumFontPixels 13 -MinimumFontPixels 9 -Style Bold -NoWrap
         $y += 24
         $lotLine = 'LOT: {0}' -f (Get-LabelText $Payload.traceability.internal_lot 64)
-        Add-LabelText -Graphics $graphics -Text $lotLine -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 23)) -MaximumFontPixels 15 -MinimumFontPixels 8 -NoWrap
+        Add-LabelText -Graphics $graphics -Text $lotLine -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 23)) -MaximumFontPixels 12 -MinimumFontPixels 8 -NoWrap
         $y += 23
         $source = Get-LabelText $Payload.traceability.source_lot 96
         if ($source) {
-            Add-LabelText -Graphics $graphics -Text ("ΠΑΡΤΙΔΑ ΠΗΓΗΣ: $source") -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 20)) -MaximumFontPixels 14 -MinimumFontPixels 8 -NoWrap
+            Add-LabelText -Graphics $graphics -Text ("ΠΑΡΤΙΔΑ ΠΗΓΗΣ: $source") -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 20)) -MaximumFontPixels 11 -MinimumFontPixels 8 -NoWrap
             $y += 20
         }
-        Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.storage 255) -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 28)) -MaximumFontPixels 16 -MinimumFontPixels 9 -Style Bold
+        Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.storage 255) -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 28)) -MaximumFontPixels 13 -MinimumFontPixels 9 -Style Bold
         $y += 28
         $origin = 'ΠΡΟΕΛΕΥΣΗ: ' + (Get-LabelText $Payload.product.origin 255)
-        Add-LabelText -Graphics $graphics -Text $origin -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 21)) -MaximumFontPixels 14 -MinimumFontPixels 8 -NoWrap
+        Add-LabelText -Graphics $graphics -Text $origin -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 21)) -MaximumFontPixels 11 -MinimumFontPixels 8 -NoWrap
         $y += 21
         $usage = Get-LabelText $Payload.product.usage_instructions 500
         if ($usage) {
-            $height = Add-FlowLabelText -Graphics $graphics -Text $usage -X 14 -Y $y -Width 372 -MaximumHeight 33 -MaximumFontPixels 14 -MinimumFontPixels 8 -MinimumBlockHeight 17 -FieldName 'usage instructions'
-            $y += $height + 2
+            Add-LabelText -Graphics $graphics -Text $usage -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 33)) -MaximumFontPixels 11 -MinimumFontPixels 8
+            $y += 33
         }
         if ($y -gt 449) { throw 'Dynamic label content does not fit the 50x70 layout.' }
 
@@ -273,8 +216,8 @@ function New-UnifiedLabelBitmap {
         try { $graphics.DrawLine($separator, 14, 452, 386, 452) }
         finally { $separator.Dispose() }
         Add-LabelText -Graphics $graphics -Text 'Παρασκευάζεται και συσκευάζεται από:' -Rectangle (New-Object Drawing.RectangleF(14, 456, 278, 18)) -MaximumFontPixels 10 -MinimumFontPixels 8 -NoWrap
-        Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.business.name 255) -Rectangle (New-Object Drawing.RectangleF(14, 473, 278, 31)) -MaximumFontPixels 16 -MinimumFontPixels 9 -Style Bold
-        Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.business.address 500) -Rectangle (New-Object Drawing.RectangleF(14, 503, 278, 43)) -MaximumFontPixels 12 -MinimumFontPixels 8
+        Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.business.name 255) -Rectangle (New-Object Drawing.RectangleF(14, 473, 278, 31)) -MaximumFontPixels 13 -MinimumFontPixels 9 -Style Bold
+        Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.business.address 500) -Rectangle (New-Object Drawing.RectangleF(14, 503, 278, 43)) -MaximumFontPixels 10 -MinimumFontPixels 8
         Add-ApprovalOval -Graphics $graphics -ApprovalNumber (Get-LabelText $Payload.business.approval_number 128) -Y 470
         return $bitmap
     }
