@@ -18,7 +18,7 @@ AGENT = PACKAGE / "WarehouseHprtAgent.ps1"
 INSTALLER = PACKAGE / "Install-WarehouseHprtAgent.ps1"
 STATUS_UI = PACKAGE / "WarehouseHprtAgent.Status.ps1"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.3-STAGING.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.4-STAGING.zip"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -138,9 +138,9 @@ def test_status_ui_snapshot_mode_is_provider_free_and_does_not_open_a_window():
 
 
 def test_staging_download_is_exact_secret_free_package():
-    assert STAGING_DOWNLOAD.stat().st_size == 18_814
+    assert STAGING_DOWNLOAD.stat().st_size == 20_545
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
-        "da98a702184326cb02c6ec3d3c4790b01237716ce9e76072e114f0cc66300185"
+        "097ab9d8ba36ee1b129d0ec679a57a3c6f87fbcc97fdadc6b935de2f7e194e68"
     )
 
 
