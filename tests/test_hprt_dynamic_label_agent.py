@@ -16,7 +16,7 @@ RENDERER = PACKAGE / "HprtLpq80Print.ps1"
 AGENT = PACKAGE / "WarehouseHprtAgent.ps1"
 INSTALLER = PACKAGE / "Install-WarehouseHprtAgent.ps1"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.1-STAGING.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.2-STAGING.zip"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -75,14 +75,16 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert "Text.UTF8Encoding($false)" in installer
     assert "TrimStart([char]0xFEFF)" in agent
     assert "DriverName -like '*HPRT*'" in installer
+    assert "Existing token is invalid." in installer
+    assert "Test-Path -LiteralPath $tokenPath -PathType Leaf" in installer
     assert "agent-token.dpapi" in installer
     assert "PRINT_AGENT_TOKEN" not in installer
 
 
 def test_staging_download_is_exact_secret_free_package():
-    assert STAGING_DOWNLOAD.stat().st_size == 10_991
+    assert STAGING_DOWNLOAD.stat().st_size == 11_313
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
-        "40fb2bb3e8704e9720fcf8bbb46b38cb8d91dcec6730e7e9e6fbf18bf0ec999d"
+        "60985c785fe3e2bbcbfa6c5a957e054a7e891e324e1951e298ffbe9a1492ee21"
     )
 
 
@@ -90,7 +92,7 @@ def test_staging_download_is_exact_secret_free_package():
 @pytest.mark.parametrize(
     ("profile", "expected_size", "expected_title"),
     [
-        ("INTERNAL", "SIZE 80 mm,72 mm", "ΕΣΩΤΕΡΙΚΗ ΙΧΝΗΛΑΣΙΜΟΤΗΤΑ"),
+        ("INTERNAL", "SIZE 50 mm,70 mm", "ΕΣΩΤΕΡΙΚΗ ΙΧΝΗΛΑΣΙΜΟΤΗΤΑ"),
         ("DISTRIBUTION", "SIZE 80 mm,120 mm", "ΕΤΙΚΕΤΑ ΔΙΑΘΕΣΗΣ"),
     ],
 )
@@ -130,10 +132,15 @@ def test_renderer_builds_greek_tspl_with_dynamic_size_and_chain_copies(
     assert expected_size in tspl
     assert "CODEPAGE 1253" in tspl
     assert expected_title in tspl
-    assert "Παρασκεύασμα κρέατος" in tspl
+    assert "Παρασκεύασμα" in tspl
+    assert "κρέατος" in tspl
     assert "LOT: MB41-260823-W-01" in tspl
     assert "ΑΝΑΛΩΣΗ ΕΩΣ: 26/08/2026" in tspl
     assert "PRINT 1,4" in tspl
+    if profile == "INTERNAL":
+        assert "BAR 18," in tspl
+        assert ",364,2" in tspl
+        assert "QRCODE 250," in tspl
     if profile == "DISTRIBUTION":
         assert "ΣΥΣΤΑΤΙΚΑ:" in tspl
         assert "ΑΛΛΕΡΓΙΟΓΟΝΑ:" in tspl
