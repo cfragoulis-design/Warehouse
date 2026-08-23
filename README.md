@@ -12,6 +12,19 @@
 - `INITIAL_ADMIN_PIN` (e.g. `123456`)
 - `INITIAL_ADMIN2_PIN` (e.g. `141087`)
 
+### Dynamic HPRT labels
+
+The Stock label center supports an internal traceability profile and a distribution profile.
+Configure the public business identity once in each Railway environment:
+
+- `WAREHOUSE_LABEL_BUSINESS_NAME`
+- `WAREHOUSE_LABEL_BUSINESS_ADDRESS`
+- `WAREHOUSE_LABEL_APPROVAL_NUMBER` (optional when not applicable)
+- `PRINT_AGENT_TOKEN_WORKSHOP` (shared only with the DPAPI-protected WORKSHOP agent)
+
+The Windows package is in `scripts/windows/hprt-warehouse-agent`. It renders TSPL directly for
+the HPRT LPQ80 and is separate from the existing Brother restaurant-label agent.
+
 ### Disabled Operations read contract
 
 The aggregate-only Operations endpoint stays hidden unless both variables are explicitly set:

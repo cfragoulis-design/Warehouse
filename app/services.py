@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 import subprocess
 import shlex
 import hmac
+import hashlib
+import secrets
 from uuid import uuid4
 from datetime import date, datetime, timedelta
 from collections import defaultdict
@@ -16,7 +18,7 @@ import urllib.request
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from sqlalchemy import select, func, case
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
@@ -25,6 +27,16 @@ try:
     from app.db import acquire_transaction_lock, get_db
     from app.formatting import fmtqty
     from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, AppFlag
+    from app.labeling import (
+        DISTRIBUTION_PROFILE,
+        INTERNAL_PROFILE,
+        LabelValidationError,
+        build_label_payload,
+        business_label_identity,
+        normalize_label_profile,
+        product_label_metadata,
+        product_readiness,
+    )
     from app.stock_domain import (
         get_missing_map,
         get_stock_for_product,
@@ -42,6 +54,16 @@ except ImportError:
     from db import acquire_transaction_lock, get_db
     from formatting import fmtqty
     from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, AppFlag
+    from labeling import (
+        DISTRIBUTION_PROFILE,
+        INTERNAL_PROFILE,
+        LabelValidationError,
+        build_label_payload,
+        business_label_identity,
+        normalize_label_profile,
+        product_label_metadata,
+        product_readiness,
+    )
     from stock_domain import (
         get_missing_map,
         get_stock_for_product,
@@ -182,10 +204,25 @@ def _fmt_label_date(value) -> str:
 
 
 def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
+    render_payload = None
+    payload_text = getattr(lot, 'label_payload_json', None) or ''
+    if payload_text:
+        try:
+            candidate = json.loads(payload_text)
+        except (TypeError, ValueError):
+            candidate = None
+        if isinstance(candidate, dict):
+            render_payload = candidate
+    profile = (getattr(lot, 'label_profile', None) or INTERNAL_PROFILE).upper()
+    label_key = getattr(product, 'label_template', None) or 'default.btw'
+    if render_payload is not None:
+        label_key = 'HPRT_EFET_DISTRIBUTION_80' if profile == DISTRIBUTION_PROFILE else 'HPRT_EFET_INTERNAL_80'
     return {
         'id': lot.id,
         'batch_ref': getattr(lot, 'batch_ref', None) or '',
-        'label_key': (getattr(product, 'label_template', None) or 'default.btw'),
+        'label_key': label_key,
+        'label_profile': profile,
+        'render_payload': render_payload,
         'copies': int(float(lot.quantity_labels or 0) or 0),
         'station': lot.station,
         'product_id': product.id,
@@ -198,6 +235,28 @@ def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
         'shelf_life_days': int(getattr(product, 'shelf_life_days', 0) or 0),
         'extra_code': getattr(lot, 'extra_code', None) or '',
     }
+
+
+def _claim_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+def _require_print_claim(lot: ProductLot, request: Request) -> None:
+    provided = (request.headers.get('x-print-claim-token', '') or '').strip()
+    expected_hash = getattr(lot, 'claim_token_hash', None) or ''
+    now = datetime.now(ZoneInfo('UTC'))
+    expires_at = getattr(lot, 'claim_expires_at', None)
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=ZoneInfo('UTC'))
+    if (
+        lot.status != 'CLAIMED'
+        or not provided
+        or not expected_hash
+        or not hmac.compare_digest(_claim_token_hash(provided), expected_hash)
+        or expires_at is None
+        or expires_at <= now
+    ):
+        raise HTTPException(status_code=409, detail='Print claim is stale')
 
 # --------------------
 # data helpers
@@ -688,6 +747,8 @@ def _eligible_label_products(db: Session):
     )
     out = []
     for p in rows:
+        internal_missing = product_readiness(p, INTERNAL_PROFILE)
+        distribution_missing = product_readiness(p, DISTRIBUTION_PROFILE)
         out.append({
             "id": p.id,
             "name": p.name,
@@ -697,6 +758,11 @@ def _eligible_label_products(db: Session):
             "shelf_life_days": int(p.shelf_life_days or 0),
             "storage_text": p.storage_text or "",
             "label_template": p.label_template or "",
+            "label_metadata": product_label_metadata(p),
+            "internal_ready": not internal_missing,
+            "internal_missing": list(internal_missing),
+            "distribution_ready": not distribution_missing,
+            "distribution_missing": list(distribution_missing),
         })
     return out
 
@@ -711,6 +777,7 @@ def labels_center(
     if (user.role or "").lower() not in {"admin", "workshop"}:
         return admin_only_dialog(request, user, next_url="/dashboard")
     default_station = "CENTRAL" if (user.role or "").lower() == "admin" else "WORKSHOP"
+    business = business_label_identity()
     return templates.TemplateResponse(
         "labels_center.html",
         {
@@ -719,6 +786,7 @@ def labels_center(
             "products": products,
             "products_json": json.dumps(products, ensure_ascii=False),
             "default_station": default_station,
+            "business_label_ready": bool(business.name and business.address),
         },
     )
 
@@ -738,8 +806,13 @@ def labels_create_batch(
         raise HTTPException(status_code=400, detail="Invalid payload")
 
     items = payload.get("items") or []
-    station_norm = _normalize_station(payload.get("station"))
-    if not _station_allowed_for_user(user, station_norm):
+    try:
+        label_profile = normalize_label_profile(payload.get("label_profile"))
+    except LabelValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # The dynamic EFET labels are rendered by the dedicated HPRT at WORKSHOP.
+    station_norm = "WORKSHOP"
+    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop"}:
         raise HTTPException(status_code=403, detail="Invalid station for this user")
     if not isinstance(items, list) or not items:
         raise HTTPException(status_code=400, detail="No batch items provided")
@@ -768,6 +841,9 @@ def labels_create_batch(
         expiry_date = production_date + timedelta(days=int(product.shelf_life_days or 0))
         lot_code_raw = (str(raw.get("lot_code") or "")).strip()
         extra_code = (str(raw.get("extra_code") or "")).strip()[:64]
+        source_lot_code = (str(raw.get("source_lot_code") or "")).strip()[:96]
+        net_quantity_text = (str(raw.get("net_quantity_text") or "")).strip()[:64]
+        label_origin_override = (str(raw.get("label_origin_override") or "")).strip()[:255]
         lot_code = lot_code_raw or _build_lot_code(product, station_norm, production_date, db)
 
         exists_same = db.query(ProductLot.id).filter(ProductLot.lot_code == lot_code).first()
@@ -783,11 +859,26 @@ def labels_create_batch(
             lot_code=lot_code,
             status="QUEUED",
             created_by_user_id=user.id,
+            label_profile=label_profile,
+            source_lot_code=source_lot_code or None,
+            net_quantity_text=net_quantity_text or None,
+            label_origin_override=label_origin_override or None,
         )
         if hasattr(lot, "batch_ref"):
             lot.batch_ref = batch_ref
         if hasattr(lot, "extra_code"):
             lot.extra_code = extra_code
+
+        try:
+            render_payload = build_label_payload(product, lot, profile=label_profile)
+        except LabelValidationError as exc:
+            raise HTTPException(status_code=400, detail=f"{product.name}: {exc}") from exc
+        lot.label_payload_json = json.dumps(
+            render_payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
 
         db.add(lot)
         db.flush()
@@ -803,13 +894,18 @@ def labels_create_batch(
             "shelf_life_days": int(product.shelf_life_days or 0),
             "label_template": product.label_template or "",
             "extra_code": extra_code,
+            "label_profile": label_profile,
+            "source_lot_code": source_lot_code,
+            "net_quantity_text": net_quantity_text,
+            "label_origin_override": label_origin_override,
+            "render_payload": render_payload,
         })
 
     if not created:
         raise HTTPException(status_code=400, detail="No valid label items were created")
 
     db.commit()
-    return JSONResponse({"ok": True, "batch_ref": batch_ref, "created_count": len(created), "items": created, "station": station_norm})
+    return JSONResponse({"ok": True, "batch_ref": batch_ref, "created_count": len(created), "items": created, "station": station_norm, "label_profile": label_profile})
 
 
 @router.get("/api/print-jobs/next-batch", response_class=JSONResponse)
@@ -1004,18 +1100,42 @@ def api_print_jobs_next(
         token = request.headers.get('x-agent-token', '')
     _validate_agent_token(station_norm, token)
 
+    acquire_transaction_lock(db, 'warehouse-print-queue', station_norm)
+    now = datetime.now(ZoneInfo('UTC'))
     row = (
         db.query(ProductLot, Product)
         .join(Product, Product.id == ProductLot.product_id)
-        .filter(ProductLot.station == station_norm, ProductLot.status == 'QUEUED')
+        .filter(
+            ProductLot.station == station_norm,
+            or_(
+                ProductLot.status == 'QUEUED',
+                and_(
+                    ProductLot.status == 'CLAIMED',
+                    ProductLot.claim_expires_at < now,
+                ),
+            ),
+        )
         .order_by(ProductLot.created_at.asc(), ProductLot.id.asc())
+        .with_for_update(skip_locked=True)
         .first()
     )
     if not row:
-        return JSONResponse({'job': None})
+        return JSONResponse({'ok': True, 'job': None})
 
     lot, product = row
-    return JSONResponse({'job': _sr_job_payload(lot, product)})
+    claim_token = secrets.token_urlsafe(32)
+    claim_expires_at = now + timedelta(minutes=3)
+    lot.status = 'CLAIMED'
+    lot.claim_token_hash = _claim_token_hash(claim_token)
+    lot.claim_expires_at = claim_expires_at
+    db.commit()
+    job = _sr_job_payload(lot, product)
+    job.update({
+        'target_station': station_norm,
+        'claim_token': claim_token,
+        'lease_expires_at': claim_expires_at.isoformat(),
+    })
+    return JSONResponse({'ok': True, 'job': job})
 
 
 @router.post("/api/print-jobs/{job_id}/done", response_class=JSONResponse)
@@ -1034,7 +1154,11 @@ def api_print_jobs_done(
     if lot.station != station_norm:
         raise HTTPException(status_code=400, detail='Station mismatch')
 
+    _require_print_claim(lot, request)
+
     lot.status = 'PRINTED'
+    lot.claim_token_hash = None
+    lot.claim_expires_at = None
     db.commit()
     return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
 
@@ -1056,7 +1180,11 @@ def api_print_jobs_fail(
     if lot.station != station_norm:
         raise HTTPException(status_code=400, detail='Station mismatch')
 
+    _require_print_claim(lot, request)
+
     lot.status = 'ERROR'
+    lot.claim_token_hash = None
+    lot.claim_expires_at = None
     db.commit()
     return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status, 'error_message': (error_message or '')[:500]})
 

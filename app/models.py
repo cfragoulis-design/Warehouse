@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Numeric,
     Date,
+    Text,
     CheckConstraint,
     UniqueConstraint,
     func,
@@ -146,6 +147,14 @@ class Product(Base):
     shelf_life_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     storage_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
     label_template: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label_legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label_ingredients: Mapped[str | None] = mapped_column(Text, nullable=True)
+    label_allergens: Mapped[str | None] = mapped_column(Text, nullable=True)
+    label_origin: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label_usage_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    label_nutrition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    label_single_ingredient: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    label_nutrition_exempt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -170,6 +179,13 @@ class ProductLot(Base):
     lot_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     batch_ref: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     extra_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    label_profile: Mapped[str] = mapped_column(String(32), nullable=False, default="INTERNAL")
+    source_lot_code: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    net_quantity_text: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    label_origin_override: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claim_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="CREATED")
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),

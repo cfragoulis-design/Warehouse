@@ -58,7 +58,10 @@ def _migration_directory() -> Path:
 
 
 def migration_catalog() -> tuple[MigrationDefinition, ...]:
-    entries = (("20260803_001", "20260803_001_integrity_baseline.sql"),)
+    entries = (
+        ("20260803_001", "20260803_001_integrity_baseline.sql"),
+        ("20260823_001", "20260823_001_dynamic_efet_labels.sql"),
+    )
     catalog: list[MigrationDefinition] = []
     for version, filename in entries:
         path = _migration_directory() / filename

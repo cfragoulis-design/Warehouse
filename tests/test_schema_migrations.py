@@ -14,7 +14,10 @@ from app.schema_migrations import (
 def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     catalog = migration_catalog()
 
-    assert [migration.version for migration in catalog] == ["20260803_001"]
+    assert [migration.version for migration in catalog] == [
+        "20260803_001",
+        "20260823_001",
+    ]
     migration = catalog[0]
     assert migration.checksum == hashlib.sha256(
         migration.sql.encode("utf-8")
@@ -24,6 +27,10 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in upper_sql
     assert "TRUNCATE" not in upper_sql
     assert "DELETE FROM" not in upper_sql
+    dynamic_label_migration = catalog[1]
+    assert "DROP TABLE" not in dynamic_label_migration.sql.upper()
+    assert "label_payload_json" in dynamic_label_migration.sql
+    assert "claim_token_hash" in dynamic_label_migration.sql
     assert len(BASELINE_SCHEMA_FINGERPRINT) == 64
 
 

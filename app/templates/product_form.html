@@ -11,7 +11,8 @@
     .top{padding:16px 20px;background:#111936;border-bottom:1px solid #243055;display:flex;align-items:center;justify-content:space-between;gap:12px}
     .card{max-width:560px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px}
     label{display:block;margin-top:14px;font-weight:800}
-    input,select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #243055;background:#0b1020;color:#e7e9ee}
+    input,select,textarea{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #243055;background:#0b1020;color:#e7e9ee}
+    textarea{min-height:76px;resize:vertical}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     @media (max-width:680px){.grid2{grid-template-columns:1fr}}
     .actions{margin-top:18px;display:flex;gap:10px;align-items:center}
@@ -119,7 +120,39 @@
 
       <label>Storage Text</label>
       <input name="storage_text" value="{{ product.storage_text if product and product.storage_text else '' }}" placeholder="π.χ. Διατηρείται στους 0–4°C">
-      <div class="muted">Προαιρετικό κείμενο συντήρησης για την ετικέτα.</div>
+      <div class="muted">Υποχρεωτικό για αυτόματη ετικέτα. Παράδειγμα: Διατηρείται στους 0–4°C.</div>
+
+      <h3 style="margin:24px 0 4px;color:#8ab4ff">Στοιχεία δυναμικής ετικέτας ΕΦΕΤ</h3>
+      <div class="muted">Συμπληρώνονται μία φορά ανά προϊόν και χρησιμοποιούνται αυτόματα σε κάθε νέα παρτίδα.</div>
+
+      <label>Νόμιμη/περιγραφική ονομασία τροφίμου</label>
+      <input name="label_legal_name" value="{{ product.label_legal_name if product and product.label_legal_name else '' }}" placeholder="Αν μείνει κενό, χρησιμοποιείται το Όνομα προϊόντος">
+
+      <div class="checkrow">
+        <input id="label_single_ingredient" name="label_single_ingredient" type="checkbox" value="1" {% if product and product.label_single_ingredient %}checked{% endif %}>
+        <label class="label" for="label_single_ingredient">Προϊόν ενός συστατικού</label>
+      </div>
+      <div class="muted">Π.χ. νωπό μοσχάρι. Αν δεν είναι ενεργό, απαιτείται κατάλογος συστατικών για ετικέτα διάθεσης.</div>
+
+      <label>Συστατικά</label>
+      <textarea name="label_ingredients" placeholder="Κατά φθίνουσα σειρά περιεκτικότητας">{{ product.label_ingredients if product and product.label_ingredients else '' }}</textarea>
+
+      <label>Αλλεργιογόνα / δήλωση αλλεργιογόνων</label>
+      <textarea name="label_allergens" placeholder="Δηλώνεται ρητά ακόμη και όταν δεν υπάρχουν">{{ product.label_allergens if product and product.label_allergens else '' }}</textarea>
+
+      <label>Χώρα καταγωγής / τόπος προέλευσης</label>
+      <input name="label_origin" value="{{ product.label_origin if product and product.label_origin else '' }}" placeholder="Όπου απαιτείται από την κατηγορία προϊόντος">
+
+      <label>Οδηγίες χρήσης</label>
+      <textarea name="label_usage_instructions" placeholder="Προαιρετικό, όταν απαιτούνται για ασφαλή/σωστή χρήση">{{ product.label_usage_instructions if product and product.label_usage_instructions else '' }}</textarea>
+
+      <label>Διατροφική δήλωση</label>
+      <textarea name="label_nutrition" placeholder="Ανά 100 g: ενέργεια, λιπαρά, κορεσμένα, υδατάνθρακες, σάκχαρα, πρωτεΐνες, αλάτι">{{ product.label_nutrition if product and product.label_nutrition else '' }}</textarea>
+      <div class="checkrow">
+        <input id="label_nutrition_exempt" name="label_nutrition_exempt" type="checkbox" value="1" {% if product and product.label_nutrition_exempt %}checked{% endif %}>
+        <label class="label" for="label_nutrition_exempt">Τεκμηριωμένη εξαίρεση από διατροφική δήλωση</label>
+      </div>
+      <div class="muted">Αν δεν υπάρχει διατροφική δήλωση, ενεργοποιείται μόνο όταν έχει επιβεβαιωθεί ότι ισχύει εξαίρεση για το προϊόν.</div>
 
       <div class="checkrow">
         <input
