@@ -22,7 +22,7 @@ STOCK_PAGE = ROOT / "app" / "templates" / "stock.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.7-STAGING.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.8-STAGING.zip"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -80,6 +80,11 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert "Write-AgentState -State PRINTING" in agent
     assert "Save-PrintHistoryEvent" in agent
     assert "COMPLETION_UNCONFIRMED" in agent
+    assert "$previousErrorActionPreference = $ErrorActionPreference" in agent
+    assert "$ErrorActionPreference = 'Continue'" in agent
+    assert "$ErrorActionPreference = $previousErrorActionPreference" in agent
+    assert "HPRT_PAYLOAD_TOO_LARGE" in agent
+    assert "HPRT_RUNTIME_FAILED" in agent
     assert "ConvertFrom-SecureString" in installer
     assert "Text.UTF8Encoding($false)" in installer
     assert "TrimStart([char]0xFEFF)" in agent
@@ -103,6 +108,8 @@ def test_status_ui_exposes_live_printer_queue_history_and_safe_actions():
     assert "ΙΣΤΟΡΙΚΟ ΕΤΙΚΕΤΩΝ · ΤΕΛΕΥΤΑΙΕΣ 10" in ui
     assert "Επανεκκίνηση Agent" in ui
     assert "Άνοιγμα διαγνωστικών" in ui
+    assert "Το περιεχόμενο δεν χωρά στην ετικέτα 50×70" in ui
+    assert "Η ουρά εκτύπωσης των Windows δεν ξεκίνησε" in ui
     assert "Get-Printer -Name $printerName" in ui
     assert "print-history.jsonl" in ui
     assert "SnapshotOnly" in ui
@@ -152,10 +159,56 @@ def test_status_ui_snapshot_mode_is_provider_free_and_does_not_open_a_window():
 
 
 def test_staging_download_is_exact_secret_free_package():
-    assert STAGING_DOWNLOAD.stat().st_size == 22_980
+    assert STAGING_DOWNLOAD.stat().st_size == 23_616
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
-        "48e8fba55f30d3d734039449673e3eb5910cb1f025abdb812825fa8b6dcfffe1"
+        "1692caee2be7237811c473ff44633d0b4e6b9ec4ab2900a5817bd26ce399a369"
     )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+def test_agent_classifies_renderer_stderr_instead_of_collapsing_to_generic_failure(tmp_path: Path):
+    agent_source = AGENT.read_text(encoding="utf-8-sig")
+    functions_only = agent_source.split("function Invoke-OnePoll {", 1)[0]
+    harness = tmp_path / "AgentHarness.ps1"
+    harness.write_text(
+        functions_only
+        + """
+try {
+    Invoke-HprtRender -Payload ([pscustomobject]@{test='value'}) -Copies 1 -PrinterName 'DRY-RUN'
+    exit 9
+}
+catch {
+    [Console]::Out.WriteLine([string]$_.Exception.Message)
+    exit 0
+}
+""",
+        encoding="utf-8-sig",
+    )
+    (tmp_path / "HprtLpq80Print.ps1").write_text(
+        "[Console]::Error.WriteLine('Dynamic label content does not fit the 50x70 layout.'); exit 91\n",
+        encoding="utf-8-sig",
+    )
+
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(harness),
+            "-ConfigPath",
+            str(tmp_path / "unused-config.json"),
+        ],
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert result.stdout.decode("utf-8-sig").strip() == "LABEL_CONTENT_TOO_LARGE"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")

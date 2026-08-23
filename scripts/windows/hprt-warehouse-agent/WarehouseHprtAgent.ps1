@@ -172,18 +172,40 @@ function Invoke-HprtRender {
         [Parameter(Mandatory)][int]$Copies,
         [Parameter(Mandatory)][string]$PrinterName
     )
-    if ($Copies -lt 1 -or $Copies -gt 50) { throw 'Print copy count is invalid.' }
-    $json = $Payload | ConvertTo-Json -Depth 12 -Compress
-    $encoded = ConvertTo-Base64UrlUtf8 -Value $json
+    if ($Copies -lt 1 -or $Copies -gt 50) { throw 'HPRT_PAYLOAD_INVALID' }
+    try {
+        $json = $Payload | ConvertTo-Json -Depth 12 -Compress
+        $encoded = ConvertTo-Base64UrlUtf8 -Value $json
+    }
+    catch {
+        if ([string]$_.Exception.Message -match 'payload is too large') { throw 'HPRT_PAYLOAD_TOO_LARGE' }
+        throw 'HPRT_PAYLOAD_INVALID'
+    }
     $renderer = Join-Path $PSScriptRoot 'HprtLpq80Print.ps1'
-    if (-not (Test-Path -LiteralPath $renderer -PathType Leaf)) { throw 'HPRT renderer is missing.' }
+    if (-not (Test-Path -LiteralPath $renderer -PathType Leaf)) { throw 'HPRT_RUNTIME_MISSING' }
     $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $rendererOutput = @(& $windowsPowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $renderer -PayloadBase64Url $encoded -Copies $Copies -PrinterName $PrinterName 2>&1)
-    $rendererExitCode = $LASTEXITCODE
+    if (-not (Test-Path -LiteralPath $windowsPowerShell -PathType Leaf)) { throw 'HPRT_RUNTIME_MISSING' }
+
+    # Windows PowerShell turns stderr from a native child into ErrorRecords.
+    # With the Agent's fail-fast preference those records used to interrupt this
+    # function before we could classify the real renderer failure.  Continue is
+    # scoped only to the child capture and the original preference is restored.
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $rendererOutput = @(& $windowsPowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $renderer -PayloadBase64Url $encoded -Copies $Copies -PrinterName $PrinterName 2>&1)
+        $rendererExitCode = $LASTEXITCODE
+    }
+    catch { throw 'HPRT_RUNTIME_FAILED' }
+    finally { $ErrorActionPreference = $previousErrorActionPreference }
+
+    if ($null -eq $rendererExitCode) { throw 'HPRT_RUNTIME_FAILED' }
     if ($rendererExitCode -ne 0) {
         $rendererText = (($rendererOutput | ForEach-Object { [string]$_ }) -join ' ')
         $category = 'HPRT_RENDER_FAILED'
-        if ($rendererText -match 'does not fit') { $category = 'LABEL_CONTENT_TOO_LARGE' }
+        if ($rendererText -match 'does not fit|Nutrition declaration is too large') { $category = 'LABEL_CONTENT_TOO_LARGE' }
+        elseif ($rendererText -match 'payload is too large') { $category = 'HPRT_PAYLOAD_TOO_LARGE' }
+        elseif ($rendererText -match 'payload is not valid JSON|Invalid dynamic label payload|field is invalid|Unsupported dynamic label schema|Wrong dynamic printer profile|Unsupported dynamic label profile|Approval number must contain') { $category = 'HPRT_PAYLOAD_INVALID' }
         elseif ($rendererText -match 'printer was not found|Configured HPRT printer was not found') { $category = 'HPRT_PRINTER_NOT_FOUND' }
         elseif ($rendererText -match 'print document could not start|print page could not start') { $category = 'HPRT_SPOOLER_FAILED' }
         elseif ($rendererText -match 'complete label payload') { $category = 'HPRT_WRITE_INCOMPLETE' }
@@ -217,7 +239,7 @@ function Invoke-OnePoll {
         }
         catch {
             $failureCategory = ([string]$_.Exception.Message).Trim()
-            if ($failureCategory -notin @('LABEL_CONTENT_TOO_LARGE', 'HPRT_PRINTER_NOT_FOUND', 'HPRT_SPOOLER_FAILED', 'HPRT_WRITE_INCOMPLETE', 'HPRT_RENDER_FAILED')) {
+            if ($failureCategory -notin @('LABEL_CONTENT_TOO_LARGE', 'HPRT_PAYLOAD_TOO_LARGE', 'HPRT_PAYLOAD_INVALID', 'HPRT_PRINTER_NOT_FOUND', 'HPRT_SPOOLER_FAILED', 'HPRT_WRITE_INCOMPLETE', 'HPRT_RENDER_FAILED', 'HPRT_RUNTIME_MISSING', 'HPRT_RUNTIME_FAILED')) {
                 $failureCategory = 'HPRT_PRINT_FAILED'
             }
             try {

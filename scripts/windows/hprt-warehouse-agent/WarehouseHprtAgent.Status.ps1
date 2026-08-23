@@ -97,6 +97,15 @@ function Get-HprtStatusSnapshot {
     $lastPrint = if ($history.Count -gt 0) { [string]$history[0].Time } elseif ($status) { Get-DisplayTime -Value ([string]$status.last_print) } else { 'Δεν υπάρχει ακόμη' }
     $lastError = if ($status -and -not [string]::IsNullOrWhiteSpace([string]$status.last_error)) {
         switch ([string]$status.last_error) {
+            'LABEL_CONTENT_TOO_LARGE' { 'Το περιεχόμενο δεν χωρά στην ετικέτα 50×70' }
+            'HPRT_PAYLOAD_TOO_LARGE' { 'Τα δεδομένα της ετικέτας είναι υπερβολικά μεγάλα' }
+            'HPRT_PAYLOAD_INVALID' { 'Τα δεδομένα της ετικέτας δεν είναι έγκυρα' }
+            'HPRT_PRINTER_NOT_FOUND' { 'Ο εκτυπωτής LABELS δεν βρέθηκε' }
+            'HPRT_SPOOLER_FAILED' { 'Η ουρά εκτύπωσης των Windows δεν ξεκίνησε' }
+            'HPRT_WRITE_INCOMPLETE' { 'Ο εκτυπωτής δεν δέχτηκε ολόκληρη την ετικέτα' }
+            'HPRT_RENDER_FAILED' { 'Η δημιουργία της ετικέτας απέτυχε' }
+            'HPRT_RUNTIME_MISSING' { 'Λείπει αρχείο του EFET Print Agent' }
+            'HPRT_RUNTIME_FAILED' { 'Δεν ξεκίνησε ο μηχανισμός εκτύπωσης' }
             'HPRT_PRINT_FAILED' { 'Η εκτύπωση απέτυχε' }
             'COMPLETION_UNCONFIRMED' { 'Η επιβεβαίωση εκτύπωσης δεν ολοκληρώθηκε' }
             'CONNECTION_OR_RESPONSE' { 'Δεν υπάρχει επικοινωνία με το Warehouse' }
