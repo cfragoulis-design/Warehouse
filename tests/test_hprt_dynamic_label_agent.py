@@ -152,9 +152,9 @@ def test_status_ui_snapshot_mode_is_provider_free_and_does_not_open_a_window():
 
 
 def test_staging_download_is_exact_secret_free_package():
-    assert STAGING_DOWNLOAD.stat().st_size == 22_450
+    assert STAGING_DOWNLOAD.stat().st_size == 22_649
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
-        "0640187cad57e628fb7c48a0ceb452bf20460101f7b323143f03cc58c0cc0b62"
+        "53a7a79a2b796569d0501442cc8f5ee820822ed300f4a29c9269a16f3e799eb9"
     )
 
 
