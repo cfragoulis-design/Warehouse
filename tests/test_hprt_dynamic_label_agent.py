@@ -26,7 +26,7 @@ CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
 STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10-STAGING.zip"
-PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.12.zip"
+PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.13.zip"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -108,7 +108,7 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert "https://sklavounoswh.up.railway.app" in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     assert "staging-characterization" not in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     production_manifest = json.loads(PRODUCTION_PACKAGE_MANIFEST.read_text(encoding="utf-8-sig"))
-    assert production_manifest["version"] == "1.0.12"
+    assert production_manifest["version"] == "1.0.13"
     assert production_manifest["environment"] == "production"
     assert production_manifest["contains_agent_token"] is False
 
@@ -200,7 +200,7 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
         manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
         assert manifest["environment"] == "production"
         assert manifest["contains_agent_token"] is False
-        assert manifest["version"] == "1.0.12"
+        assert manifest["version"] == "1.0.13"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
@@ -301,8 +301,8 @@ def test_renderer_source_contains_centered_greek_allergens_nutrition_and_approva
     assert "DrawEllipse" in renderer
     assert "BITMAP 0,0,50,560,0," in renderer
     assert "$output[$i] = 0xFF" in renderer
-    assert "-MaximumFontPixels 11 -MinimumFontPixels 8 -Alignment Near -NoWrap" in renderer
-    assert "-Alignment Near" in renderer
+    assert "-MaximumFontPixels 11 -MinimumFontPixels 8 -Alignment Center -NoWrap" in renderer
+    assert "-Alignment Near" not in renderer
     assert "$isUnpairedLastEntry" not in renderer
     assert "Add-FlowLabelText" not in renderer
     assert "LABEL_CONTENT_TOO_LARGE" in AGENT.read_text(encoding="utf-8-sig")
@@ -329,7 +329,7 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     services = (ROOT / "app" / "services.py").read_text(encoding="utf-8")
     assert 'request.url.hostname or ""' in services
     assert '== "sklavounoswh.up.railway.app"' in services
-    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.12.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.13.zip" in services
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")

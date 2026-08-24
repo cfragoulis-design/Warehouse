@@ -92,7 +92,7 @@ function Add-NutritionTable {
             $rect = New-Object Drawing.RectangleF((14 + ($column * $cellWidth)), ($Y + 19 + ($row * $cellHeight)), $cellWidth, $cellHeight)
             $Graphics.DrawRectangle($pen, [single]$rect.X, [single]$rect.Y, [single]$rect.Width, [single]$rect.Height)
             $inner = New-Object Drawing.RectangleF(($rect.X + 4), $rect.Y, ($rect.Width - 8), $rect.Height)
-            Add-LabelText -Graphics $Graphics -Text $entries[$i] -Rectangle $inner -MaximumFontPixels 11 -MinimumFontPixels 8 -Alignment Near -NoWrap
+            Add-LabelText -Graphics $Graphics -Text $entries[$i] -Rectangle $inner -MaximumFontPixels 11 -MinimumFontPixels 8 -Alignment Center -NoWrap
         }
     }
     finally { $pen.Dispose() }
