@@ -127,6 +127,7 @@ def expanded_routes():
 
 paths = {route.path for route in expanded_routes() if hasattr(route, "path")}
 assert "/health" in paths
+assert "/ready" in paths
 assert "/api/v1/operations/summary" in paths
 assert "/api/v1/operations/inventory" in paths
 assert "/api/v1/operations/consumables" in paths
@@ -138,6 +139,7 @@ assert runtime_settings.operations_source_mode is True
 
 with TestClient(app) as client:
     assert client.get("/health").status_code == 200
+    assert client.get("/ready").status_code == 503
     assert client.get("/ui/login").status_code == 404
     assert client.post("/api/v1/operations/summary").status_code == 405
     assert client.get("/api/v1/operations/summary").status_code == 401

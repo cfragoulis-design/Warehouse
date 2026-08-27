@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="el">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sklavounos Stock</title>
+  <title>Σύνδεση · Sklavounos Warehouse</title>
 <style>
   :root{
     --bg1:#0e1430;
@@ -121,27 +121,26 @@
       <img src="/static/logo-full.png" alt="Sklavounos">
     </div>
 
-    <h1>Login</h1>
+    <h1>Σύνδεση στο Warehouse</h1>
 
     {% if err == 'rate' %}
-      <div class="err">Too many failed attempts. Wait a few minutes and try again.</div>
+      <div class="err">Πολλές αποτυχημένες προσπάθειες. Περιμένετε λίγα λεπτά και δοκιμάστε ξανά.</div>
     {% elif err %}
-      <div class="err">Wrong username or PIN.</div>
+      <div class="err">Λάθος όνομα χρήστη ή PIN.</div>
     {% endif %}
 
     <form method="post" action="/login">
-      <label>Username</label>
+      <label>Όνομα χρήστη</label>
       <input name="username" autocomplete="username" required />
 
       <label>PIN</label>
       <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required />
 
-      <button type="submit">Sign in</button>
+      <button type="submit">Σύνδεση</button>
     </form>
 
     <div class="hint">
-      Initial admins are seeded if the users table is empty using env vars:
-      <br><code>INITIAL_ADMIN_PIN</code> and <code>INITIAL_ADMIN2_PIN</code>.
+      Η πρόσβαση επιτρέπεται μόνο σε εξουσιοδοτημένους χρήστες της επιχείρησης.
     </div>
   </div>
 </body>

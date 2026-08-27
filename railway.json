@@ -2,7 +2,7 @@
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
     "preDeployCommand": "python scripts/verify_runtime_predeploy.py",
-    "healthcheckPath": "/health",
+    "healthcheckPath": "/ready",
     "healthcheckTimeout": 120
   }
 }

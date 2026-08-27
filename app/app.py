@@ -4,7 +4,8 @@ import asyncio
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -18,11 +19,13 @@ session_secret = resolve_session_secret(runtime_settings)
 
 # Robust imports: work both as package (app.*) and flat modules.
 try:
-    from app.db import SessionLocal, init_db
+    from app.db import SessionLocal, engine, init_db
     from app.operations_summary import router as operations_summary_router
+    from app.readiness import check_readiness
 except ImportError:
-    from db import SessionLocal, init_db
+    from db import SessionLocal, engine, init_db
     from operations_summary import router as operations_summary_router
+    from readiness import check_readiness
 
 if not runtime_settings.operations_source_mode:
     try:
@@ -59,6 +62,34 @@ STATIC_DIR_CANDIDATES = [
 static_dir = next((p for p in STATIC_DIR_CANDIDATES if p.exists()), None)
 
 app = FastAPI()
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "connect-src 'self'; "
+        "font-src 'self' data:; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'; "
+        "img-src 'self' data:; "
+        "object-src 'none'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'"
+    )
+    response.headers["Permissions-Policy"] = (
+        "camera=(), geolocation=(), microphone=()"
+    )
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+    return response
 
 
 async def weekly_report_scheduler() -> None:
@@ -150,3 +181,12 @@ app.include_router(operations_summary_router)
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/ready")
+def ready():
+    status = check_readiness(engine)
+    return JSONResponse(
+        status_code=200 if status.ready else 503,
+        content=status.as_dict(),
+    )
