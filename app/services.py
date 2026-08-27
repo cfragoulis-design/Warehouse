@@ -343,12 +343,37 @@ def dashboard(
 # --------------------
 # MOVEMENTS (all users)
 # --------------------
-@router.get("/movements", response_class=HTMLResponse)
-def movements_list(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
+MOVEMENT_PAGE_SIZE = 50
+MOVEMENT_TYPES = ("TRANSFER", "IN", "OUT", "ADJ+", "ADJ-")
+
+
+def _parse_filter_date(value: str | None) -> date | None:
+    try:
+        return date.fromisoformat((value or "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _movement_athens_date(value: datetime | None) -> date | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo("UTC"))
+    return value.astimezone(ZoneInfo("Europe/Athens")).date()
+
+
+def build_movement_history(
+    db: Session,
+    *,
+    q: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    product_id: int | None = None,
+    location_id: int | None = None,
+    movement_type: str = "",
+    page: int = 1,
+) -> dict:
+    """Build the human ledger: transfer pairs are one event, other rows stay separate."""
     rows = db.execute(
         select(
             StockMovement,
@@ -361,13 +386,157 @@ def movements_list(
         .join(Product, Product.id == StockMovement.product_id)
         .outerjoin(User, User.id == StockMovement.user_id)
         .outerjoin(Location, Location.id == StockMovement.location_id)
-        .order_by(StockMovement.created_at.desc())
-        .limit(200)
+        .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
     ).all()
+
+    grouped: dict[str, list] = defaultdict(list)
+    for row in rows:
+        movement = row[0]
+        key = (
+            f"transfer:{movement.transfer_id}"
+            if movement.transfer_id
+            else f"movement:{movement.id}"
+        )
+        grouped[key].append(row)
+
+    events: list[dict] = []
+    for key, legs in grouped.items():
+        legs.sort(key=lambda row: (row[0].created_at or datetime.min, row[0].id))
+        first = legs[0]
+        transfer = key.startswith("transfer:")
+        event_type = "TRANSFER" if transfer else first[0].movement_type
+        out_leg = next((row for row in legs if row[0].movement_type == "OUT"), None)
+        in_leg = next((row for row in legs if row[0].movement_type == "IN"), None)
+        source = out_leg[5] if out_leg else None
+        destination = in_leg[5] if in_leg else None
+        location_codes = [row[5] for row in legs if row[5]]
+        route = (
+            f"{source} → {destination}"
+            if source and destination
+            else " → ".join(dict.fromkeys(location_codes))
+        )
+        notes = list(dict.fromkeys(row[0].note for row in legs if row[0].note))
+        created_at = max(
+            (row[0].created_at for row in legs if row[0].created_at),
+            default=None,
+        )
+        events.append(
+            {
+                "key": key,
+                "movement_ids": [row[0].id for row in legs],
+                "product_id": first[0].product_id,
+                "product_name": first[1],
+                "unit": first[2],
+                "sku": first[3] or "",
+                "username": next((row[4] for row in legs if row[4]), ""),
+                "movement_type": event_type,
+                "location_ids": {row[0].location_id for row in legs},
+                "location": route if transfer else (first[5] or ""),
+                "qty": (out_leg or first)[0].qty,
+                "note": " · ".join(notes),
+                "created_at": created_at,
+                "is_transfer": transfer,
+            }
+        )
+
+    query = (q or "").strip().casefold()
+    start = _parse_filter_date(date_from)
+    end = _parse_filter_date(date_to)
+    type_filter = (movement_type or "").strip().upper()
+    if type_filter not in MOVEMENT_TYPES:
+        type_filter = ""
+
+    def matches(event: dict) -> bool:
+        if product_id and event["product_id"] != product_id:
+            return False
+        if location_id and location_id not in event["location_ids"]:
+            return False
+        if type_filter and event["movement_type"] != type_filter:
+            return False
+        event_date = _movement_athens_date(event["created_at"])
+        if start and (event_date is None or event_date < start):
+            return False
+        if end and (event_date is None or event_date > end):
+            return False
+        if query:
+            haystack = " ".join(
+                str(event[field] or "")
+                for field in ("product_name", "sku", "username", "note", "location")
+            ).casefold()
+            if query not in haystack:
+                return False
+        return True
+
+    events = [event for event in events if matches(event)]
+
+    def sort_key(event: dict) -> tuple[float, int]:
+        value = event["created_at"]
+        if value is None:
+            timestamp = 0.0
+        else:
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=ZoneInfo("UTC"))
+            timestamp = value.timestamp()
+        return timestamp, max(event["movement_ids"])
+
+    events.sort(key=sort_key, reverse=True)
+    total = len(events)
+    total_pages = max(1, (total + MOVEMENT_PAGE_SIZE - 1) // MOVEMENT_PAGE_SIZE)
+    current_page = min(max(int(page or 1), 1), total_pages)
+    start_index = (current_page - 1) * MOVEMENT_PAGE_SIZE
+
+    return {
+        "events": events[start_index : start_index + MOVEMENT_PAGE_SIZE],
+        "total": total,
+        "page": current_page,
+        "total_pages": total_pages,
+        "has_previous": current_page > 1,
+        "has_next": current_page < total_pages,
+        "date_from": start.isoformat() if start else "",
+        "date_to": end.isoformat() if end else "",
+        "movement_type": type_filter,
+    }
+
+
+@router.get("/movements", response_class=HTMLResponse)
+def movements_list(
+    request: Request,
+    q: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    product_id: int | None = None,
+    location_id: int | None = None,
+    movement_type: str = "",
+    page: int = 1,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    history = build_movement_history(
+        db,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+        product_id=product_id,
+        location_id=location_id,
+        movement_type=movement_type,
+        page=page,
+    )
+    products = db.execute(select(Product).order_by(Product.name.asc())).scalars().all()
+    locations = db.execute(select(Location).order_by(Location.id.asc())).scalars().all()
 
     return templates.TemplateResponse(
         "movements_list.html",
-        {"request": request, "user": user, "rows": rows},
+        {
+            "request": request,
+            "user": user,
+            "products": products,
+            "locations": locations,
+            "movement_types": MOVEMENT_TYPES,
+            "q": q,
+            "product_id": product_id,
+            "location_id": location_id,
+            **history,
+        },
     )
 
 
