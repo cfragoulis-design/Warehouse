@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="el">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Stock Movements</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Κινήσεις αποθέματος · Warehouse</title>
   <link rel="stylesheet" href="/static/datetime.css" />
   <script src="/static/js/datetime.js" defer></script>
   <style>
@@ -25,29 +25,35 @@
     @media(max-width:560px){.filters,tr.movementCard{grid-template-columns:1fr}.filters>*{grid-column:1!important}tr.movementCard td.productCell,tr.movementCard td.noteCell{grid-column:1}}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
+  <link rel="stylesheet" href="/static/warehouse-shell.css" />
 </head>
 <body>
-  <div class="top"><div><div style="font-weight:800">EasyProInv</div><div class="muted">Stock Movements</div></div><div class="topActions"><span id="app-datetime" class="app-datetime"></span><a href="/dashboard">Dashboard</a><a href="/products">Products</a><a class="btn" href="/movements/new">+ New Movement</a></div></div>
+  {% set shell_title = "Κινήσεις αποθέματος" %}
+  {% set shell_subtitle = "Αναζήτηση, φίλτρα και καθαρό ιστορικό μεταφορών" %}
+  {% set shell_active = "movements" %}
+  {% set shell_primary_href = "/movements/new" %}
+  {% set shell_primary_label = "+ Νέα κίνηση" %}
+  {% include "_warehouse_shell.html" %}
   <main class="card">
-    <h2 style="margin:0">Movement history</h2>
+    <h2 style="margin:0">Ιστορικό κινήσεων</h2>
     <form class="filters" method="get" action="/movements">
-      <input class="search" type="search" name="q" value="{{ q }}" placeholder="Product, SKU, user, note or location" />
-      <input type="date" name="date_from" value="{{ date_from }}" aria-label="From date" /><input type="date" name="date_to" value="{{ date_to }}" aria-label="To date" />
-      <select name="product_id" aria-label="Product"><option value="">All products</option>{% for product in products %}<option value="{{ product.id }}" {% if product_id == product.id %}selected{% endif %}>{{ product.name }}</option>{% endfor %}</select>
-      <select name="location_id" aria-label="Location"><option value="">All locations</option>{% for location in locations %}<option value="{{ location.id }}" {% if location_id == location.id %}selected{% endif %}>{{ location.code }}</option>{% endfor %}</select>
-      <select name="movement_type" aria-label="Movement type"><option value="">All types</option>{% for type in movement_types %}<option value="{{ type }}" {% if movement_type == type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select>
-      <button class="btn apply" type="submit">Apply filters</button>
+      <input class="search" type="search" name="q" value="{{ q }}" placeholder="Προϊόν, SKU, χρήστης, σημείωση ή τοποθεσία" />
+      <input type="date" name="date_from" value="{{ date_from }}" aria-label="Από ημερομηνία" /><input type="date" name="date_to" value="{{ date_to }}" aria-label="Έως ημερομηνία" />
+      <select name="product_id" aria-label="Προϊόν"><option value="">Όλα τα προϊόντα</option>{% for product in products %}<option value="{{ product.id }}" {% if product_id == product.id %}selected{% endif %}>{{ product.name }}</option>{% endfor %}</select>
+      <select name="location_id" aria-label="Τοποθεσία"><option value="">Όλες οι τοποθεσίες</option>{% for location in locations %}<option value="{{ location.id }}" {% if location_id == location.id %}selected{% endif %}>{{ location.code }}</option>{% endfor %}</select>
+      <select name="movement_type" aria-label="Τύπος κίνησης"><option value="">Όλοι οι τύποι</option>{% for type in movement_types %}<option value="{{ type }}" {% if movement_type == type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select>
+      <button class="btn apply" type="submit">Εφαρμογή φίλτρων</button>
     </form>
-    <div class="summary"><span class="muted">{{ total }} logical event{% if total != 1 %}s{% endif %} · 50 per page</span><a href="/movements">Clear filters</a></div>
-    <div class="tableWrap"><table><thead><tr><th>Date</th><th>Product</th><th>Type</th><th>Location / Route</th><th>Qty</th><th>By</th><th>Note</th></tr></thead><tbody>
+    <div class="summary"><span class="muted">{{ total }} εγγραφές · 50 ανά σελίδα</span><a href="/movements">Καθαρισμός φίλτρων</a></div>
+    <div class="tableWrap"><table><thead><tr><th>Ημερομηνία</th><th>Προϊόν</th><th>Τύπος</th><th>Τοποθεσία / Διαδρομή</th><th>Ποσότητα</th><th>Χρήστης</th><th>Σημείωση</th></tr></thead><tbody>
       {% for event in events %}<tr class="movementCard">
-        <td data-label="Date" class="muted">{{ event.created_at }}</td>
-        <td data-label="Product" class="productCell"><div class="product">{{ event.product_name }}</div><div class="muted" style="font-size:12px">{{ event.sku }}</div></td>
-        <td data-label="Type"><span class="pill {% if event.is_transfer %}transfer{% endif %}">{{ event.movement_type }}</span></td><td data-label="Location">{{ event.location }}</td>
-        <td data-label="Qty">{{ event.qty|fmtqty(event.unit) }} {% if event.unit == 'pcs' %}Τεμ{% elif event.unit == 'box' %}Κιβ{% elif event.unit == 'kg' %}Kg{% else %}{{ event.unit }}{% endif %}</td><td data-label="By" class="muted">{{ event.username }}</td><td data-label="Note" class="muted noteCell">{{ event.note }}</td>
-      </tr>{% else %}<tr><td colspan="7" class="empty">No movements match these filters.</td></tr>{% endfor %}
+        <td data-label="Ημερομηνία" class="muted">{{ event.created_at }}</td>
+        <td data-label="Προϊόν" class="productCell"><div class="product">{{ event.product_name }}</div><div class="muted" style="font-size:12px">{{ event.sku }}</div></td>
+        <td data-label="Τύπος"><span class="pill {% if event.is_transfer %}transfer{% endif %}">{{ event.movement_type }}</span></td><td data-label="Τοποθεσία">{{ event.location }}</td>
+        <td data-label="Ποσότητα">{{ event.qty|fmtqty(event.unit) }} {% if event.unit == 'pcs' %}Τεμ{% elif event.unit == 'box' %}Κιβ{% elif event.unit == 'kg' %}Kg{% else %}{{ event.unit }}{% endif %}</td><td data-label="Χρήστης" class="muted">{{ event.username }}</td><td data-label="Σημείωση" class="muted noteCell">{{ event.note }}</td>
+      </tr>{% else %}<tr><td colspan="7" class="empty">Δεν βρέθηκαν κινήσεις με αυτά τα φίλτρα.</td></tr>{% endfor %}
     </tbody></table></div>
-    <nav class="pagination" aria-label="Movement pages">{% if has_previous %}<a class="btn secondary" href="{{ request.url.include_query_params(page=page-1) }}">← Previous</a>{% endif %}<span class="muted">Page {{ page }} of {{ total_pages }}</span>{% if has_next %}<a class="btn secondary" href="{{ request.url.include_query_params(page=page+1) }}">Next →</a>{% endif %}</nav>
+    <nav class="pagination" aria-label="Σελίδες κινήσεων">{% if has_previous %}<a class="btn secondary" href="{{ request.url.include_query_params(page=page-1) }}">← Προηγούμενη</a>{% endif %}<span class="muted">Σελίδα {{ page }} από {{ total_pages }}</span>{% if has_next %}<a class="btn secondary" href="{{ request.url.include_query_params(page=page+1) }}">Επόμενη →</a>{% endif %}</nav>
   </main>
 </body>
 </html>

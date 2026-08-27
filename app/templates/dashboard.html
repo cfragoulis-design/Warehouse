@@ -1,412 +1,65 @@
 <!doctype html>
-<html lang="en">
+<html lang="el">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sklavounos Stock</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Τι πρέπει να κάνω τώρα · Warehouse</title>
   <link rel="stylesheet" href="/static/datetime.css" />
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+  <link rel="stylesheet" href="/static/warehouse-shell.css" />
   <script src="/static/js/datetime.js" defer></script>
   <style>
-    :root{
-      --bg:#0b1020;
-      --panel:#111936;
-      --panel2:#0e1530;
-      --line:#243055;
-      --text:#e7e9ee;
-      --muted:#a7b0c7;
-      --blue:#2f7cf6;
-      --blue2:#4b7bec;
-      --good:#35c27d;
-      --warn:#caa24a;
-      --danger:#ff6b6b;
-    }
-    *{box-sizing:border-box}
-    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;}
-    a{color:#8ab4ff;text-decoration:none}
-    .top{
-      display:flex;justify-content:space-between;align-items:center;
-      padding:16px 20px;
-      background:linear-gradient(180deg,#111936 0%, #0b1020 100%);
-      border-bottom:1px solid var(--line);
-    }
-    .brand{display:flex;align-items:center;gap:10px;}
-    .brand img{height:32px;}
-    .brand-title{font-weight:800;letter-spacing:0.4px;}
-    .muted{color:var(--muted)}
-    .btn{background:var(--blue);color:white;border:0;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
-    .btn:active{transform:translateY(1px)}
-    form{margin:0}
-
-    .page{max-width:980px;margin:22px auto;padding:0 16px;}
-
-    .grid{
-      display:grid;
-      grid-template-columns:repeat(12,1fr);
-      gap:14px;
-      align-items:stretch;
-    }
-
-    .card{
-      background:var(--panel);
-      border:1px solid var(--line);
-      border-radius:14px;
-      padding:16px;
-    }
-
-    .stats{grid-column:span 12;}
-    .statsRow{
-      display:grid;
-      grid-template-columns:repeat(3,minmax(0,1fr));
-      gap:12px;
-      margin-top:10px;
-    }
-
-    .statLink{display:block;text-decoration:none;color:inherit;}
-    .statLink:hover .stat{border-color:rgba(75,123,236,0.65)}
-    .badgeLink{text-decoration:none;display:inline-flex;}
-    .badgeLink:hover .badge{border-color:rgba(75,123,236,0.65)}
-
-    .stat{
-      background:var(--panel2);
-      border:1px solid var(--line);
-      border-radius:12px;
-      padding:12px;
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-end;
-      gap:10px;
-      min-height:72px;
-    }
-    .stat .k{font-size:12px;color:var(--muted);}
-    .stat .v{font-size:22px;font-weight:800;letter-spacing:0.2px;}
-    .badge{
-      font-size:11px;
-      padding:3px 8px;
-      border-radius:999px;
-      border:1px solid var(--line);
-      color:var(--muted);
-      background:rgba(255,255,255,0.03);
-      white-space:nowrap;
-    }
-    .badge.good{border-color:rgba(53,194,125,0.35);color:#b8f0d4;background:rgba(53,194,125,0.10);}
-    .badge.warn{border-color:rgba(202,162,74,0.35);color:#ffe4a5;background:rgba(202,162,74,0.10);}
-    .badge.danger{border-color:rgba(255,107,107,0.35);color:#ffd0d0;background:rgba(255,107,107,0.10);}
-
-    .actions{grid-column:span 12;}
-    .actionsGrid{
-      display:grid;
-      grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-      gap:14px;
-      margin-top:10px;
-    }
-    .action{
-      display:block;
-      padding:14px;
-      border-radius:12px;
-      background:var(--panel2);
-      border:1px solid var(--line);
-      color:var(--text);
-      text-decoration:none;
-      transition:transform .05s ease, border-color .08s ease;
-      min-height:86px;
-    }
-    .action strong{display:block;margin-bottom:4px;}
-    .action span{color:var(--muted);font-size:13px;line-height:1.3;}
-    .action:hover{border-color:rgba(75,123,236,0.65)}
-    .action:active{transform:translateY(1px)}
-
-    .quick{grid-column:span 12;}
-    .quickRow{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;}
-    .qbtn{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:10px 12px;border-radius:12px;
-      border:1px solid var(--line);
-      background:var(--panel2);
-      color:var(--text);
-      font-weight:700;
-    }
-    .qbtn:hover{border-color:rgba(75,123,236,0.65)}
-    .qbtn small{font-weight:600;color:var(--muted)}
-
-    .topActions{display:flex;align-items:center;gap:12px;min-width:0}
-    .weeklyReminder{
-      max-width:980px;
-      margin:14px auto 0;
-      padding:12px 16px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:14px;
-      color:var(--text);
-      background:rgba(202,162,74,0.12);
-      border:1px solid rgba(202,162,74,0.42);
-      border-radius:12px;
-      font-size:14px;
-    }
-    .weeklyReminderCopy{min-width:0;line-height:1.4}
-    .weeklyReminderActions{display:flex;align-items:center;gap:8px;flex-shrink:0}
-    .weeklyReminderLink,
-    .weeklyReminderDismiss{
-      padding:8px 10px;
-      border-radius:8px;
-      font:inherit;
-      font-weight:700;
-      white-space:nowrap;
-    }
-    .weeklyReminderLink{background:var(--blue);color:#fff}
-    .weeklyReminderDismiss{background:var(--panel2);color:var(--text);border:1px solid var(--line);cursor:pointer}
-
-    .foot{margin-top:16px;color:var(--muted);font-size:12px;opacity:0.9}
-    @media (max-width:640px){
-      .statsRow{grid-template-columns:1fr}
-      .top{padding:14px;align-items:flex-start;gap:12px;flex-wrap:wrap}
-      .topActions{width:100%;justify-content:space-between;flex-wrap:wrap}
-      .topActions .app-datetime{min-width:0;white-space:normal}
-      .weeklyReminder{margin:12px 14px 0;align-items:flex-start;flex-direction:column}
-      .weeklyReminderActions{width:100%;flex-wrap:wrap}
-    }
+    :root{--bg:#0b1020;--panel:#111936;--panel2:#0e1530;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--good:#35c27d;--warn:#e7ad3e;--danger:#ff6b6b}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}a{text-decoration:none}.page{max-width:1220px;margin:0 auto;padding:20px 16px 80px}
+    .hero{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;padding:20px;border:1px solid var(--line);border-radius:20px;background:radial-gradient(circle at 90% 0,rgba(47,124,246,.18),transparent 42%),linear-gradient(145deg,#111936,#0d152d)}
+    .eyebrow{color:#71d9ac;font-size:11px;font-weight:950;letter-spacing:.16em}.hero h1{font-size:clamp(27px,4vw,44px);line-height:1.04;margin:7px 0 8px}.hero p{margin:0;color:var(--muted);max-width:650px;line-height:1.5}.signal{min-width:170px;padding:13px 15px;border:1px solid var(--line);border-radius:15px;background:rgba(5,10,22,.48)}.signal b{display:block;font-size:28px}.signal span{color:var(--muted);font-size:12px}
+    .sectionHead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:24px 2px 11px}.sectionHead h2{font-size:18px;margin:0}.sectionHead p{font-size:12px;color:var(--muted);margin:3px 0 0}.sectionHead>a{color:#a9c7ff;font-size:13px;font-weight:800}
+    .priorityGrid,.taskGrid,.summaryGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.priorityCard{position:relative;display:flex;flex-direction:column;min-height:190px;padding:17px;border:1px solid var(--line);border-radius:18px;background:var(--panel);color:var(--text);overflow:hidden}.priorityCard:before{content:"";position:absolute;inset:0 auto 0 0;width:5px;background:var(--blue)}.priorityCard.critical:before{background:var(--danger)}.priorityCard.warning:before{background:var(--warn)}.priorityCard.good:before{background:var(--good)}
+    .priorityTop{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.priorityLabel{font-size:11px;font-weight:950;letter-spacing:.11em;color:var(--muted)}.priorityCount{font-size:40px;font-weight:950;line-height:1;margin:12px 0 7px}.priorityCopy{font-size:13px;color:var(--muted);line-height:1.4}.priorityAction{margin-top:auto;padding-top:15px;font-size:13px;font-weight:900;color:#cfe0ff}.badge{padding:4px 8px;border:1px solid var(--line);border-radius:999px;font-size:10px;font-weight:900}.critical .badge{color:#ffd0d0;border-color:rgba(255,107,107,.45)}.warning .badge{color:#ffe4a5;border-color:rgba(231,173,62,.45)}.good .badge{color:#c5f6dd;border-color:rgba(53,194,125,.45)}
+    .taskCard{display:flex;flex-direction:column;min-height:154px;padding:16px;border:1px solid var(--line);border-radius:17px;background:linear-gradient(180deg,var(--panel),var(--panel2));color:var(--text)}.taskCode{width:34px;height:34px;display:grid;place-items:center;border-radius:10px;background:rgba(47,124,246,.16);border:1px solid rgba(47,124,246,.35);color:#bcd3ff;font-size:11px;font-weight:950}.taskCard h3{margin:11px 0 5px;font-size:17px}.taskCard p{margin:0;color:var(--muted);font-size:13px;line-height:1.4}.taskCard span{margin-top:auto;padding-top:13px;color:#a9c7ff;font-size:13px;font-weight:900}
+    .summary{padding:15px;border:1px solid var(--line);border-radius:16px;background:rgba(17,25,54,.72)}.summary b{display:block;font-size:25px}.summary span{font-size:12px;color:var(--muted)}
+    .toolbox,.adminBox{margin-top:20px;border:1px solid var(--line);border-radius:18px;background:var(--panel)}.toolbox{overflow:hidden}.toolbox summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;gap:14px;padding:16px;font-weight:900}.toolbox summary::-webkit-details-marker{display:none}.toolbox summary span{color:var(--muted);font-size:12px;font-weight:650}.tools{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;padding:0 16px 16px}.tool{display:block;min-height:72px;padding:12px;border:1px solid var(--line);border-radius:13px;background:var(--panel2);color:var(--text);font-weight:850}.tool small{display:block;margin-top:4px;color:var(--muted);font-weight:600;line-height:1.3}
+    .adminBox{padding:16px}.adminBox h2{font-size:16px;margin:0}.adminBox p{margin:4px 0 12px;color:var(--muted);font-size:13px}.adminBox form{display:grid;grid-template-columns:1fr 2fr auto;gap:9px}.adminBox input,.adminBox textarea{width:100%;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);color:var(--text);font:inherit}.btn{border:0;border-radius:12px;padding:11px 14px;background:var(--blue);color:#fff;font-weight:900;cursor:pointer}
+    @media(max-width:850px){.priorityGrid,.taskGrid{grid-template-columns:1fr 1fr}.hero{align-items:flex-start}.signal{min-width:145px}.tools{grid-template-columns:1fr 1fr}.adminBox form{grid-template-columns:1fr}.adminBox textarea{min-height:95px}}
+    @media(max-width:580px){.page{padding:13px 12px 70px}.hero{padding:16px;display:block}.signal{margin-top:14px}.priorityGrid,.taskGrid,.summaryGrid{grid-template-columns:1fr}.priorityCard{min-height:164px}.taskCard{min-height:138px}.tools{grid-template-columns:1fr}.toolbox summary{display:block}.toolbox summary span{display:block;margin-top:4px}}
   </style>
-  <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
 <body>
-
-  <div class="top">
-    <div class="brand">
-      <img src="/static/logo-icon.png" alt="Sklavounos">
-      <div>
-        <div class="brand-title">Sklavounos Stock</div>
-        <div class="muted">
-          Logged in as <strong>{{ user.username }}</strong> ({{ user.role }})
-        </div>
-      </div>
-    </div>
-
-    <div class="topActions">
-      <span id="app-datetime" class="app-datetime"></span>
-      <form method="post" action="/logout">
-        <button class="btn" type="submit">Logout</button>
-      </form>
-    </div>
-  </div>
-
-  <div class="page">
-    <div class="grid">
-
-      <div class="card stats">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-          <div>
-            <div style="font-weight:900;font-size:18px">Overview</div>
-            <div class="muted" style="font-size:13px">Quick snapshot of inventory &amp; activity</div>
-          </div>
-
-          {% set attention = stats.attention_count if stats is defined else None %}
-          {% if attention is not none and attention|int == 0 %}
-            <a class="badgeLink" href="/stock"><span class="badge good">All good</span></a>
-          {% elif attention is not none and attention|int > 0 %}
-            <a class="badgeLink" href="/stock?status=attention"><span class="badge warn">Needs attention: {{ attention }}</span></a>
-          {% else %}
-            <a class="badgeLink" href="/stock"><span class="badge">Stats not loaded</span></a>
-          {% endif %}
-        </div>
-
-        <div class="statsRow">
-          <div class="stat">
-            <div>
-              <div class="k">Products</div>
-              <div class="v">{{ stats.products_count if stats is defined else "—" }}</div>
-            </div>
-            <span class="badge">total</span>
-          </div>
-
-          <a class="statLink" href="/stock?status=low">
-            <div class="stat">
-              <div>
-                <div class="k">Low stock</div>
-                <div class="v">{{ stats.low_stock_count if stats is defined else "—" }}</div>
-              </div>
-              {% if stats is defined and stats.low_stock_count|int > 0 %}
-                <span class="badge warn">check</span>
-              {% elif stats is defined and stats.low_stock_count|int == 0 %}
-                <span class="badge good">ok</span>
-              {% else %}
-                <span class="badge">—</span>
-              {% endif %}
-            </div>
-          </a>
-
-          <div class="stat">
-            <div>
-              <div class="k">Movements today</div>
-              <div class="v">{{ stats.movements_today if stats is defined else "—" }}</div>
-            </div>
-            <span class="badge">today</span>
-          </div>
-        </div>
-
-        <div class="foot">
-          Tip: “Low stock” is calculated from your targets (Pending &gt; 0). If you prefer a different rule, tell me and we’ll align it.
-        </div>
-      </div>
-
-      <div class="card quick">
-        <div style="font-weight:900;font-size:16px">Quick actions</div>
-        <div class="muted" style="font-size:13px">Fast access to common tasks</div>
-
-        <div class="quickRow">
-          <a class="qbtn" href="/products/new">➕ Add Product <small>(new)</small></a>
-          <a class="qbtn" href="/stock">📦 View Stock <small>(live)</small></a>
-          <a class="qbtn" href="/freezer">🧊 Freezer Stock <small>(frozen)</small></a>
-          <a class="qbtn" href="/movements/new">🔄 New Movement <small>(IN/OUT/ADJ)</small></a>
-          <a class="qbtn" href="/consumables/take">📱 Take Consumables <small>(mobile)</small></a>
-        {% if user.role == "admin" %}
-        <form method="post" action="/admin/vet-report/send" style="display:inline;">
-          <button class="qbtn" type="submit">🩺 Send Vet Report <small>(today)</small></button>
-        </form>
-        <form method="post" action="/admin/vet-report/send-weekly" style="display:inline;">
-          <button class="qbtn" type="submit">🗓️ Send Weekly Report <small>(Mon–Sat)</small></button>
-        </form>
-        {% endif %}
-        </div>
-      </div>
-
-      <div class="card actions">
-        <div style="font-weight:900;font-size:16px">Management</div>
-        <div class="muted" style="font-size:13px">Core screens</div>
-
-        <div class="actionsGrid">
-          
-
-<!-- Consumables module -->
-<a class="action" href="/consumables/take">
-  <strong>Take Consumables</strong>
-  <span class="muted">Mobile-friendly page for using workshop supplies</span>
-</a>
-<a class="action" href="/consumables">
-  <strong>Consumables (WORKSHOP)</strong>
-  <span class="muted">Manage consumables stock / min-desired</span>
-</a>
-<a class="action" href="/consumables/movements">
-  <strong>Consumable History</strong>
-  <span class="muted">See who took/received/adjusted each item</span>
-</a>
-<a class="action" href="/suppliers">
-  <strong>Suppliers</strong>
-  <span class="muted">Supplier list & details</span>
-</a>
-<a class="action" href="/purchase-orders">
-  <strong>Consumables POs</strong>
-  <span class="muted">Draft / Pending / Received</span>
-</a>
-<a class="action" href="/products">
-            <strong>Products</strong>
-            <span>Add / edit inventory items</span>
-          </a>
-
-          <a class="action" href="/categories">
-            <strong>Categories</strong>
-            <span>Order / rename / disable categories</span>
-          </a>
-
-          <a class="action" href="/stock">
-
-            <strong>Current Stock</strong>
-            <span>Live totals (includes zeros)</span>
-          </a>
-<a class="action" href="/freezer">
-  <strong>Freezer Stock</strong>
-  <span class="muted">Frozen items & quantities</span>
-</a>
-
-
-          <a class="action" href="/movements">
-            <strong>Stock Movements</strong>
-            <span>IN / OUT / ADJ movements</span>
-          </a>
-        </div>
-      </div>
-
-      <div class="card" style="grid-column:span 12;">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-          <div>
-            <div style="font-weight:900;font-size:16px">Health</div>
-            <div class="muted" style="font-size:13px">Service endpoint</div>
-          </div>
-          <a class="btn" href="/health" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;">/health</a>
-        </div>
-      </div>
-
-{% if user.role == "admin" %}
-<div class="card" style="grid-column:span 12;">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-    <div>
-      <div style="font-weight:900;font-size:16px">Message to Workshop</div>
-      <div class="muted" style="font-size:13px">Shows as a blocking dialog until OK (polling every 20s).</div>
-    </div>
-  </div>
-
-  <form method="post" action="/admin/workshop-message" style="margin-top:12px; display:grid; gap:10px;">
-    <input name="title" placeholder="Title (optional)"
-      style="padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--text);" />
-
-    <textarea name="body" required rows="3" placeholder="Write message..."
-      style="padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--text);resize:vertical;"></textarea>
-
-    <div style="display:flex; justify-content:flex-end;">
-      <button class="btn" type="submit">Send</button>
-    </div>
-  </form>
-</div>
-{% endif %}
-
-    </div>
-  </div>
-
-{% include "_workshop_message_modal.html" %}
-
-  <script>
-(function () {
-    try {
-        const now = new Date();
-
-        // Monday = 1 (0=Sunday)
-        const day = now.getDay();
-        const hour = now.getHours();
-
-        // Show only Monday morning (07:00–20:00)
-        if (day !== 1 || hour < 7 || hour > 12) return;
-
-        const todayKey = "weekly_report_reminder_" + now.toISOString().slice(0,10);
-        if (localStorage.getItem(todayKey) === "dismissed") return;
-
-        // Create an in-flow reminder that never covers the application header.
-        const banner = document.createElement("div");
-        banner.className = "weeklyReminder";
-
-        banner.innerHTML = `
-            <div class="weeklyReminderCopy">
-                <strong>Υπενθύμιση:</strong> Στείλε την εβδομαδιαία αναφορά παραγωγής (Δευτέρα–Σάββατο)
-            </div>
-            <div class="weeklyReminderActions">
-                <a class="weeklyReminderLink" href="/admin/vet-report/weekly/send">
-                   Send Weekly Report
-                </a>
-                <button class="weeklyReminderDismiss" id="dismissWeeklyReminder" type="button">
-                    Κλείσιμο
-                </button>
-            </div>
-        `;
-
-        document.body.prepend(banner);
-
-        document.getElementById("dismissWeeklyReminder").onclick = function () {
-            localStorage.setItem(todayKey, "dismissed");
-            banner.remove();
-        };
-
-    } catch (e) {
-        console.log("Weekly reminder error:", e);
-    }
-})();
-</script>
+  {% set shell_title = "Κέντρο βάρδιας" %}
+  {% set shell_subtitle = "Η επόμενη σωστή ενέργεια, χωρίς ψάξιμο" %}
+  {% set shell_active = "dashboard" %}
+  {% include "_warehouse_shell.html" %}
+  {% set attention = stats.attention_count if stats is defined else 0 %}
+  {% set missing = stats.missing_stock_count if stats is defined else 0 %}
+  {% set pending = stats.pending_stock_count if stats is defined else 0 %}
+  {% set low = stats.low_stock_count if stats is defined else 0 %}
+  <main class="page">
+    <section class="hero">
+      <div><div class="eyebrow">SHIFT MISSION BOARD</div><h1>Τι πρέπει να κάνω τώρα;</h1><p>Ξεκίνα από τις κόκκινες εκκρεμότητες. Κάθε κάρτα οδηγεί σε μία συγκεκριμένη ενέργεια, ώστε η βάρδια να προχωρά γρήγορα και καθαρά.</p></div>
+      <div class="signal"><b>{{ attention }}</b><span>{% if attention|int == 0 %}Καμία κρίσιμη εκκρεμότητα{% else %}θέματα χρειάζονται προσοχή{% endif %}</span></div>
+    </section>
+    <div class="sectionHead"><div><h2>Πρώτα κλείνουμε αυτά</h2><p>Οι πραγματικές εκκρεμότητες της βάρδιας.</p></div><a href="/stock?status=attention">Όλη η προσοχή →</a></div>
+    <section class="priorityGrid" aria-label="Άμεσες προτεραιότητες">
+      <a class="priorityCard {% if missing|int > 0 %}critical{% else %}good{% endif %}" href="/stock?status=missing"><div class="priorityTop"><div class="priorityLabel">ΟΦΕΙΛΟΜΕΝΑ / ΕΛΛΕΙΨΕΙΣ</div><span class="badge">ΠΡΟΤΕΡΑΙΟΤΗΤΑ 1</span></div><div class="priorityCount">{{ missing }}</div><div class="priorityCopy">{% if missing|int > 0 %}Ποσότητες που λείπουν ή οφείλονται ακόμη στο Κεντρικό.{% else %}Δεν υπάρχει καταγεγραμμένη οφειλή αυτή τη στιγμή.{% endif %}</div><div class="priorityAction">Άνοιγμα οφειλόμενων →</div></a>
+      <a class="priorityCard {% if pending|int > 0 %}warning{% else %}good{% endif %}" href="/stock?status=pending"><div class="priorityTop"><div class="priorityLabel">ΠΡΟΣ ΣΥΜΠΛΗΡΩΣΗ</div><span class="badge">ΠΡΟΤΕΡΑΙΟΤΗΤΑ 2</span></div><div class="priorityCount">{{ pending }}</div><div class="priorityCopy">{% if pending|int > 0 %}Προϊόντα που υπολείπονται από τον επιθυμητό στόχο.{% else %}Οι στόχοι αποθέματος είναι καλυμμένοι.{% endif %}</div><div class="priorityAction">Άνοιγμα εκκρεμοτήτων →</div></a>
+      <a class="priorityCard {% if low|int > 0 %}warning{% else %}good{% endif %}" href="/stock?status=low"><div class="priorityTop"><div class="priorityLabel">ΧΑΜΗΛΟ ΑΠΟΘΕΜΑ</div><span class="badge">ΕΛΕΓΧΟΣ</span></div><div class="priorityCount">{{ low }}</div><div class="priorityCopy">{% if low|int > 0 %}Είδη κάτω από το όριο που έχει οριστεί για τη λειτουργία.{% else %}Κανένα ενεργό είδος κάτω από το όριο.{% endif %}</div><div class="priorityAction">Έλεγχος χαμηλών →</div></a>
+    </section>
+    <div class="sectionHead"><div><h2>Ροή βάρδιας</h2><p>Μία άμεση ενέργεια για κάθε βασική εργασία.</p></div></div>
+    <section class="taskGrid">
+      <a class="taskCard" href="/movements/new"><div class="taskCode">IN</div><h3>Παραλαβή ή διόρθωση</h3><p>Καταχώρισε νέα εισαγωγή, εξαγωγή, μεταφορά ή ουσιαστική διόρθωση.</p><span>Νέα κίνηση →</span></a>
+      <a class="taskCard" href="/movements?movement_type=TRANSFER"><div class="taskCode">TR</div><h3>Μεταφορές</h3><p>Δες τι μετακινήθηκε μεταξύ Κεντρικού και Εργαστηρίου.</p><span>Ιστορικό μεταφορών →</span></a>
+      <a class="taskCard" href="{% if user.role == 'admin' %}/admin/vet-report/weekly/{% else %}/stock?loc=workshop{% endif %}"><div class="taskCode">PR</div><h3>Παραγωγή</h3><p>{% if user.role == 'admin' %}Άνοιξε τη συγκεντρωτική εικόνα παραγωγής της εβδομάδας.{% else %}Δες τις ανάγκες και το απόθεμα του Εργαστηρίου.{% endif %}</p><span>Άνοιγμα παραγωγής →</span></a>
+      <a class="taskCard" href="/admin/labels"><div class="taskCode">LB</div><h3>Ετικέτες</h3><p>Ετοίμασε τις ετικέτες προϊόντων και παρακολούθησε την ουρά εκτύπωσης.</p><span>Κέντρο ετικετών →</span></a>
+      <a class="taskCard" href="/consumables/take"><div class="taskCode">AN</div><h3>Αναλώσιμα</h3><p>Καταχώρισε γρήγορα τι πήρες ή τι πρόσθεσες στο Εργαστήριο.</p><span>Άνοιγμα αναλώσιμων →</span></a>
+      <a class="taskCard" href="/freezer"><div class="taskCode">FR</div><h3>Κατάψυξη</h3><p>Έλεγξε και ενημέρωσε τα προϊόντα που διαχειρίζονται ξεχωριστά στην κατάψυξη.</p><span>Άνοιγμα κατάψυξης →</span></a>
+    </section>
+    <div class="sectionHead"><div><h2>Βάρδια σε αριθμούς</h2><p>Ελαφριά σύνοψη από τα ήδη διαθέσιμα δεδομένα.</p></div></div>
+    <section class="summaryGrid"><div class="summary"><b>{{ stats.products_count if stats is defined else "—" }}</b><span>ενεργά προϊόντα</span></div><div class="summary"><b>{{ stats.movements_today if stats is defined else "—" }}</b><span>κινήσεις σήμερα</span></div><div class="summary"><b>{{ attention }}</b><span>συνολικά θέματα προσοχής</span></div></section>
+    <details class="toolbox"><summary>Περισσότερα εργαλεία <span>Κατάλογος, προμηθευτές, παραγγελίες και τεχνική κατάσταση</span></summary><div class="tools">
+      <a class="tool" href="/products">Προϊόντα<small>Κατάλογος και στοιχεία ειδών</small></a><a class="tool" href="/categories">Κατηγορίες<small>Ταξινόμηση και ενεργές ομάδες</small></a><a class="tool" href="/suppliers">Προμηθευτές<small>Στοιχεία συνεργατών</small></a><a class="tool" href="/purchase-orders">Παραγγελίες αναλώσιμων<small>Πρόχειρες, εκκρεμείς και παραληφθείσες</small></a><a class="tool" href="/consumables/movements">Ιστορικό αναλώσιμων<small>Ποιος πήρε ή πρόσθεσε τι</small></a><a class="tool" href="/movements">Ιστορικό κινήσεων<small>Αναζήτηση και φίλτρα</small></a><a class="tool" href="/ready">Ετοιμότητα συστήματος<small>Έλεγχος σύνδεσης και βάσης δεδομένων</small></a><a class="tool" href="/health">Λειτουργία υπηρεσίας<small>Γρήγορος τεχνικός έλεγχος</small></a>
+    </div></details>
+    {% if user.role == "admin" %}<section class="adminBox"><h2>Μήνυμα στο Εργαστήριο</h2><p>Παραμένει στην οθόνη του Εργαστηρίου μέχρι να επιβεβαιωθεί.</p><form method="post" action="/admin/workshop-message"><input name="title" placeholder="Τίτλος (προαιρετικός)" /><textarea name="body" required rows="2" placeholder="Γράψε τη σαφή οδηγία..."></textarea><button class="btn" type="submit">Αποστολή</button></form></section>{% endif %}
+  </main>
+  {% include "_workshop_message_modal.html" %}
 </body>
 </html>

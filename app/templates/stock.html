@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="el">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Stock</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Απόθεμα · Warehouse</title>
   <link rel="stylesheet" href="/static/datetime.css" />
   <script src="/static/js/datetime.js" defer></script>
  <style>
@@ -226,25 +226,14 @@
 
  </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
+  <link rel="stylesheet" href="/static/warehouse-shell.css" />
 </head>
 <body>
-  <div class="top wrap" style="padding-bottom:10px">
-    <div>
-      <div class="brand">Stock</div>
-      <div class="sub">CENTRAL / WORKSHOP • Target Central • Pending</div>
-    </div>
-    <div class="nav">
-      <span id="app-datetime" class="app-datetime"></span>
-      <button class="live" id="refreshStockBtn" type="button" title="Refresh stock now">
-        <span class="dot bad" id="liveDot" aria-hidden="true"></span>
-        <span id="liveText">Refresh</span>
-      </button>
-      <a href="/dashboard">Dashboard</a>
-      <a href="/products">Products</a>
-      <a href="/movements">Movements</a>
-      <a href="/admin/labels">Labels</a>
-    </div>
-  </div>
+  {% set shell_title = "Απόθεμα" %}
+  {% set shell_subtitle = "Κεντρικό και Εργαστήριο · στόχοι, εκκρεμότητες και οφειλόμενα" %}
+  {% set shell_active = "stock" %}
+  {% set shell_stock_refresh = true %}
+  {% include "_warehouse_shell.html" %}
 
   <div class="wrap">
     {% if request.query_params.get('ok') == 'label' %}
@@ -259,10 +248,10 @@
     {% if user and user.role == "workshop" %}
       <div id="centralReadyBanner" class="readyBanner {% if central_ready %}show{% endif %}">
         <div class="left">
-          <div class="msg">✅ Ready to Load</div>
-          <div class="note" id="centralReadyNote">{% if central_ready_note %}{{ central_ready_note }}{% else %}Central marked the load as ready.{% endif %}</div>
+          <div class="msg">Έτοιμο για φόρτωση</div>
+          <div class="note" id="centralReadyNote">{% if central_ready_note %}{{ central_ready_note }}{% else %}Το Κεντρικό δήλωσε ότι η φόρτωση είναι έτοιμη.{% endif %}</div>
         </div>
-        <button class="btn btnGhost btnTiny" id="btnReadyAcknowledge" type="button">Loaded</button>
+        <button class="btn btnGhost btnTiny" id="btnReadyAcknowledge" type="button">Παραλήφθηκε</button>
       </div>
     {% endif %}
 
@@ -272,31 +261,31 @@
           <form method="get" action="/stock">
             <select name="loc" onchange="this.form.submit()">
               <option value="all" {% if loc=='all' %}selected{% endif %}>Τοποθεσία: Όλες</option>
-              <option value="central" {% if loc=='central' %}selected{% endif %}>Central</option>
-              <option value="workshop" {% if loc=='workshop' %}selected{% endif %}>Workshop</option>
+              <option value="central" {% if loc=='central' %}selected{% endif %}>Κεντρικό</option>
+              <option value="workshop" {% if loc=='workshop' %}selected{% endif %}>Εργαστήριο</option>
             </select>
             <select name="status" onchange="this.form.submit()" aria-label="Stock status">
-              <option value="all" {% if status=='all' %}selected{% endif %}>Status: All</option>
-              <option value="attention" {% if status=='attention' %}selected{% endif %}>Needs attention</option>
-              <option value="low" {% if status=='low' %}selected{% endif %}>LOW</option>
-              <option value="pending" {% if status=='pending' %}selected{% endif %}>Pending</option>
-              <option value="missing" {% if status=='missing' %}selected{% endif %}>Owed</option>
+              <option value="all" {% if status=='all' %}selected{% endif %}>Κατάσταση: Όλα</option>
+              <option value="attention" {% if status=='attention' %}selected{% endif %}>Χρειάζονται προσοχή</option>
+              <option value="low" {% if status=='low' %}selected{% endif %}>Χαμηλό απόθεμα</option>
+              <option value="pending" {% if status=='pending' %}selected{% endif %}>Προς συμπλήρωση</option>
+              <option value="missing" {% if status=='missing' %}selected{% endif %}>Οφειλόμενα</option>
             </select>
             <input type="text" name="q" placeholder="Search προϊόντος..." value="{{ q or '' }}" />
-            <button class="btn btnGhost btnTiny" type="submit">Search</button>
+            <button class="btn btnGhost btnTiny" type="submit">Αναζήτηση</button>
           </form>
         </div>
 
         <div class="rightHead">
           {% if user and user.role == "admin" %}
-            <button class="btn btnBlue btnTiny" id="btnReadyToLoad" type="button">✅ Ready to Load</button>
-            <button class="btn btnGhost btnTiny" id="btnReadyClear" type="button">Clear</button>
+            <button class="btn btnBlue btnTiny" id="btnReadyToLoad" type="button">Έτοιμο για φόρτωση</button>
+            <button class="btn btnGhost btnTiny" id="btnReadyClear" type="button">Καθαρισμός</button>
           {% endif %}
 
           {% if user and user.role == "workshop" %}
             <label style="display:inline-flex;align-items:center;gap:8px;white-space:nowrap;margin-right:8px;color:var(--muted);font-size:12px;">
               <input type="checkbox" id="only-pending-toggle" />
-              Only Pending
+              Μόνο προς συμπλήρωση
             </label>
           {% endif %}
 
@@ -304,8 +293,8 @@
           <a class="btn btnGhost btnTiny" href="/stock/print?scope=pending" target="_blank">🖨️ Εκτύπωση (Εργαστήριο)</a>
           <a class="btn btnGhost btnTiny" href="/stock/print?scope=all" target="_blank">🖨️ Εκτύπωση (Όλα)</a>
 
-          <span class="pill">0 = OK</span>
-          <span class="pill warn">Pending</span>
+          <span class="pill">0 = Εντάξει</span>
+          <span class="pill warn">Προς συμπλήρωση</span>
           </div>
       </div>
 
@@ -313,15 +302,15 @@
       <table>
         <thead>
           <tr>
-            <th style="width:30%">Product</th>
-            <th style="width:6%">Status</th>
-            <th style="width:10%">Unit</th>
-            <th style="width:10%">Central</th>
-            <th style="width:10%">Workshop</th>
-            <th style="width:16%">Target (Central)<span class="tt" data-tip="Target is the desired CENTRAL stock level you set manually. Pending is calculated from this target.">i</span></th>
-            <th style="width:10%">Pending<span class="tt" data-tip="Pending = Target (Central) − Central stock. Tap the +Pending pill to fulfill by transferring from WORKSHOP to CENTRAL.">i</span></th>
-            <th style="width:10%">Owed<span class="tt" data-tip="Owed is an earlier Workshop shortfall still due to Central. Workshop-to-Central deliveries reduce it.">i</span></th>
-            <th style="width:20%">Actions</th>
+            <th style="width:30%">Προϊόν</th>
+            <th style="width:6%">Κατάσταση</th>
+            <th style="width:10%">Μονάδα</th>
+            <th style="width:10%">Κεντρικό</th>
+            <th style="width:10%">Εργαστήριο</th>
+            <th style="width:16%">Στόχος Κεντρικού<span class="tt" data-tip="Η επιθυμητή ποσότητα που ορίζεται για το Κεντρικό.">i</span></th>
+            <th style="width:10%">Προς συμπλήρωση<span class="tt" data-tip="Στόχος Κεντρικού μείον το τρέχον απόθεμα Κεντρικού.">i</span></th>
+            <th style="width:10%">Οφειλόμενα<span class="tt" data-tip="Παλαιότερη έλλειψη του Εργαστηρίου που οφείλεται ακόμη στο Κεντρικό.">i</span></th>
+            <th style="width:20%">Ενέργειες</th>
           </tr>
         </thead>
         <tbody>

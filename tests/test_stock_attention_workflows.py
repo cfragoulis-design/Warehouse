@@ -359,4 +359,4 @@ def test_movements_template_has_filters_paging_and_responsive_cards() -> None:
         assert field in template
     assert "@media(max-width:820px)" in template
     assert 'class="movementCard"' in template
-    assert "50 per page" in template
+    assert "50 ανά σελίδα" in template

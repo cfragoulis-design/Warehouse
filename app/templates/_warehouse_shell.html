@@ -1,0 +1,38 @@
+<header class="warehouse-shell">
+  <div class="warehouse-shell__inner">
+    <div class="warehouse-shell__identity">
+      <img class="warehouse-shell__logo" src="/static/brand/cf-logo-stacked-dark.svg" alt="Christos Fragoulis Digital Solutions" width="52" height="52" />
+      <div class="warehouse-shell__copy">
+        <div class="warehouse-shell__eyebrow">SKLAVOUNOS ONE · WAREHOUSE</div>
+        <div class="warehouse-shell__title">{{ shell_title or "Αποθήκη" }}</div>
+        {% if shell_subtitle %}<div class="warehouse-shell__subtitle">{{ shell_subtitle }}</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="warehouse-shell__status">
+      <span id="app-datetime" class="app-datetime"></span>
+      {% if shell_stock_refresh %}
+        <button class="warehouse-shell__refresh" id="refreshStockBtn" type="button" title="Ανανέωση αποθέματος">
+          <span class="warehouse-shell__dot" id="liveDot" aria-hidden="true"></span>
+          <span id="liveText">Ανανέωση</span>
+        </button>
+      {% endif %}
+      {% if user %}<span class="warehouse-shell__user">{{ user.username }} · {{ user.role }}</span>{% endif %}
+    </div>
+  </div>
+
+  <nav class="warehouse-shell__nav" aria-label="Κύρια πλοήγηση αποθήκης">
+    <a class="warehouse-shell__pill{% if shell_active == 'dashboard' %} is-active{% endif %}" href="/dashboard">Τώρα</a>
+    <a class="warehouse-shell__pill{% if shell_active == 'stock' %} is-active{% endif %}" href="/stock">Απόθεμα</a>
+    <a class="warehouse-shell__pill{% if shell_active == 'movements' %} is-active{% endif %}" href="/movements">Κινήσεις</a>
+    <a class="warehouse-shell__pill" href="/movements/new">Νέα κίνηση</a>
+    <a class="warehouse-shell__pill" href="/admin/labels">Ετικέτες</a>
+    <a class="warehouse-shell__pill" href="/products">Προϊόντα</a>
+    {% if shell_primary_href and shell_primary_label %}
+      <a class="warehouse-shell__pill warehouse-shell__pill--primary" href="{{ shell_primary_href }}">{{ shell_primary_label }}</a>
+    {% endif %}
+    <form method="post" action="/logout" class="warehouse-shell__logout">
+      <button class="warehouse-shell__pill" type="submit">Έξοδος</button>
+    </form>
+  </nav>
+</header>

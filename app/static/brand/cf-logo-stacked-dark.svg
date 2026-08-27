@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1400" role="img" aria-labelledby="title desc">
+  <title id="title">Christos Fragoulis Digital Solutions</title>
+  <desc id="desc">Stacked personal creator logo on the canonical navy field.</desc>
+  <defs>
+    <radialGradient id="field" cx="50%" cy="42%" r="75%"><stop offset="0" stop-color="#062342"/><stop offset="1" stop-color="#010A19"/></radialGradient>
+    <linearGradient id="upper" gradientUnits="userSpaceOnUse" x1="130" y1="570" x2="890" y2="330">
+      <stop offset="0" stop-color="#A6ABB1"/><stop offset=".28" stop-color="#FFFFFF"/><stop offset=".52" stop-color="#D0D0D2"/><stop offset=".70" stop-color="#4BBDF9"/><stop offset="1" stop-color="#4BBDF9"/>
+    </linearGradient>
+    <linearGradient id="lower" gradientUnits="userSpaceOnUse" x1="570" y1="820" x2="850" y2="500">
+      <stop offset="0" stop-color="#0B6DCE"/><stop offset=".55" stop-color="#1996EF"/><stop offset="1" stop-color="#4BBDF9"/>
+    </linearGradient>
+  </defs>
+  <rect width="1400" height="1400" fill="url(#field)"/>
+  <g transform="translate(180 20) scale(1.05)" fill="none" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision">
+    <path d="M650 240H385C230 240 130 352 130 500S242 760 390 760c84 0 140-56 140-135V495c0-86 58-145 145-145h130" stroke="url(#upper)" stroke-width="52"/>
+    <circle cx="850" cy="350" r="33" stroke="url(#upper)" stroke-width="24"/>
+    <path d="M755 555h-50c-84 0-130 51-130 130v140" stroke="url(#lower)" stroke-width="52"/>
+    <circle cx="800" cy="555" r="32" stroke="url(#lower)" stroke-width="24"/>
+  </g>
+  <text x="700" y="1035" text-anchor="middle" fill="#F4F4F4" font-family="Bahnschrift, 'Segoe UI', Arial, sans-serif" font-size="84" font-weight="300" letter-spacing="4">CHRISTOS FRAGOULIS</text>
+  <text x="700" y="1135" text-anchor="middle" fill="#1996EF" font-family="Bahnschrift, 'Segoe UI', Arial, sans-serif" font-size="38" font-weight="400" letter-spacing="20">DIGITAL SOLUTIONS</text>
+</svg>
