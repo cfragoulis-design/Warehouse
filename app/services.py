@@ -273,45 +273,35 @@ def _truthy_flag(val: str | None) -> bool:
     return v in {"1", "true", "yes", "on", "y"}
 
 
+def _meaningful_correction_reason(value: str | None) -> bool:
+    reason = (value or "").strip()
+    return len(reason) >= 5 and any(ch.isalnum() for ch in reason)
+
+
 # --------------------
 # DASHBOARD STATS
 # --------------------
 def get_dashboard_stats(db: Session) -> dict:
-    # CENTRAL location
-    central = db.execute(
-        select(Location).where(Location.code == "CENTRAL")
-    ).scalar_one()
-
-    signed_qty = signed_qty_expr()
-
     # 1) products count
     products_count = db.execute(
         select(func.count(Product.id))
     ).scalar_one()
 
-    # central stock per product (CENTRAL only)
-    central_stock = (
-        select(
-            Product.id.label("pid"),
-            func.coalesce(
-                func.sum(
-                    case((StockMovement.location_id == central.id, signed_qty), else_=0)
-                ),
-                0,
-            ).label("central_qty"),
-        )
-        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .group_by(Product.id)
-        .subquery()
+    # Keep the dashboard definitions identical to the Stock page:
+    # LOW = below minimum, PENDING = below target, MISSING = persisted owed quantity.
+    stock_items = [
+        item
+        for items in build_stock_grouped(db).values()
+        for item in items
+    ]
+    low_stock_count = sum(1 for item in stock_items if item["is_low"])
+    pending_stock_count = sum(1 for item in stock_items if item["pending"] > 0)
+    missing_stock_count = sum(1 for item in stock_items if item["missing"] > 0)
+    attention_count = sum(
+        1
+        for item in stock_items
+        if item["is_low"] or item["pending"] > 0 or item["missing"] > 0
     )
-
-    # 2) low stock count (target_central > central_qty)
-    low_stock_count = db.execute(
-        select(func.count())
-        .select_from(Product)
-        .join(central_stock, central_stock.c.pid == Product.id)
-        .where(Product.target_central > central_stock.c.central_qty)
-    ).scalar_one()
 
     # 3) movements today
     movements_today = db.execute(
@@ -322,6 +312,9 @@ def get_dashboard_stats(db: Session) -> dict:
     return {
         "products_count": int(products_count or 0),
         "low_stock_count": int(low_stock_count or 0),
+        "pending_stock_count": int(pending_stock_count or 0),
+        "missing_stock_count": int(missing_stock_count or 0),
+        "attention_count": int(attention_count or 0),
         "movements_today": int(movements_today or 0),
     }
 
@@ -388,11 +381,11 @@ def movement_new_form(
         select(Product).where(Product.is_active.is_(True)).order_by(Product.name.asc())
     ).scalars().all()
 
-    locs = db.execute(select(Location).order_by(Location.id.asc())).scalars().all()
+    locations = db.execute(select(Location).order_by(Location.id.asc())).scalars().all()
 
     return templates.TemplateResponse(
         "movement_form.html",
-        {"request": request, "user": user, "products": products, "locs": locs, "action": "/movements/new"},
+        {"request": request, "user": user, "products": products, "locations": locations, "action": "/movements/new"},
     )
 
 
@@ -414,6 +407,10 @@ def movement_create(
     if not q:
         return RedirectResponse(url="/movements/new?err=qty", status_code=303)
 
+    note_clean = (note or "").strip()
+    if mt in {"ADJ+", "ADJ-"} and not _meaningful_correction_reason(note_clean):
+        return RedirectResponse(url="/movements/new?err=reason", status_code=303)
+
     p = db.get(Product, int(product_id))
     if not p or not p.is_active:
         return RedirectResponse(url="/movements/new?err=product", status_code=303)
@@ -434,7 +431,7 @@ def movement_create(
             location_id=loc.id,
             qty=q,
             movement_type=mt,
-            note=(note.strip() if note else None),
+            note=(note_clean or None),
             user_id=user.id,
         )
     )
@@ -541,7 +538,12 @@ def sort_grouped_categories(grouped: dict[str, list[dict]] | defaultdict, db: Se
     return dict(sorted(grouped.items(), key=lambda kv: cat_sort_key(kv[0] or "")))
 
 
-def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str, list[dict]]:
+def build_stock_grouped(
+    db: Session,
+    loc: str = "all",
+    q: str = "",
+    status: str = "all",
+) -> dict[str, list[dict]]:
     """Builds the same grouped stock structure used by stock.html and stock_print_a4.html.
 
     loc: all | central | workshop  (basic filtering)
@@ -605,6 +607,9 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
     grouped = defaultdict(list)
 
     loc_norm = (loc or "all").strip().lower()
+    status_norm = (status or "all").strip().lower()
+    if status_norm not in {"all", "attention", "low", "pending", "missing"}:
+        status_norm = "all"
 
     for r in rows:
         c = Decimal(r.central_qty)
@@ -634,6 +639,15 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
         ms = Decimal(r.min_stock or 0)
         total = c + w
         low = bool(ms > 0 and c < ms)
+
+        if status_norm == "low" and not low:
+            continue
+        if status_norm == "pending" and pending <= 0:
+            continue
+        if status_norm == "missing" and missing <= 0:
+            continue
+        if status_norm == "attention" and not (low or pending > 0 or missing > 0):
+            continue
 
         item = {
             "id": r.id,
@@ -677,6 +691,7 @@ def _group_from_category(cat: str | None, name: str | None) -> str:
 def api_stock(
     loc: str = "all",
     q: str = "",
+    status: str = "all",
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -684,7 +699,7 @@ def api_stock(
     Lightweight JSON feed for live stock updates (polling).
     Returns only the quantities needed to update the stock table without reloading the page.
     """
-    grouped = build_stock_grouped(db, loc=loc, q=q)
+    grouped = build_stock_grouped(db, loc=loc, q=q, status=status)
 
     items = []
     for _cat, arr in grouped.items():
@@ -715,10 +730,14 @@ def stock_view(
     request: Request,
     loc: str = "all",
     q: str = "",
+    status: str = "all",
+    pending: str | None = None,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    grouped = build_stock_grouped(db, loc=loc, q=q)
+    # Backward compatibility for old dashboard/bookmarked links.
+    status_norm = "pending" if _truthy_flag(pending) and status == "all" else status
+    grouped = build_stock_grouped(db, loc=loc, q=q, status=status_norm)
 
     return templates.TemplateResponse(
         "stock.html",
@@ -728,6 +747,7 @@ def stock_view(
             "grouped": grouped,
             "loc": (loc or "all"),
             "q": (q or ""),
+            "status": (status_norm or "all"),
             "can_edit_target": (user.role == "admin"),
             "can_adjust_central": (user.role == "admin"),
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
@@ -1741,6 +1761,8 @@ async def stock_set_target(
         return JSONResponse(
             {
                 "ok": True,
+                "action": "target",
+                "message": "Target updated.",
                 "product_id": product_id,
                 "central_qty_text": fmtqty(c_qty, p.unit),
                 "workshop_qty_text": fmtqty(w_qty, p.unit),
@@ -1762,6 +1784,7 @@ async def stock_adjust(
     location: str = Form(...),
     qty: str = Form(...),
     direction: str | None = Form(None),
+    reason: str = Form(""),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
@@ -1778,6 +1801,13 @@ async def stock_adjust(
         raise HTTPException(status_code=403, detail="Forbidden")
     if loc == "WORKSHOP" and user.role not in ("admin", "workshop"):
         raise HTTPException(status_code=403, detail="Forbidden")
+
+    reason_clean = (reason or "").strip()
+    if not _meaningful_correction_reason(reason_clean):
+        raise HTTPException(
+            status_code=422,
+            detail="Correction reason is required (at least 5 characters)",
+        )
 
     try:
         q = Decimal(str(qty).replace(",", ".").strip())
@@ -1809,7 +1839,7 @@ async def stock_adjust(
         movement_type=mt,
         qty=q_abs,
         user_id=user.id,
-        note="UI adjust",
+        note=reason_clean,
     )
     db.add(mv)
     db.commit()
@@ -1846,6 +1876,8 @@ async def stock_adjust(
         return JSONResponse(
             {
                 "ok": True,
+                "action": "adjust",
+                "message": f"{loc.title()} stock corrected.",
                 "product_id": product_id,
                 "central_qty_text": fmtqty(c_qty, p.unit),
                 "workshop_qty_text": fmtqty(w_qty, p.unit),
@@ -1944,6 +1976,8 @@ async def stock_transfer_workshop_to_central_ui(
         return JSONResponse(
             {
                 "ok": True,
+                "action": "transfer",
+                "message": "Transferred from Workshop to Central.",
                 "product_id": product_id,
                 "central_qty_text": fmtqty(c_qty, p.unit),
                 "workshop_qty_text": fmtqty(w_qty, p.unit),
@@ -2004,6 +2038,8 @@ async def stock_fulfill_pending(
             return JSONResponse(
                 {
                     "ok": True,
+                    "action": "fulfill",
+                    "message": "Nothing pending for this product.",
                     "product_id": product_id,
                     "central_qty_text": fmtqty(c_qty, p.unit),
                     "workshop_qty_text": fmtqty(ws_qty, p.unit),
@@ -2076,6 +2112,8 @@ async def stock_fulfill_pending(
         return JSONResponse(
             {
                 "ok": True,
+                "action": "fulfill",
+                "message": "Pending stock fulfilled.",
                 "product_id": product_id,
                 "central_qty_text": fmtqty(c2, p.unit),
                 "workshop_qty_text": fmtqty(w2, p.unit),

@@ -235,6 +235,7 @@ def test_stock_balance_rejects_overdraw_and_pairs_transfer_rows(db: Session) -> 
                 location="WORKSHOP",
                 qty="3",
                 direction="minus",
+                reason="Damaged stock correction",
                 db=db,
                 user=user,
             )

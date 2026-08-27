@@ -47,6 +47,7 @@
         {% if err == 'product' %}Invalid product.{% endif %}
         {% if err == 'location' %}Invalid location.{% endif %}
         {% if err == 'stock' %}Not enough stock for OUT/ADJ-.{% endif %}
+        {% if err == 'reason' %}A correction reason of at least 5 characters is required for ADJ+/ADJ-.{% endif %}
       </p>
     {% endif %}
 
@@ -63,9 +64,9 @@
 
         <div>
           <label>Location</label>
-          <select name="location" required>
+          <select name="location_id" required>
             {% for l in locations %}
-              <option value="{{ l.code }}" {% if l.code == 'CENTRAL' %}selected{% endif %}>{{ l.code }}{% if l.name %} ({{ l.name }}){% endif %}</option>
+              <option value="{{ l.id }}" {% if l.code == 'CENTRAL' %}selected{% endif %}>{{ l.code }}{% if l.name %} ({{ l.name }}){% endif %}</option>
             {% endfor %}
           </select>
         </div>
@@ -77,15 +78,15 @@
       </div>
 
       <label>Type</label>
-      <select name="movement_type" required>
+      <select id="movement-type" name="movement_type" required>
         <option value="IN">IN (Add stock)</option>
         <option value="OUT">OUT (Remove stock)</option>
         <option value="ADJ+">ADJ+ (Add correction)</option>
         <option value="ADJ-">ADJ- (Remove correction)</option>
       </select>
 
-      <label>Note (optional)</label>
-      <input name="note" placeholder="e.g. supplier invoice, correction reason" />
+      <label id="movement-note-label" for="movement-note">Note (optional)</label>
+      <input id="movement-note" name="note" placeholder="e.g. supplier invoice" />
 
       <div style="margin-top:14px;display:flex;gap:10px">
         <button class="btn" type="submit">Save</button>
@@ -93,5 +94,23 @@
       </div>
     </form>
   </div>
+  <script>
+    (() => {
+      const type = document.getElementById("movement-type");
+      const note = document.getElementById("movement-note");
+      const label = document.getElementById("movement-note-label");
+      function syncReasonRequirement(){
+        const correction = type && (type.value === "ADJ+" || type.value === "ADJ-");
+        if (note){
+          note.required = !!correction;
+          note.minLength = correction ? 5 : 0;
+          note.placeholder = correction ? "Why is this correction needed?" : "e.g. supplier invoice";
+        }
+        if (label) label.textContent = correction ? "Correction reason (required)" : "Note (optional)";
+      }
+      if (type) type.addEventListener("change", syncReasonRequirement);
+      syncReasonRequirement();
+    })();
+  </script>
 </body>
 </html>

@@ -199,11 +199,11 @@
             <div class="muted" style="font-size:13px">Quick snapshot of inventory &amp; activity</div>
           </div>
 
-          {% set low = stats.low_stock_count if stats is defined else None %}
-          {% if low is not none and low|int == 0 %}
+          {% set attention = stats.attention_count if stats is defined else None %}
+          {% if attention is not none and attention|int == 0 %}
             <a class="badgeLink" href="/stock"><span class="badge good">All good</span></a>
-          {% elif low is not none and low|int > 0 %}
-            <a class="badgeLink" href="/stock?pending=1"><span class="badge warn">Needs attention: {{ low }}</span></a>
+          {% elif attention is not none and attention|int > 0 %}
+            <a class="badgeLink" href="/stock?status=attention"><span class="badge warn">Needs attention: {{ attention }}</span></a>
           {% else %}
             <a class="badgeLink" href="/stock"><span class="badge">Stats not loaded</span></a>
           {% endif %}
@@ -218,7 +218,7 @@
             <span class="badge">total</span>
           </div>
 
-          <a class="statLink" href="/stock?pending=1">
+          <a class="statLink" href="/stock?status=low">
             <div class="stat">
               <div>
                 <div class="k">Low stock</div>
