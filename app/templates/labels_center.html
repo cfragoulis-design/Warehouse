@@ -52,6 +52,7 @@
     .legalNotice{margin:0 0 14px;padding:11px 13px;border-radius:12px;border:1px solid rgba(202,162,74,.45);background:rgba(202,162,74,.1);color:#ffe6a8;font-size:13px}
     .creator{padding:18px 4px 0;display:flex;justify-content:flex-end}
     .creator img{width:108px;height:108px;object-fit:contain;border-radius:12px}
+    .queueCard{margin-top:16px}.queueTable{max-height:360px;overflow:auto}.status{font-weight:900}.status.QUEUED{color:#f1d694}.status.CLAIMED{color:#8ab4ff}.status.PRINTED{color:#79e6ae}.status.ERROR,.status.CANCELLED{color:#ffb2b2}.jobActions{display:flex;gap:6px;flex-wrap:wrap}.errorReason{color:#ffb2b2;font-size:12px;max-width:340px;overflow-wrap:anywhere}
     @media (max-width: 1200px){.layout{grid-template-columns:1fr}.tableWrap{max-height:none}.panel{overflow:auto}.row{min-width:1180px}}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
@@ -80,7 +81,7 @@
       <div class="stationBadge">HPRT · ΕΝΙΑΙΑ 50×70 · WORKSHOP</div>
       <input id="sourceLotDefault" type="text" placeholder="Παρτίδα προμηθευτή (προαιρετικά)" />
       <button id="clearBatchBtn" class="ghost">Clear batch</button>
-      <button id="printBatchBtn" class="primary">🖨 Print Batch</button>
+      <button id="printBatchBtn" class="primary">🖨 Queue Batch</button>
       <a class="download" href="{{ hprt_agent_download_url }}">{{ hprt_agent_download_label }}</a>
     </div>
 
@@ -134,13 +135,23 @@
         </div>
       </div>
     </div>
+    <div class="card queueCard">
+      <h2>Print Queue · πραγματική κατάσταση agent</h2>
+      <div class="queueTable tableWrap">
+        <table>
+          <thead><tr><th>ID / Batch</th><th>Προϊόν</th><th>Copies</th><th>Status</th><th>Error reason</th><th>Created</th><th>Actions</th></tr></thead>
+          <tbody id="printJobsBody"></tbody>
+        </table>
+      </div>
+    </div>
     <div class="creator"><img src="/static/branding/cf-logo-stacked-dark.svg" alt="Christos Fragoulis Digital Solutions" /></div>
   </div>
 
-  <div id="toast" class="toast"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script>
 const PRODUCTS = {{ products_json | safe }};
+let PRINT_JOBS = {{ print_jobs_json | safe }};
 const productsBody = document.getElementById('productsBody');
 const batchRows = document.getElementById('batchRows');
 const emptyBatch = document.getElementById('emptyBatch');
@@ -151,7 +162,10 @@ const categoryFilter = document.getElementById('categoryFilter');
 const LABEL_PROFILE = 'DISTRIBUTION';
 const sourceLotDefault = document.getElementById('sourceLotDefault');
 const toast = document.getElementById('toast');
+const printJobsBody = document.getElementById('printJobsBody');
+const printBatchBtn = document.getElementById('printBatchBtn');
 const batch = [];
+let pendingPrintRequestId = null;
 
 function showToast(message, kind='ok'){
   toast.textContent = message;
@@ -261,6 +275,7 @@ function renderProducts(){
         production_date: dates.production,
         expiry_date: dates.expiry,
       });
+      pendingPrintRequestId = null;
       renderBatch();
       showToast(`Προστέθηκε: ${product.name}`);
     });
@@ -300,6 +315,7 @@ function renderBatch(){
 
     row.querySelectorAll('input[data-k]').forEach(input => {
       input.addEventListener('input', () => {
+        pendingPrintRequestId = null;
         const key = input.getAttribute('data-k');
         item[key] = input.type === 'number' ? Number(input.value || 0) : input.value;
         totalCopiesEl.textContent = String(batch.reduce((s, x) => s + Number(x.copies || 0), 0));
@@ -309,6 +325,7 @@ function renderBatch(){
     row.querySelector(`[data-remove="${item.uid}"]`).addEventListener('click', () => {
       const idx = batch.findIndex(x => x.uid === item.uid);
       if (idx >= 0) batch.splice(idx, 1);
+      pendingPrintRequestId = null;
       renderBatch();
     });
   });
@@ -316,15 +333,68 @@ function renderBatch(){
 
 document.getElementById('clearBatchBtn').addEventListener('click', () => {
   batch.splice(0, batch.length);
+  pendingPrintRequestId = null;
   renderBatch();
 });
 
-document.getElementById('printBatchBtn').addEventListener('click', async () => {
+function validationMessage(){
+  for (let index = 0; index < batch.length; index += 1){
+    const item = batch[index];
+    const copies = Number(item.copies || 0);
+    if (!Number.isInteger(copies) || copies < 1 || copies > 50) return `Item ${index + 1} (${item.name}): copies 1–50.`;
+    if (!Number.isInteger(Number(item.product_id)) || Number(item.product_id) <= 0) return `Item ${index + 1}: invalid product.`;
+  }
+  return '';
+}
+
+function detailMessage(detail){
+  if (typeof detail === 'string') return detail;
+  if (detail && Array.isArray(detail.items)) return detail.items.map(x => `#${Number(x.index) + 1} ${x.product_name || ''}: ${x.error}`).join(' · ');
+  return detail?.message || 'Η καταχώρηση batch απέτυχε.';
+}
+
+function renderPrintJobs(){
+  printJobsBody.innerHTML = '';
+  if (!PRINT_JOBS.length){ printJobsBody.innerHTML = '<tr><td colspan="7" class="empty">Η ουρά είναι κενή.</td></tr>'; return; }
+  PRINT_JOBS.forEach(job => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><b>#${job.id}</b><div class="muted">${job.batch_ref || ''}</div></td><td><div class="prod">${job.product_name}</div><div class="muted">${job.sku || ''}</div></td><td>${job.copies}</td><td><span class="status ${job.status}">${job.status_label}</span></td><td class="errorReason">${job.error_reason || ''}</td><td class="muted">${job.created_at || ''}</td><td><div class="jobActions">${job.can_retry ? `<button class="btnMini" data-retry="${job.id}">Retry</button>` : ''}${job.can_cancel ? `<button class="btnMini danger" data-cancel="${job.id}">Cancel</button>` : ''}</div></td>`;
+    printJobsBody.appendChild(tr);
+  });
+  printJobsBody.querySelectorAll('[data-retry],[data-cancel]').forEach(button => button.addEventListener('click', async () => {
+    const action = button.hasAttribute('data-retry') ? 'retry' : 'cancel';
+    const id = button.getAttribute(`data-${action}`);
+    button.disabled = true;
+    try{
+      const res = await fetch(`/admin/labels/jobs/${id}/${action}`, {method:'POST', headers:{'Accept':'application/json'}});
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok || !data.ok) throw new Error(detailMessage(data.detail || data.error));
+      showToast(data.message || (action === 'retry' ? 'Μπήκε ξανά στην ουρά.' : 'Ακυρώθηκε.'), 'ok');
+      await refreshPrintJobs();
+    }catch(err){ showToast(err.message || 'Η ενέργεια απέτυχε.', 'err'); }
+    finally{ button.disabled = false; }
+  }));
+}
+
+async function refreshPrintJobs(){
+  try{
+    const res = await fetch('/admin/labels/jobs', {cache:'no-store', headers:{'Accept':'application/json'}});
+    const data = await res.json();
+    if (res.ok && data.ok && Array.isArray(data.jobs)){ PRINT_JOBS = data.jobs; renderPrintJobs(); }
+  }catch(_err){}
+}
+
+printBatchBtn.addEventListener('click', async () => {
   if (!batch.length) {
     showToast('Δεν υπάρχουν items στο batch.', 'err');
     return;
   }
+  const invalid = validationMessage();
+  if (invalid){ showToast(invalid, 'err'); return; }
+  if (printBatchBtn.disabled) return;
+  pendingPrintRequestId = pendingPrintRequestId || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const payload = {
+    request_id: pendingPrintRequestId,
     station: 'WORKSHOP',
     label_profile: LABEL_PROFILE,
     items: batch.map(x => ({
@@ -336,18 +406,23 @@ document.getElementById('printBatchBtn').addEventListener('click', async () => {
     }))
   };
   try {
+    printBatchBtn.disabled = true;
     const res = await fetch('/admin/labels/create-batch', {
       method: 'POST',
       headers: {'Content-Type':'application/json', 'Accept':'application/json'},
       body: JSON.stringify(payload)
     });
     const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error(data.detail || data.error || 'Η καταχώρηση batch απέτυχε.');
+    if (!res.ok || !data.ok) throw new Error(detailMessage(data.detail || data.error));
     batch.splice(0, batch.length);
     renderBatch();
-    showToast(`Το batch καταχωρήθηκε: ${data.created_count} labels`, 'ok');
+    pendingPrintRequestId = null;
+    showToast(`${data.message || 'Μπήκε στην ουρά.'} ${data.created_count} labels.`, 'ok');
+    await refreshPrintJobs();
   } catch (err) {
     showToast(err.message || 'Η καταχώρηση batch απέτυχε.', 'err');
+  } finally {
+    printBatchBtn.disabled = false;
   }
 });
 
@@ -356,6 +431,8 @@ categoryFilter.addEventListener('change', renderProducts);
 renderCategoryFilter();
 renderProducts();
 renderBatch();
+renderPrintJobs();
+setInterval(refreshPrintJobs, 3000);
 </script>
 </body>
 </html>

@@ -425,7 +425,7 @@
                     <form method="post" action="/admin/labels/create-batch" class="js-label-print-form directLabelForm" data-product-id="{{ it.id }}">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input class="labelCopies" type="number" name="copies" value="1" min="1" max="50" step="1" inputmode="numeric" aria-label="Αντίτυπα ετικέτας" title="Αριθμός αντιτύπων" />
-                      <button class="labelBtn workshop" type="submit" title="Άμεση εκτύπωση στον HPRT του Εργαστηρίου">🖨 Print</button>
+                      <button class="labelBtn workshop" type="submit" title="Προσθήκη στην ουρά HPRT του Εργαστηρίου">🖨 Queue</button>
                     </form>
                   {% endif %}
                 </div>
@@ -492,6 +492,7 @@ async function submitLabelFormAjax(form){
   try{
     if (btn){
       btn.classList.add("isBusy");
+      btn.disabled = true;
       btn.textContent = "...";
     }
     const res = await fetch(form.action, {
@@ -502,6 +503,7 @@ async function submitLabelFormAjax(form){
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
+        request_id: (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${productId}-${copies}`),
         station: "WORKSHOP",
         label_profile: "DISTRIBUTION",
         items: [{product_id: productId, copies}]
@@ -512,12 +514,13 @@ async function submitLabelFormAjax(form){
     if (!res.ok || !data.ok){
       throw new Error(data.detail || data.error || "Η εκτύπωση label απέτυχε.");
     }
-    showLabelToast(`Στάλθηκαν ${copies} ${copies === 1 ? "ετικέτα" : "ετικέτες"} στον HPRT.`, "ok");
+    showLabelToast(`Μπήκε στην ουρά: ${copies} ${copies === 1 ? "ετικέτα" : "ετικέτες"}.`, "ok");
   }catch(err){
     showLabelToast(err.message || "Η εκτύπωση label απέτυχε.", "err");
   }finally{
     if (btn){
       btn.classList.remove("isBusy");
+      btn.disabled = false;
       btn.textContent = original;
     }
   }

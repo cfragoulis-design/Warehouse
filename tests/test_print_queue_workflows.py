@@ -1,0 +1,249 @@
+from __future__ import annotations
+
+import json
+from datetime import date, timedelta
+from pathlib import Path
+
+import pytest
+from fastapi import HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from app import services
+from app.db import Base
+from app.models import AppFlag, Product, ProductLot, User
+from tests.db_test_support import create_characterization_engine
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class RequestStub:
+    def __init__(self, *, payload: dict | None = None, headers: dict[str, str] | None = None):
+        self._payload = payload or {}
+        self.headers = headers or {}
+
+    async def json(self) -> dict:
+        return self._payload
+
+
+@pytest.fixture()
+def db() -> Session:
+    engine, _ = create_characterization_engine()
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine, expire_on_commit=False)()
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def label_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_NAME", "Sklavounos Meat")
+    monkeypatch.setenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS", "Test address")
+    monkeypatch.setenv("WAREHOUSE_LABEL_RED_MEAT_APPROVAL_NUMBER", "GR A 920 CE")
+    monkeypatch.setenv("WAREHOUSE_LABEL_POULTRY_APPROVAL_NUMBER", "GR PE 620 CE")
+
+
+def _json(response) -> dict:
+    return json.loads(response.body.decode("utf-8"))
+
+
+def _user_product(db: Session) -> tuple[User, Product]:
+    user = User(username="print-admin", role="admin", pin_hash="not-used")
+    product = Product(
+        sku="PRINT-1",
+        name="Print product",
+        unit="kg",
+        category="Premium",
+        is_active=True,
+        only_in_freezer=False,
+        shelf_life_days=3,
+        storage_text="Keep refrigerated",
+        label_legal_name="Prepared beef product",
+        label_ingredients="Beef, salt",
+        label_allergens="No declarable allergens",
+        label_origin="Greece",
+        label_usage_instructions="Cook thoroughly",
+        label_nutrition="Per 100g: energy 500kJ",
+    )
+    db.add_all([user, product])
+    db.commit()
+    return user, product
+
+
+def _create_payload(product_id: int, request_id: str = "print-request-1") -> dict:
+    return {
+        "request_id": request_id,
+        "label_profile": "DISTRIBUTION",
+        "items": [{"product_id": product_id, "copies": 2}],
+    }
+
+
+def test_batch_validation_is_atomic_and_request_id_prevents_duplicates(db: Session) -> None:
+    user, product = _user_product(db)
+    invalid = _create_payload(product.id, "invalid-request")
+    invalid["items"].append({"product_id": 999999, "copies": 1})
+    with pytest.raises(HTTPException) as rejected:
+        services.labels_create_batch(RequestStub(payload=invalid), user=user, db=db)
+    assert rejected.value.status_code == 422
+    assert rejected.value.detail["items"][0]["index"] == 1
+    assert db.scalar(select(func.count(ProductLot.id))) == 0
+
+    first = _json(
+        services.labels_create_batch(
+            RequestStub(payload=_create_payload(product.id)), user=user, db=db
+        )
+    )
+    second = _json(
+        services.labels_create_batch(
+            RequestStub(payload=_create_payload(product.id)), user=user, db=db
+        )
+    )
+    assert first["message"] == "Μπήκε στην ουρά."
+    assert first["duplicate"] is False
+    assert second["duplicate"] is True
+    assert first["batch_ref"] == second["batch_ref"]
+    assert db.scalar(select(func.count(ProductLot.id))) == 1
+
+
+def test_leased_claim_error_reason_retry_cancel_and_ack_lifecycle(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PRINT_AGENT_TOKEN_WORKSHOP", "leased-agent-token")
+    user, product = _user_product(db)
+    created = _json(
+        services.labels_create_batch(
+            RequestStub(payload=_create_payload(product.id, "lifecycle-1")),
+            user=user,
+            db=db,
+        )
+    )
+    job_id = created["items"][0]["id"]
+
+    claim = _json(
+        services.api_print_jobs_next(
+            station="WORKSHOP",
+            request=RequestStub(headers={"x-agent-token": "leased-agent-token"}),
+            db=db,
+        )
+    )["job"]
+    assert claim["id"] == job_id
+    jobs = services._print_job_rows(db)
+    assert jobs[0]["status"] == "CLAIMED"
+    assert jobs[0]["status_label"] == "PRINTING (CLAIMED)"
+
+    failed = _json(
+        services.api_print_jobs_fail(
+            job_id=job_id,
+            station="WORKSHOP",
+            request=RequestStub(
+                headers={
+                    "x-agent-token": "leased-agent-token",
+                    "x-print-claim-token": claim["claim_token"],
+                }
+            ),
+            error_message="HPRT_PRINTER_NOT_FOUND",
+            db=db,
+        )
+    )
+    assert failed["status"] == "ERROR"
+    assert services._print_job_rows(db)[0]["error_reason"] == "HPRT_PRINTER_NOT_FOUND"
+
+    retried = _json(services.labels_job_retry(job_id=job_id, user=user, db=db))
+    assert retried["status"] == "QUEUED"
+    assert services._print_job_rows(db)[0]["error_reason"] == ""
+
+    cancelled = _json(services.labels_job_cancel(job_id=job_id, user=user, db=db))
+    assert cancelled["status"] == "CANCELLED"
+    assert services._print_job_rows(db)[0]["can_retry"] is True
+
+
+def test_legacy_protocol_is_deprecated_and_cannot_override_active_claim(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PRINT_AGENT_TOKEN_WORKSHOP", "leased-agent-token")
+    user, product = _user_product(db)
+    today = date(2026, 8, 27)
+    lot = ProductLot(
+        product_id=product.id,
+        station="WORKSHOP",
+        quantity_labels=1,
+        production_date=today,
+        expiry_date=today + timedelta(days=3),
+        lot_code="LEGACY-GUARD",
+        status="QUEUED",
+        created_by_user_id=user.id,
+    )
+    db.add(lot)
+    db.commit()
+
+    legacy = services.labels_queue(
+        station="WORKSHOP",
+        request=RequestStub(headers={"x-agent-token": "leased-agent-token"}),
+        db=db,
+    )
+    assert legacy.headers["deprecation"] == "true"
+    assert "unleased" in legacy.headers["warning"]
+
+    claim = _json(
+        services.api_print_jobs_next(
+            station="WORKSHOP",
+            request=RequestStub(headers={"x-agent-token": "leased-agent-token"}),
+            db=db,
+        )
+    )["job"]
+    with pytest.raises(HTTPException) as blocked:
+        services.labels_done(
+            RequestStub(
+                payload={"id": lot.id, "station": "WORKSHOP", "token": "leased-agent-token"}
+            ),
+            db=db,
+        )
+    assert blocked.value.status_code == 409
+    assert db.get(ProductLot, lot.id).status == "CLAIMED"
+
+    done = _json(
+        services.api_print_jobs_done(
+            job_id=lot.id,
+            station="WORKSHOP",
+            request=RequestStub(
+                headers={
+                    "x-agent-token": "leased-agent-token",
+                    "x-print-claim-token": claim["claim_token"],
+                }
+            ),
+            db=db,
+        )
+    )
+    assert done["status"] == "PRINTED"
+    assert db.get(AppFlag, services._print_error_key(lot.id)) is None
+
+
+def test_current_hprt_agent_uses_only_leased_claim_endpoints() -> None:
+    # Keep this evidence check independent from runtime configuration.
+    text = (ROOT / "scripts/windows/hprt-warehouse-agent/WarehouseHprtAgent.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+    assert "/api/print-jobs/next?station=" in text
+    assert "/api/print-jobs/{1}/done?station=" in text
+    assert "/api/print-jobs/{1}/fail?station=" in text
+    assert "x-print-claim-token" in text
+    assert "/api/print-jobs/next-batch" not in text
+    assert "/labels/queue" not in text
+
+
+def test_print_center_reports_queue_state_and_prevents_double_submit() -> None:
+    center = (ROOT / "app/templates/labels_center.html").read_text(encoding="utf-8")
+    stock = (ROOT / "app/templates/stock.html").read_text(encoding="utf-8")
+
+    assert "Print Queue · πραγματική κατάσταση agent" in center
+    assert "PRINTING (CLAIMED)" in (ROOT / "app/services.py").read_text(encoding="utf-8")
+    assert "error_reason" in center
+    assert "request_id: pendingPrintRequestId" in center
+    assert "if (printBatchBtn.disabled) return" in center
+    assert "Μπήκε στην ουρά" in center
+    assert "Μπήκε στην ουρά" in stock
+    assert "Στάλθηκαν" not in stock

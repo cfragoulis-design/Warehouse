@@ -258,6 +258,66 @@ def _require_print_claim(lot: ProductLot, request: Request) -> None:
     ):
         raise HTTPException(status_code=409, detail='Print claim is stale')
 
+
+def _print_error_key(job_id: int) -> str:
+    return f"print_error:{int(job_id)}"
+
+
+def _set_print_error(db: Session, job_id: int, reason: str | None) -> None:
+    key = _print_error_key(job_id)
+    flag = db.get(AppFlag, key)
+    clean = (reason or "Unknown print error").strip()[:255]
+    if flag is None:
+        db.add(AppFlag(key=key, bool_value=True, note=clean))
+    else:
+        flag.bool_value = True
+        flag.note = clean
+
+
+def _clear_print_error(db: Session, job_id: int) -> None:
+    flag = db.get(AppFlag, _print_error_key(job_id))
+    if flag is not None:
+        db.delete(flag)
+
+
+def _print_job_rows(db: Session, *, limit: int = 100) -> list[dict]:
+    rows = (
+        db.query(ProductLot, Product)
+        .join(Product, Product.id == ProductLot.product_id)
+        .order_by(ProductLot.created_at.desc(), ProductLot.id.desc())
+        .limit(max(1, min(limit, 200)))
+        .all()
+    )
+    error_keys = [_print_error_key(lot.id) for lot, _product in rows]
+    error_flags = {
+        flag.key: flag.note or ""
+        for flag in db.query(AppFlag).filter(AppFlag.key.in_(error_keys)).all()
+    } if error_keys else {}
+    return [
+        {
+            "id": lot.id,
+            "batch_ref": lot.batch_ref or "",
+            "product_name": product.name,
+            "sku": product.sku or "",
+            "copies": int(float(lot.quantity_labels or 0)),
+            "station": lot.station,
+            "status": lot.status,
+            "status_label": "PRINTING (CLAIMED)" if lot.status == "CLAIMED" else lot.status,
+            "error_reason": error_flags.get(_print_error_key(lot.id), ""),
+            "created_at": lot.created_at.isoformat() if lot.created_at else "",
+            "can_retry": lot.status in {"ERROR", "CANCELLED"},
+            "can_cancel": lot.status == "QUEUED",
+        }
+        for lot, product in rows
+    ]
+
+
+def _legacy_print_response(payload) -> JSONResponse:
+    response = JSONResponse(payload)
+    response.headers["Deprecation"] = "true"
+    response.headers["Warning"] = '299 - "Legacy unleased print protocol; migrate to /api/print-jobs/next"'
+    return response
+
 # --------------------
 # data helpers
 # --------------------
@@ -986,6 +1046,7 @@ def labels_center(
             "user": user,
             "products": products,
             "products_json": json.dumps(products, ensure_ascii=False),
+            "print_jobs_json": json.dumps(_print_job_rows(db), ensure_ascii=False),
             "default_station": default_station,
             "hprt_agent_download_url": hprt_agent_download_url,
             "hprt_agent_download_label": hprt_agent_download_label,
@@ -997,6 +1058,58 @@ def labels_center(
             ),
         },
     )
+
+
+@router.get("/admin/labels/jobs", response_class=JSONResponse)
+def labels_jobs(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop"}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return JSONResponse({"ok": True, "jobs": _print_job_rows(db)})
+
+
+@router.post("/admin/labels/jobs/{job_id}/retry", response_class=JSONResponse)
+def labels_job_retry(
+    job_id: int,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop"}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    lot = db.get(ProductLot, job_id)
+    if lot is None:
+        raise HTTPException(status_code=404, detail="Print job not found")
+    if lot.status not in {"ERROR", "CANCELLED"}:
+        raise HTTPException(status_code=409, detail="Only failed or cancelled jobs can be retried")
+    lot.status = "QUEUED"
+    lot.claim_token_hash = None
+    lot.claim_expires_at = None
+    _clear_print_error(db, lot.id)
+    db.commit()
+    return JSONResponse({"ok": True, "id": lot.id, "status": lot.status, "message": "Μπήκε ξανά στην ουρά."})
+
+
+@router.post("/admin/labels/jobs/{job_id}/cancel", response_class=JSONResponse)
+def labels_job_cancel(
+    job_id: int,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop"}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    lot = db.get(ProductLot, job_id)
+    if lot is None:
+        raise HTTPException(status_code=404, detail="Print job not found")
+    if lot.status != "QUEUED":
+        raise HTTPException(status_code=409, detail="Only queued jobs can be cancelled safely")
+    lot.status = "CANCELLED"
+    lot.claim_token_hash = None
+    lot.claim_expires_at = None
+    _set_print_error(db, lot.id, "Cancelled by user before agent claim")
+    db.commit()
+    return JSONResponse({"ok": True, "id": lot.id, "status": lot.status})
 
 
 @router.post("/admin/labels/create-batch", response_class=JSONResponse)
@@ -1025,27 +1138,63 @@ def labels_create_batch(
     if not isinstance(items, list) or not items:
         raise HTTPException(status_code=400, detail="No batch items provided")
 
-    batch_ref = f"LB-{uuid4().hex[:10].upper()}"
-    created = []
+    request_id = (str(payload.get("request_id") or "")).strip()
+    if request_id and (len(request_id) > 128 or not all(ch.isalnum() or ch in "-_" for ch in request_id)):
+        raise HTTPException(status_code=400, detail="Invalid request_id")
+    batch_ref = (
+        f"LB-{hashlib.sha256(request_id.encode('utf-8')).hexdigest()[:20].upper()}"
+        if request_id
+        else f"LB-{uuid4().hex[:20].upper()}"
+    )
+    if request_id:
+        acquire_transaction_lock(db, "label-batch-request", batch_ref)
+    existing = (
+        db.query(ProductLot, Product)
+        .join(Product, Product.id == ProductLot.product_id)
+        .filter(ProductLot.batch_ref == batch_ref)
+        .order_by(ProductLot.id.asc())
+        .all()
+    )
+    if existing:
+        return JSONResponse({
+            "ok": True,
+            "duplicate": True,
+            "message": "Το ίδιο αίτημα υπάρχει ήδη στην ουρά.",
+            "batch_ref": batch_ref,
+            "created_count": len(existing),
+            "items": [_sr_job_payload(lot, product) for lot, product in existing],
+            "station": station_norm,
+            "label_profile": label_profile,
+        })
+
+    pending_lots: list[tuple[ProductLot, Product, dict]] = []
+    validation_errors: list[dict] = []
+    reserved_lot_codes: set[str] = set()
     today = _today_athens()
 
-    for raw in items:
+    for index, raw in enumerate(items):
         if not isinstance(raw, dict):
+            validation_errors.append({"index": index, "error": "Item must be an object"})
             continue
         try:
             product_id = int(raw.get("product_id") or 0)
             copies = int(raw.get("copies") or 0)
         except (TypeError, ValueError):
+            validation_errors.append({"index": index, "error": "Invalid product or copies"})
             continue
         if product_id <= 0 or copies <= 0 or copies > 50:
+            validation_errors.append({"index": index, "product_id": product_id, "error": "Copies must be from 1 to 50"})
             continue
 
         product = db.get(Product, product_id)
         if not product:
+            validation_errors.append({"index": index, "product_id": product_id, "error": "Product not found"})
             continue
         if not product.is_active or product.only_in_freezer:
+            validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": "Product is not eligible for labels"})
             continue
         if int(product.shelf_life_days or 0) <= 0:
+            validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": "Shelf life is missing"})
             continue
 
         production_date = today
@@ -1054,10 +1203,15 @@ def labels_create_batch(
         source_lot_code = (str(raw.get("source_lot_code") or "")).strip()[:96]
         label_origin_override = (str(raw.get("label_origin_override") or "")).strip()[:255]
         lot_code = lot_code_raw or _build_lot_code(product, station_norm, production_date, db)
-
-        exists_same = db.query(ProductLot.id).filter(ProductLot.lot_code == lot_code).first()
-        if exists_same:
-            lot_code = _build_lot_code(product, station_norm, production_date, db)
+        if lot_code_raw and (
+            lot_code in reserved_lot_codes
+            or db.query(ProductLot.id).filter(ProductLot.lot_code == lot_code).first()
+        ):
+            validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": "Lot code already exists"})
+            continue
+        while lot_code in reserved_lot_codes or db.query(ProductLot.id).filter(ProductLot.lot_code == lot_code).first():
+            lot_code = f"{_product_code_for_lot(product)}-{production_date.strftime('%y%m%d')}-W-{uuid4().hex[:6].upper()}"
+        reserved_lot_codes.add(lot_code)
 
         lot = ProductLot(
             product_id=product.id,
@@ -1072,12 +1226,12 @@ def labels_create_batch(
             source_lot_code=source_lot_code or None,
             label_origin_override=label_origin_override or None,
         )
-        if hasattr(lot, "batch_ref"):
-            lot.batch_ref = batch_ref
+        lot.batch_ref = batch_ref
         try:
             render_payload = build_label_payload(product, lot, profile=label_profile)
         except LabelValidationError as exc:
-            raise HTTPException(status_code=400, detail=f"{product.name}: {exc}") from exc
+            validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": str(exc)})
+            continue
         lot.label_payload_json = json.dumps(
             render_payload,
             ensure_ascii=False,
@@ -1085,30 +1239,28 @@ def labels_create_batch(
             sort_keys=True,
         )
 
-        db.add(lot)
-        db.flush()
+        pending_lots.append((lot, product, render_payload))
 
-        created.append({
-            "id": lot.id,
-            "product_id": product.id,
-            "product_name": product.name,
-            "copies": copies,
-            "lot_code": lot.lot_code,
-            "production_date": _fmt_label_date(lot.production_date),
-            "expiry_date": _fmt_label_date(lot.expiry_date),
-            "shelf_life_days": int(product.shelf_life_days or 0),
-            "label_template": product.label_template or "",
-            "label_profile": label_profile,
-            "source_lot_code": source_lot_code,
-            "label_origin_override": label_origin_override,
-            "render_payload": render_payload,
-        })
-
-    if not created:
+    if validation_errors:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Κάποια items δεν είναι έγκυρα.", "items": validation_errors},
+        )
+    if not pending_lots:
         raise HTTPException(status_code=400, detail="No valid label items were created")
 
+    db.add_all([lot for lot, _product, _payload in pending_lots])
+    db.flush()
+    created = [
+        {
+            **_sr_job_payload(lot, product),
+            "render_payload": render_payload,
+        }
+        for lot, product, render_payload in pending_lots
+    ]
+
     db.commit()
-    return JSONResponse({"ok": True, "batch_ref": batch_ref, "created_count": len(created), "items": created, "station": station_norm, "label_profile": label_profile})
+    return JSONResponse({"ok": True, "duplicate": False, "message": "Μπήκε στην ουρά.", "batch_ref": batch_ref, "created_count": len(created), "items": created, "station": station_norm, "label_profile": label_profile})
 
 
 @router.get("/api/print-jobs/next-batch", response_class=JSONResponse)
@@ -1130,7 +1282,7 @@ def api_print_jobs_next_batch(
         .first()
     )
     if not first_row:
-        return JSONResponse({'batch': None})
+        return _legacy_print_response({'batch': None})
 
     batch_ref = getattr(first_row, 'batch_ref', None) or ''
     q = (
@@ -1143,7 +1295,7 @@ def api_print_jobs_next_batch(
     else:
         q = q.filter(ProductLot.id == first_row.id)
     rows = q.order_by(ProductLot.created_at.asc(), ProductLot.id.asc()).all()
-    return JSONResponse({
+    return _legacy_print_response({
         'batch': {
             'batch_ref': batch_ref,
             'station': station_norm,
@@ -1173,12 +1325,12 @@ def api_print_jobs_batch_done(
             lot = db.get(ProductLot, int(raw_id))
         except Exception:
             lot = None
-        if not lot or lot.station != station_norm:
+        if not lot or lot.station != station_norm or lot.status != "QUEUED":
             continue
         lot.status = "PRINTED"
         done.append(lot.id)
     db.commit()
-    return JSONResponse({"ok": True, "station": station_norm, "done_ids": done})
+    return _legacy_print_response({"ok": True, "station": station_norm, "done_ids": done})
 
 
 
@@ -1220,7 +1372,7 @@ def labels_queue(
             'storage_text': getattr(product, 'storage_text', None) or '',
             'label_template': getattr(product, 'label_template', None) or 'default.btw',
         })
-    return JSONResponse(out)
+    return _legacy_print_response(out)
 
 
 @router.post("/labels/done", response_class=JSONResponse)
@@ -1251,9 +1403,13 @@ def labels_done(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail='Station mismatch')
     _validate_agent_token(station_norm, token)
 
+    if lot.status != 'QUEUED':
+        raise HTTPException(status_code=409, detail='Legacy acknowledgement cannot override a leased or terminal job')
+
     lot.status = 'PRINTED'
+    _clear_print_error(db, lot.id)
     db.commit()
-    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
+    return _legacy_print_response({'ok': True, 'id': lot.id, 'status': lot.status})
 
 
 @router.post("/labels/error", response_class=JSONResponse)
@@ -1284,9 +1440,13 @@ def labels_error(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail='Station mismatch')
     _validate_agent_token(station_norm, token)
 
+    if lot.status != 'QUEUED':
+        raise HTTPException(status_code=409, detail='Legacy acknowledgement cannot override a leased or terminal job')
+
     lot.status = 'ERROR'
+    _set_print_error(db, lot.id, payload.get('error_message') or 'Legacy agent print error')
     db.commit()
-    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
+    return _legacy_print_response({'ok': True, 'id': lot.id, 'status': lot.status})
 
 
 
@@ -1334,6 +1494,7 @@ def api_print_jobs_next(
     lot.status = 'CLAIMED'
     lot.claim_token_hash = _claim_token_hash(claim_token)
     lot.claim_expires_at = claim_expires_at
+    _clear_print_error(db, lot.id)
     db.commit()
     job = _sr_job_payload(lot, product)
     job.update({
@@ -1368,6 +1529,7 @@ def api_print_jobs_done(
     lot.status = 'PRINTED'
     lot.claim_token_hash = None
     lot.claim_expires_at = None
+    _clear_print_error(db, lot.id)
     db.commit()
     return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
 
@@ -1394,8 +1556,10 @@ def api_print_jobs_fail(
     lot.status = 'ERROR'
     lot.claim_token_hash = None
     lot.claim_expires_at = None
+    error_clean = (error_message or 'Unknown print error').strip()[:255]
+    _set_print_error(db, lot.id, error_clean)
     db.commit()
-    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status, 'error_message': (error_message or '')[:500]})
+    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status, 'error_message': error_clean})
 
 
 @router.post("/api/print-agent/labels", response_class=JSONResponse)
