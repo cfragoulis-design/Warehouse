@@ -150,8 +150,8 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script>
-const PRODUCTS = {{ products_json | safe }};
-let PRINT_JOBS = {{ print_jobs_json | safe }};
+const PRODUCTS = {{ products | tojson }};
+let PRINT_JOBS = {{ print_jobs | tojson }};
 const productsBody = document.getElementById('productsBody');
 const batchRows = document.getElementById('batchRows');
 const emptyBatch = document.getElementById('emptyBatch');
@@ -166,6 +166,26 @@ const printJobsBody = document.getElementById('printJobsBody');
 const printBatchBtn = document.getElementById('printBatchBtn');
 const batch = [];
 let pendingPrintRequestId = null;
+
+function textElement(tag, className, value){
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  element.textContent = value == null ? '' : String(value);
+  return element;
+}
+
+function appendInputCell(row, value, key, options={}){
+  const cell = document.createElement('div');
+  const input = document.createElement('input');
+  input.type = options.type || 'text';
+  if (options.min != null) input.min = String(options.min);
+  if (options.step != null) input.step = String(options.step);
+  input.value = value == null ? '' : String(value);
+  input.dataset.k = key;
+  input.disabled = Boolean(options.disabled);
+  cell.appendChild(input);
+  row.appendChild(cell);
+}
 
 function showToast(message, kind='ok'){
   toast.textContent = message;
@@ -232,26 +252,53 @@ function renderProducts(){
     const tr = document.createElement('tr');
     const storage = product.storage_text ? product.storage_text : '—';
     const ready = product.distribution_ready;
-    const missing = product.distribution_missing;
-    const readiness = ready
-      ? '<span class="ready">✓ Έτοιμο</span>'
-      : `<span class="notReady" title="${missing.join(', ')}">Λείπουν: ${missing.join(', ')}</span>`;
-    tr.innerHTML = `
-      <td><div class="prod">${product.name}</div><div class="muted">${product.sku || ''}</div></td>
-      <td>${product.category || 'Διάφορα'}</td>
-      <td>${readiness}</td>
-      <td>${product.shelf_life_days} days</td>
-      <td class="muted">${storage}</td>
-      <td>
-        <div class="qtyBox">
-          <input type="number" min="1" step="1" value="1" data-qty-for="${product.id}">
-        </div>
-      </td>
-      <td>${ready
-        ? `<button class="btnMini primary" data-add="${product.id}">Add</button>`
-        : `<button class="btnMini" data-complete="${product.id}" title="Λείπουν: ${missing.join(', ')}">Συμπλήρωση στοιχείων</button>`
-      }</td>
-    `;
+    const missing = Array.isArray(product.distribution_missing) ? product.distribution_missing : [];
+
+    const productCell = document.createElement('td');
+    productCell.appendChild(textElement('div', 'prod', product.name));
+    productCell.appendChild(textElement('div', 'muted', product.sku || ''));
+    tr.appendChild(productCell);
+    tr.appendChild(textElement('td', '', product.category || 'Διάφορα'));
+
+    const readinessCell = document.createElement('td');
+    const readiness = textElement(
+      'span',
+      ready ? 'ready' : 'notReady',
+      ready ? '✓ Έτοιμο' : `Λείπουν: ${missing.join(', ')}`
+    );
+    if (!ready) readiness.title = missing.join(', ');
+    readinessCell.appendChild(readiness);
+    tr.appendChild(readinessCell);
+    tr.appendChild(textElement('td', '', `${product.shelf_life_days} days`));
+    tr.appendChild(textElement('td', 'muted', storage));
+
+    const quantityCell = document.createElement('td');
+    const quantityBox = document.createElement('div');
+    quantityBox.className = 'qtyBox';
+    const quantityInput = document.createElement('input');
+    quantityInput.type = 'number';
+    quantityInput.min = '1';
+    quantityInput.step = '1';
+    quantityInput.value = '1';
+    quantityInput.dataset.qtyFor = String(product.id);
+    quantityBox.appendChild(quantityInput);
+    quantityCell.appendChild(quantityBox);
+    tr.appendChild(quantityCell);
+
+    const actionCell = document.createElement('td');
+    const actionButton = textElement(
+      'button',
+      ready ? 'btnMini primary' : 'btnMini',
+      ready ? 'Add' : 'Συμπλήρωση στοιχείων'
+    );
+    actionButton.type = 'button';
+    if (ready) actionButton.dataset.add = String(product.id);
+    else {
+      actionButton.dataset.complete = String(product.id);
+      actionButton.title = `Λείπουν: ${missing.join(', ')}`;
+    }
+    actionCell.appendChild(actionButton);
+    tr.appendChild(actionCell);
     productsBody.appendChild(tr);
   });
 
@@ -301,16 +348,22 @@ function renderBatch(){
   batch.forEach(item => {
     const row = document.createElement('div');
     row.className = 'row';
-    row.innerHTML = `
-      <div><div class="prod">${item.name}</div><div class="muted">${item.sku}</div></div>
-      <div><input type="number" min="1" step="1" value="${item.copies}" data-k="copies"></div>
-      <div><input type="text" value="${item.source_lot_code || ''}" data-k="source_lot_code"></div>
-      <div><input type="text" value="${item.label_origin_override || ''}" data-k="label_origin_override"></div>
-      <div><input type="text" value="${item.lot_code}" data-k="lot_code"></div>
-      <div><input type="text" value="${item.production_date}" data-k="production_date" disabled></div>
-      <div><input type="text" value="${item.expiry_date}" data-k="expiry_date" disabled></div>
-      <div><button class="btnMini danger" data-remove="${item.uid}">✕</button></div>
-    `;
+    const productCell = document.createElement('div');
+    productCell.appendChild(textElement('div', 'prod', item.name));
+    productCell.appendChild(textElement('div', 'muted', item.sku));
+    row.appendChild(productCell);
+    appendInputCell(row, item.copies, 'copies', {type:'number', min:1, step:1});
+    appendInputCell(row, item.source_lot_code || '', 'source_lot_code');
+    appendInputCell(row, item.label_origin_override || '', 'label_origin_override');
+    appendInputCell(row, item.lot_code, 'lot_code');
+    appendInputCell(row, item.production_date, 'production_date', {disabled:true});
+    appendInputCell(row, item.expiry_date, 'expiry_date', {disabled:true});
+    const removeCell = document.createElement('div');
+    const removeButton = textElement('button', 'btnMini danger', '✕');
+    removeButton.type = 'button';
+    removeButton.dataset.remove = String(item.uid);
+    removeCell.appendChild(removeButton);
+    row.appendChild(removeCell);
     batchRows.appendChild(row);
 
     row.querySelectorAll('input[data-k]').forEach(input => {
@@ -355,10 +408,47 @@ function detailMessage(detail){
 
 function renderPrintJobs(){
   printJobsBody.innerHTML = '';
-  if (!PRINT_JOBS.length){ printJobsBody.innerHTML = '<tr><td colspan="7" class="empty">Η ουρά είναι κενή.</td></tr>'; return; }
+  if (!PRINT_JOBS.length){
+    const emptyRow = document.createElement('tr');
+    const emptyCell = textElement('td', 'empty', 'Η ουρά είναι κενή.');
+    emptyCell.colSpan = 7;
+    emptyRow.appendChild(emptyCell);
+    printJobsBody.appendChild(emptyRow);
+    return;
+  }
   PRINT_JOBS.forEach(job => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td><b>#${job.id}</b><div class="muted">${job.batch_ref || ''}</div></td><td><div class="prod">${job.product_name}</div><div class="muted">${job.sku || ''}</div></td><td>${job.copies}</td><td><span class="status ${job.status}">${job.status_label}</span></td><td class="errorReason">${job.error_reason || ''}</td><td class="muted">${job.created_at || ''}</td><td><div class="jobActions">${job.can_retry ? `<button class="btnMini" data-retry="${job.id}">Retry</button>` : ''}${job.can_cancel ? `<button class="btnMini danger" data-cancel="${job.id}">Cancel</button>` : ''}</div></td>`;
+    const idCell = document.createElement('td');
+    idCell.appendChild(textElement('b', '', `#${job.id}`));
+    idCell.appendChild(textElement('div', 'muted', job.batch_ref || ''));
+    tr.appendChild(idCell);
+    const productCell = document.createElement('td');
+    productCell.appendChild(textElement('div', 'prod', job.product_name));
+    productCell.appendChild(textElement('div', 'muted', job.sku || ''));
+    tr.appendChild(productCell);
+    tr.appendChild(textElement('td', '', job.copies));
+    const statusCell = document.createElement('td');
+    statusCell.appendChild(textElement('span', `status ${job.status || ''}`, job.status_label));
+    tr.appendChild(statusCell);
+    tr.appendChild(textElement('td', 'errorReason', job.error_reason || ''));
+    tr.appendChild(textElement('td', 'muted', job.created_at || ''));
+    const actionsCell = document.createElement('td');
+    const actions = document.createElement('div');
+    actions.className = 'jobActions';
+    if (job.can_retry){
+      const retryButton = textElement('button', 'btnMini', 'Retry');
+      retryButton.type = 'button';
+      retryButton.dataset.retry = String(job.id);
+      actions.appendChild(retryButton);
+    }
+    if (job.can_cancel){
+      const cancelButton = textElement('button', 'btnMini danger', 'Cancel');
+      cancelButton.type = 'button';
+      cancelButton.dataset.cancel = String(job.id);
+      actions.appendChild(cancelButton);
+    }
+    actionsCell.appendChild(actions);
+    tr.appendChild(actionsCell);
     printJobsBody.appendChild(tr);
   });
   printJobsBody.querySelectorAll('[data-retry],[data-cancel]').forEach(button => button.addEventListener('click', async () => {
