@@ -26,6 +26,17 @@ router = APIRouter()
 templates = WarehouseJinja2Templates(directory="app/templates")
 
 
+def _optional_label_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _optional_label_flag(value: object) -> bool:
+    return _truthy_flag(value) if isinstance(value, str) else False
+
+
 def require_admin(user: User = Depends(require_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
@@ -120,6 +131,14 @@ def product_create(
     shelf_life_days: str = Form("0"),
     storage_text: str | None = Form(None),
     label_template: str | None = Form(None),
+    label_legal_name: str | None = Form(None),
+    label_ingredients: str | None = Form(None),
+    label_allergens: str | None = Form(None),
+    label_origin: str | None = Form(None),
+    label_usage_instructions: str | None = Form(None),
+    label_nutrition: str | None = Form(None),
+    label_single_ingredient: str | None = Form(None),
+    label_nutrition_exempt: str | None = Form(None),
 ):
     minimum_stock = parse_qty(min_stock) or Decimal("0")
     product = Product(
@@ -133,6 +152,14 @@ def product_create(
         shelf_life_days=int(parse_qty(shelf_life_days) or 0),
         storage_text=storage_text.strip() if storage_text else None,
         label_template=label_template.strip() if label_template else None,
+        label_legal_name=_optional_label_text(label_legal_name),
+        label_ingredients=_optional_label_text(label_ingredients),
+        label_allergens=_optional_label_text(label_allergens),
+        label_origin=_optional_label_text(label_origin),
+        label_usage_instructions=_optional_label_text(label_usage_instructions),
+        label_nutrition=_optional_label_text(label_nutrition),
+        label_single_ingredient=_optional_label_flag(label_single_ingredient),
+        label_nutrition_exempt=_optional_label_flag(label_nutrition_exempt),
     )
     db.add(product)
     try:
@@ -181,6 +208,14 @@ def product_update(
     shelf_life_days: str = Form("0"),
     storage_text: str | None = Form(None),
     label_template: str | None = Form(None),
+    label_legal_name: str | None = Form(None),
+    label_ingredients: str | None = Form(None),
+    label_allergens: str | None = Form(None),
+    label_origin: str | None = Form(None),
+    label_usage_instructions: str | None = Form(None),
+    label_nutrition: str | None = Form(None),
+    label_single_ingredient: str | None = Form(None),
+    label_nutrition_exempt: str | None = Form(None),
 ):
     product = db.get(Product, pid)
     if product is None:
@@ -197,6 +232,14 @@ def product_update(
     product.shelf_life_days = int(parse_qty(shelf_life_days) or 0)
     product.storage_text = storage_text.strip() if storage_text else None
     product.label_template = label_template.strip() if label_template else None
+    product.label_legal_name = _optional_label_text(label_legal_name)
+    product.label_ingredients = _optional_label_text(label_ingredients)
+    product.label_allergens = _optional_label_text(label_allergens)
+    product.label_origin = _optional_label_text(label_origin)
+    product.label_usage_instructions = _optional_label_text(label_usage_instructions)
+    product.label_nutrition = _optional_label_text(label_nutrition)
+    product.label_single_ingredient = _optional_label_flag(label_single_ingredient)
+    product.label_nutrition_exempt = _optional_label_flag(label_nutrition_exempt)
     try:
         db.commit()
     except IntegrityError:

@@ -487,13 +487,20 @@ def test_label_queue_enforces_token_station_and_terminal_status(
         ),
         db=db,
     )
-    assert _json(next_response)["job"]["id"] == central_job.id
+    assert next_response.headers["content-type"] == "application/json; charset=utf-8"
+    claimed_job = _json(next_response)["job"]
+    assert claimed_job["id"] == central_job.id
+    assert claimed_job["target_station"] == "CENTRAL"
+    assert claimed_job["claim_token"]
 
     done = services.api_print_jobs_done(
         job_id=central_job.id,
         station="CENTRAL",
         request=RequestStub(
-            headers={"x-agent-token": "central-agent-token"}
+            headers={
+                "x-agent-token": "central-agent-token",
+                "x-print-claim-token": claimed_job["claim_token"],
+            }
         ),
         db=db,
     )
@@ -511,11 +518,19 @@ def test_label_queue_enforces_token_station_and_terminal_status(
         )
     assert wrong_station.value.status_code == 400
 
+    workshop_claim = _json(services.api_print_jobs_next(
+        station="WORKSHOP",
+        request=RequestStub(headers={"x-agent-token": "workshop-agent-token"}),
+        db=db,
+    ))["job"]
     failed = services.api_print_jobs_fail(
         job_id=workshop_job.id,
         station="WORKSHOP",
         request=RequestStub(
-            headers={"x-agent-token": "workshop-agent-token"}
+            headers={
+                "x-agent-token": "workshop-agent-token",
+                "x-print-claim-token": workshop_claim["claim_token"],
+            }
         ),
         error_message="offline",
         db=db,

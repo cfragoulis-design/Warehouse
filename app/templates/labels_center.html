@@ -22,6 +22,8 @@
     .toolbar button{cursor:pointer;font-weight:800}
     .toolbar .primary{background:var(--blue);border-color:rgba(47,124,246,.7);color:#fff}
     .toolbar .ghost{background:rgba(11,16,32,.45)}
+    .toolbar .download{padding:10px 12px;border-radius:12px;border:1px solid rgba(47,124,246,.7);background:rgba(47,124,246,.16);color:#b9d3ff;font-size:13px;font-weight:900}
+    .stationBadge{padding:10px 12px;border-radius:12px;border:1px solid rgba(46,204,113,.45);background:rgba(46,204,113,.1);color:#9cf0bf;font-size:12px;font-weight:900;letter-spacing:.04em}
     .layout{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
     .card{background:rgba(17,25,54,.75);border:1px solid rgba(36,48,85,.75);border-radius:16px;box-shadow:0 12px 45px rgba(0,0,0,.35);overflow:hidden}
     .card h2{margin:0;padding:14px 16px;border-bottom:1px solid rgba(36,48,85,.75);background:rgba(15,22,45,.55);font-size:16px}
@@ -38,7 +40,7 @@
     .btnMini.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45);color:#8ab4ff}
     .btnMini.danger{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.45);color:#ffb2b2}
     .panel{padding:14px 16px}
-    .row{display:grid;grid-template-columns:1fr 92px 110px 100px 112px 112px 120px 92px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(36,48,85,.45)}
+    .row{display:grid;grid-template-columns:1.2fr 72px 130px 120px 115px 104px 104px 54px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(36,48,85,.45)}
     .row.header{font-size:12px;color:#c9d1ea;font-weight:800}
     .row input,.row select{width:100%;background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:8px 10px;border-radius:10px}
     .empty{padding:18px;color:var(--muted)}
@@ -46,7 +48,11 @@
     .toast{position:fixed;right:16px;bottom:16px;z-index:9999;min-width:220px;max-width:420px;padding:10px 12px;border-radius:12px;border:1px solid rgba(36,48,85,.9);background:rgba(15,22,45,.96);display:none}
     .toast.ok{border-color:rgba(46,204,113,.55);color:#d8ffe9}
     .toast.err{border-color:rgba(255,107,107,.55);color:#ffd2d2}
-    @media (max-width: 1200px){.layout{grid-template-columns:1fr}.tableWrap{max-height:none}.row{grid-template-columns:1.3fr 80px 100px 90px 108px 108px 110px 88px}}
+    .ready{color:#79e6ae}.notReady{color:#ffb2b2}
+    .legalNotice{margin:0 0 14px;padding:11px 13px;border-radius:12px;border:1px solid rgba(202,162,74,.45);background:rgba(202,162,74,.1);color:#ffe6a8;font-size:13px}
+    .creator{padding:18px 4px 0;display:flex;justify-content:flex-end}
+    .creator img{width:108px;height:108px;object-fit:contain;border-radius:12px}
+    @media (max-width: 1200px){.layout{grid-template-columns:1fr}.tableWrap{max-height:none}.panel{overflow:auto}.row{min-width:1180px}}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
@@ -54,7 +60,7 @@
   <div class="top wrap" style="padding-bottom:10px">
     <div>
       <div class="brand">Label Center</div>
-      <div class="sub">Batch labels • shelf life auto • queue ready</div>
+      <div class="sub">Μία πλήρης ετικέτα 50×70 • εσωτερική ιχνηλασιμότητα + διάθεση προϊόντος</div>
     </div>
     <div class="nav">
       <span id="app-datetime" class="app-datetime"></span>
@@ -71,14 +77,16 @@
       <select id="categoryFilter">
         <option value="">Όλες οι κατηγορίες</option>
       </select>
-      <select id="stationSelect">
-        <option value="CENTRAL" {% if default_station == "CENTRAL" %}selected{% endif %}>CENTRAL</option>
-        <option value="WORKSHOP" {% if default_station == "WORKSHOP" %}selected{% endif %}>WORKSHOP</option>
-      </select>
-      <input id="extraCodeDefault" type="text" placeholder="Extra code π.χ. PE 620" />
+      <div class="stationBadge">HPRT · ΕΝΙΑΙΑ 50×70 · WORKSHOP</div>
+      <input id="sourceLotDefault" type="text" placeholder="Παρτίδα προμηθευτή (προαιρετικά)" />
       <button id="clearBatchBtn" class="ghost">Clear batch</button>
       <button id="printBatchBtn" class="primary">🖨 Print Batch</button>
+      <a class="download" href="{{ hprt_agent_download_url }}">{{ hprt_agent_download_label }}</a>
     </div>
+
+    {% if not business_label_ready %}
+      <div class="legalNotice">Η ενιαία ετικέτα θα παραμείνει κλειδωμένη μέχρι να οριστούν επωνυμία, διεύθυνση και οι αριθμοί έγκρισης μοσχαριού/κοτόπουλου στο Staging.</div>
+    {% endif %}
 
     <div class="layout">
       <div class="card">
@@ -89,7 +97,7 @@
               <tr>
                 <th>Προϊόν</th>
                 <th>Κατηγορία</th>
-                <th>Template</th>
+                <th>Ετοιμότητα</th>
                 <th>Shelf Life</th>
                 <th>Storage</th>
                 <th style="width:150px">Qty labels</th>
@@ -107,11 +115,11 @@
           <div class="row header">
             <div>Προϊόν</div>
             <div>Copies</div>
+            <div>Παρτίδα πηγής</div>
+            <div>Προέλευση</div>
             <div>Lot</div>
-            <div>SL days</div>
             <div>Prod</div>
             <div>Expiry</div>
-            <div>Extra</div>
             <div></div>
           </div>
           <div id="batchRows"></div>
@@ -126,6 +134,7 @@
         </div>
       </div>
     </div>
+    <div class="creator"><img src="/static/branding/cf-logo-stacked-dark.svg" alt="Christos Fragoulis Digital Solutions" /></div>
   </div>
 
   <div id="toast" class="toast"></div>
@@ -139,8 +148,8 @@ const batchCountEl = document.getElementById('batchCount');
 const totalCopiesEl = document.getElementById('totalCopies');
 const searchBox = document.getElementById('searchBox');
 const categoryFilter = document.getElementById('categoryFilter');
-const stationSelect = document.getElementById('stationSelect');
-const extraCodeDefault = document.getElementById('extraCodeDefault');
+const LABEL_PROFILE = 'DISTRIBUTION';
+const sourceLotDefault = document.getElementById('sourceLotDefault');
 const toast = document.getElementById('toast');
 const batch = [];
 
@@ -166,8 +175,7 @@ function yymmdd(d){
 function buildDefaultLot(product){
   const d = new Date();
   const raw = (product.sku || product.name || 'PRD').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0,8) || 'PRD';
-  const st = stationSelect.value === 'CENTRAL' ? 'C' : 'W';
-  return `${raw}-${yymmdd(d)}-${st}`;
+  return `${raw}-${yymmdd(d)}-W`;
 }
 
 function calcExpiry(days){
@@ -209,11 +217,15 @@ function renderProducts(){
   filteredProducts().forEach(product => {
     const tr = document.createElement('tr');
     const storage = product.storage_text ? product.storage_text : '—';
-    const template = product.label_template ? product.label_template : '—';
+    const ready = product.distribution_ready;
+    const missing = product.distribution_missing;
+    const readiness = ready
+      ? '<span class="ready">✓ Έτοιμο</span>'
+      : `<span class="notReady" title="${missing.join(', ')}">Λείπουν: ${missing.join(', ')}</span>`;
     tr.innerHTML = `
       <td><div class="prod">${product.name}</div><div class="muted">${product.sku || ''}</div></td>
       <td>${product.category || 'Διάφορα'}</td>
-      <td><span class="tag">${template}</span></td>
+      <td>${readiness}</td>
       <td>${product.shelf_life_days} days</td>
       <td class="muted">${storage}</td>
       <td>
@@ -221,7 +233,10 @@ function renderProducts(){
           <input type="number" min="1" step="1" value="1" data-qty-for="${product.id}">
         </div>
       </td>
-      <td><button class="btnMini primary" data-add="${product.id}">Add</button></td>
+      <td>${ready
+        ? `<button class="btnMini primary" data-add="${product.id}">Add</button>`
+        : `<button class="btnMini" data-complete="${product.id}" title="Λείπουν: ${missing.join(', ')}">Συμπλήρωση στοιχείων</button>`
+      }</td>
     `;
     productsBody.appendChild(tr);
   });
@@ -241,12 +256,23 @@ function renderProducts(){
         copies,
         shelf_life_days: product.shelf_life_days,
         lot_code: buildDefaultLot(product),
+        source_lot_code: (sourceLotDefault.value || '').trim(),
+        label_origin_override: product.label_metadata?.origin || '',
         production_date: dates.production,
         expiry_date: dates.expiry,
-        extra_code: (extraCodeDefault.value || '').trim(),
       });
       renderBatch();
       showToast(`Προστέθηκε: ${product.name}`);
+    });
+  });
+
+  productsBody.querySelectorAll('[data-complete]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.getAttribute('data-complete'));
+      const product = PRODUCTS.find(p => p.id === id);
+      const missing = product.distribution_missing;
+      showToast(`Λείπουν: ${missing.join(', ')}. Άνοιγμα στοιχείων προϊόντος…`, 'err');
+      setTimeout(() => { window.location.href = `/products/${id}/edit`; }, 500);
     });
   });
 }
@@ -263,11 +289,11 @@ function renderBatch(){
     row.innerHTML = `
       <div><div class="prod">${item.name}</div><div class="muted">${item.sku}</div></div>
       <div><input type="number" min="1" step="1" value="${item.copies}" data-k="copies"></div>
+      <div><input type="text" value="${item.source_lot_code || ''}" data-k="source_lot_code"></div>
+      <div><input type="text" value="${item.label_origin_override || ''}" data-k="label_origin_override"></div>
       <div><input type="text" value="${item.lot_code}" data-k="lot_code"></div>
-      <div><input type="number" min="1" step="1" value="${item.shelf_life_days}" data-k="shelf_life_days"></div>
       <div><input type="text" value="${item.production_date}" data-k="production_date" disabled></div>
       <div><input type="text" value="${item.expiry_date}" data-k="expiry_date" disabled></div>
-      <div><input type="text" value="${item.extra_code || ''}" data-k="extra_code"></div>
       <div><button class="btnMini danger" data-remove="${item.uid}">✕</button></div>
     `;
     batchRows.appendChild(row);
@@ -276,14 +302,7 @@ function renderBatch(){
       input.addEventListener('input', () => {
         const key = input.getAttribute('data-k');
         item[key] = input.type === 'number' ? Number(input.value || 0) : input.value;
-        if (key === 'shelf_life_days') {
-          const dates = calcExpiry(item.shelf_life_days);
-          item.production_date = dates.production;
-          item.expiry_date = dates.expiry;
-          renderBatch();
-        } else {
-          totalCopiesEl.textContent = String(batch.reduce((s, x) => s + Number(x.copies || 0), 0));
-        }
+        totalCopiesEl.textContent = String(batch.reduce((s, x) => s + Number(x.copies || 0), 0));
       });
     });
 
@@ -306,12 +325,14 @@ document.getElementById('printBatchBtn').addEventListener('click', async () => {
     return;
   }
   const payload = {
-    station: stationSelect.value,
+    station: 'WORKSHOP',
+    label_profile: LABEL_PROFILE,
     items: batch.map(x => ({
       product_id: x.product_id,
       copies: Number(x.copies || 0),
       lot_code: (x.lot_code || '').trim(),
-      extra_code: (x.extra_code || '').trim()
+      source_lot_code: (x.source_lot_code || '').trim(),
+      label_origin_override: (x.label_origin_override || '').trim()
     }))
   };
   try {
@@ -332,14 +353,6 @@ document.getElementById('printBatchBtn').addEventListener('click', async () => {
 
 searchBox.addEventListener('input', renderProducts);
 categoryFilter.addEventListener('change', renderProducts);
-stationSelect.addEventListener('change', () => {
-  batch.forEach(item => {
-    const product = PRODUCTS.find(p => p.id === item.product_id);
-    if (product) item.lot_code = buildDefaultLot(product);
-  });
-  renderBatch();
-});
-
 renderCategoryFilter();
 renderProducts();
 renderBatch();

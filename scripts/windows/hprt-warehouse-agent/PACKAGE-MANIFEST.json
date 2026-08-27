@@ -1,0 +1,13 @@
+{
+  "product": "Sklavounos Warehouse HPRT Agent",
+  "version": "1.0.10-staging",
+  "creator": "Christos Fragoulis",
+  "printer": "HPRT LPQ80",
+  "protocol": "TSPL BITMAP",
+  "profiles": [
+    "UNIFIED_50X70"
+  ],
+  "creator_asset": "favicon-64.png",
+  "contains_agent_token": false,
+  "existing_brother_agent_changed": false
+}
