@@ -133,13 +133,13 @@ def test_status_ui_exposes_live_printer_queue_history_and_safe_actions():
 
 
 def test_creator_assets_are_exact_approved_canonical_copies():
-    assert CREATOR_WEB_LOGO.stat().st_size == 1_099
+    assert CREATOR_WEB_LOGO.stat().st_size == 2_013
     assert hashlib.sha256(CREATOR_WEB_LOGO.read_bytes()).hexdigest() == (
-        "efdad8fbd6ce16eeaa221e7aa6dfd07d4b78bbcf7dc7bfb4fc7d2f1c2d6df785"
+        "22f3bebc8e2e6202274db8f19a6338fad1419e998f83d966822ece4e5297439a"
     )
-    assert CREATOR_APP_ICON.stat().st_size == 1_559
+    assert CREATOR_APP_ICON.stat().st_size == 2_499
     assert hashlib.sha256(CREATOR_APP_ICON.read_bytes()).hexdigest() == (
-        "199b2fd197afd90dd2610aa7d002da97f6cfc7d17bc5e511ad1c609a8678360f"
+        "c27340bd9f74df29d12c3f52e6294e975fafb0774c317ea90043c61a1b5cb99a"
     )
 
 
