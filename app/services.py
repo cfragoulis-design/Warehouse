@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
+    from app.audit import correlation_id_for_request, record_audit_event
     from app.auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from app.db import acquire_transaction_lock, get_db
     from app.formatting import fmtqty
@@ -52,6 +53,7 @@ try:
     from app.templating import WarehouseJinja2Templates
     from app.stock_policy import enforce_stock_action
 except ImportError:
+    from audit import correlation_id_for_request, record_audit_event
     from auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from db import acquire_transaction_lock, get_db
     from formatting import fmtqty
@@ -304,6 +306,46 @@ def _clear_print_error(db: Session, job_id: int) -> None:
     flag = db.get(AppFlag, _print_error_key(job_id))
     if flag is not None:
         db.delete(flag)
+
+
+def _print_audit_snapshot(lot: ProductLot) -> dict[str, object]:
+    """Return an operational print snapshot without claim credentials."""
+
+    claim_expires_at = getattr(lot, "claim_expires_at", None)
+    return {
+        "status": lot.status,
+        "station": lot.station,
+        "product_id": lot.product_id,
+        "copies": int(float(lot.quantity_labels or 0)),
+        "batch_ref": lot.batch_ref or "",
+        "lot_code": lot.lot_code or "",
+        "claim_expires_at": (
+            claim_expires_at.isoformat() if claim_expires_at is not None else None
+        ),
+    }
+
+
+def _audit_print_transition(
+    db: Session,
+    lot: ProductLot,
+    *,
+    action: str,
+    before: dict[str, object] | None,
+    actor: User | None = None,
+    reason: str | None = None,
+    correlation_id: str,
+) -> None:
+    record_audit_event(
+        db,
+        actor=actor,
+        action=action,
+        entity_type="print_job",
+        entity_id=lot.id,
+        before=before,
+        after=_print_audit_snapshot(lot),
+        reason=reason,
+        correlation_id=correlation_id,
+    )
 
 
 def _print_job_rows(db: Session, *, limit: int = 100) -> list[dict]:
@@ -646,6 +688,7 @@ def movement_new_form(
 
 @router.post("/movements/new")
 def movement_create(
+    request: Request = None,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
     product_id: int = Form(...),
@@ -680,16 +723,35 @@ def movement_create(
         if available < q:
             return RedirectResponse(url="/movements/new?err=stock", status_code=303)
 
-    db.add(
-        StockMovement(
-            product_id=p.id,
-            location_id=loc.id,
-            qty=q,
-            movement_type=mt,
-            note=(note_clean or None),
-            user_id=user.id,
-        )
+    movement = StockMovement(
+        product_id=p.id,
+        location_id=loc.id,
+        qty=q,
+        movement_type=mt,
+        note=(note_clean or None),
+        user_id=user.id,
     )
+    db.add(movement)
+    db.flush()
+    if mt in {"ADJ+", "ADJ-"}:
+        record_audit_event(
+            db,
+            actor=user,
+            action="stock.adjusted",
+            entity_type="stock_movement",
+            entity_id=movement.id,
+            before=None,
+            after={
+                "product_id": p.id,
+                "location_id": loc.id,
+                "location_code": loc.code,
+                "movement_type": mt,
+                "quantity": q,
+                "signed_delta": q if mt == "ADJ+" else -q,
+            },
+            reason=note_clean,
+            correlation_id=correlation_id_for_request(request),
+        )
     db.commit()
     return RedirectResponse(url="/movements", status_code=303)
 
@@ -1098,6 +1160,7 @@ def labels_jobs(
 @router.post("/admin/labels/jobs/{job_id}/retry", response_class=JSONResponse)
 def labels_job_retry(
     job_id: int,
+    request: Request = None,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -1108,10 +1171,21 @@ def labels_job_retry(
         raise HTTPException(status_code=404, detail="Print job not found")
     if lot.status not in {"ERROR", "CANCELLED"}:
         raise HTTPException(status_code=409, detail="Only failed or cancelled jobs can be retried")
+    before = _print_audit_snapshot(lot)
+    previous_status = lot.status
     lot.status = "QUEUED"
     lot.claim_token_hash = None
     lot.claim_expires_at = None
     _clear_print_error(db, lot.id)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.retried",
+        before=before,
+        actor=user,
+        reason=f"Manual retry after {previous_status}",
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
     return JSONResponse({"ok": True, "id": lot.id, "status": lot.status, "message": "Μπήκε ξανά στην ουρά."})
 
@@ -1119,6 +1193,7 @@ def labels_job_retry(
 @router.post("/admin/labels/jobs/{job_id}/cancel", response_class=JSONResponse)
 def labels_job_cancel(
     job_id: int,
+    request: Request = None,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -1129,10 +1204,20 @@ def labels_job_cancel(
         raise HTTPException(status_code=404, detail="Print job not found")
     if lot.status != "QUEUED":
         raise HTTPException(status_code=409, detail="Only queued jobs can be cancelled safely")
+    before = _print_audit_snapshot(lot)
     lot.status = "CANCELLED"
     lot.claim_token_hash = None
     lot.claim_expires_at = None
     _set_print_error(db, lot.id, "Cancelled by user before agent claim")
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.cancelled",
+        before=before,
+        actor=user,
+        reason="Cancelled by user before agent claim",
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
     return JSONResponse({"ok": True, "id": lot.id, "status": lot.status})
 
@@ -1317,6 +1402,18 @@ def labels_create_batch(
         for lot, product, render_payload in persisted_lots
     ]
 
+    correlation_id = correlation_id_for_request(request)
+    for lot, _product, _render_payload in persisted_lots:
+        _audit_print_transition(
+            db,
+            lot,
+            action="print.job.queued",
+            before=None,
+            actor=user,
+            reason="Batch label request accepted",
+            correlation_id=correlation_id,
+        )
+
     db.commit()
     return JSONResponse({"ok": True, "duplicate": False, "message": "Μπήκε στην ουρά.", "batch_ref": batch_ref, "created_count": len(created), "items": created, "station": station_norm, "label_profile": label_profile})
 
@@ -1378,6 +1475,7 @@ def api_print_jobs_batch_done(
         payload = {}
     ids = payload.get("ids") or []
     done = []
+    correlation_id = correlation_id_for_request(request)
     for raw_id in ids:
         try:
             lot = db.get(ProductLot, int(raw_id))
@@ -1385,7 +1483,17 @@ def api_print_jobs_batch_done(
             lot = None
         if not lot or lot.station != station_norm or lot.status != "QUEUED":
             continue
+        before = _print_audit_snapshot(lot)
         lot.status = "PRINTED"
+        _clear_print_error(db, lot.id)
+        _audit_print_transition(
+            db,
+            lot,
+            action="print.job.printed",
+            before=before,
+            reason=f"Legacy batch acknowledgement from {station_norm} agent",
+            correlation_id=correlation_id,
+        )
         done.append(lot.id)
     db.commit()
     return _legacy_print_response({"ok": True, "station": station_norm, "done_ids": done})
@@ -1464,8 +1572,17 @@ def labels_done(request: Request, db: Session = Depends(get_db)):
     if lot.status != 'QUEUED':
         raise HTTPException(status_code=409, detail='Legacy acknowledgement cannot override a leased or terminal job')
 
+    before = _print_audit_snapshot(lot)
     lot.status = 'PRINTED'
     _clear_print_error(db, lot.id)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.printed",
+        before=before,
+        reason=f"Legacy acknowledgement from {station_norm} agent",
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
     return _legacy_print_response({'ok': True, 'id': lot.id, 'status': lot.status})
 
@@ -1501,8 +1618,18 @@ def labels_error(request: Request, db: Session = Depends(get_db)):
     if lot.status != 'QUEUED':
         raise HTTPException(status_code=409, detail='Legacy acknowledgement cannot override a leased or terminal job')
 
+    before = _print_audit_snapshot(lot)
     lot.status = 'ERROR'
-    _set_print_error(db, lot.id, payload.get('error_message') or 'Legacy agent print error')
+    error_clean = (payload.get('error_message') or 'Legacy agent print error').strip()[:255]
+    _set_print_error(db, lot.id, error_clean)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.error",
+        before=before,
+        reason=error_clean,
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
     return _legacy_print_response({'ok': True, 'id': lot.id, 'status': lot.status})
 
@@ -1547,12 +1674,21 @@ def api_print_jobs_next(
         )
 
     lot, product = row
+    before = _print_audit_snapshot(lot)
     claim_token = secrets.token_urlsafe(32)
     claim_expires_at = now + timedelta(minutes=3)
     lot.status = 'CLAIMED'
     lot.claim_token_hash = _claim_token_hash(claim_token)
     lot.claim_expires_at = claim_expires_at
     _clear_print_error(db, lot.id)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.claimed",
+        before=before,
+        reason=f"Claimed by {station_norm} agent",
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
     job = _sr_job_payload(lot, product)
     job.update({
@@ -1584,10 +1720,19 @@ def api_print_jobs_done(
 
     _require_print_claim(lot, request)
 
+    before = _print_audit_snapshot(lot)
     lot.status = 'PRINTED'
     lot.claim_token_hash = None
     lot.claim_expires_at = None
     _clear_print_error(db, lot.id)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.printed",
+        before=before,
+        reason=f"Confirmed by {station_norm} agent",
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
     return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
 
@@ -1611,11 +1756,20 @@ def api_print_jobs_fail(
 
     _require_print_claim(lot, request)
 
+    before = _print_audit_snapshot(lot)
     lot.status = 'ERROR'
     lot.claim_token_hash = None
     lot.claim_expires_at = None
     error_clean = (error_message or 'Unknown print error').strip()[:255]
     _set_print_error(db, lot.id, error_clean)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.error",
+        before=before,
+        reason=error_clean,
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
     return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status, 'error_message': error_clean})
 
@@ -1695,10 +1849,26 @@ def labels_quick_print(
             lot.lot_code = _build_lot_code(product, station_norm, production_date, db)
             lot_code = lot.lot_code
 
+    before = _print_audit_snapshot(lot)
     try:
         lot.status = _run_label_print_hook(product, lot)
     except Exception:
         lot.status = "QUEUED"
+
+    action = "print.job.printed" if lot.status == "PRINTED" else "print.job.queued"
+    _audit_print_transition(
+        db,
+        lot,
+        action=action,
+        before=before,
+        actor=user,
+        reason=(
+            "Quick print completed by local hook"
+            if lot.status == "PRINTED"
+            else "Quick print accepted for agent queue"
+        ),
+        correlation_id=correlation_id_for_request(request),
+    )
 
     db.commit()
 
@@ -2243,6 +2413,25 @@ def stock_adjust(
         note=reason_clean,
     )
     db.add(mv)
+    db.flush()
+    record_audit_event(
+        db,
+        actor=user,
+        action="stock.adjusted",
+        entity_type="stock_movement",
+        entity_id=mv.id,
+        before=None,
+        after={
+            "product_id": product_id,
+            "location_id": loc_row.id,
+            "location_code": loc,
+            "movement_type": mt,
+            "quantity": q_abs,
+            "signed_delta": q,
+        },
+        reason=reason_clean,
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
 
     # If requested via fetch/AJAX, return JSON so the page does not reload.

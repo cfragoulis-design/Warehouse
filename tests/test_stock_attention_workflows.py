@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app import services
 from app.db import Base
-from app.models import Location, Product, StockMissing, StockMovement, User
+from app.models import AuditEvent, Location, Product, StockMissing, StockMovement, User
 from tests.db_test_support import create_characterization_engine
 
 
@@ -156,6 +157,13 @@ def test_manual_adjustment_requires_and_persists_a_meaningful_reason(db: Session
         select(StockMovement).where(StockMovement.movement_type == "ADJ-")
     ).one()
     assert correction.note == "Damaged package"
+    event = db.scalars(select(AuditEvent)).one()
+    assert event.action == "stock.adjusted"
+    assert event.entity_type == "stock_movement"
+    assert event.entity_id == str(correction.id)
+    assert event.actor_username == user.username
+    assert event.reason == "Damaged package"
+    assert json.loads(event.after_json)["signed_delta"] == "-1"
 
 
 def test_new_movement_location_contract_and_correction_reason(db: Session) -> None:
@@ -196,6 +204,10 @@ def test_new_movement_location_contract_and_correction_reason(db: Session) -> No
     movement = db.scalars(select(StockMovement)).one()
     assert movement.location_id == workshop.id
     assert movement.note == "Opening count correction"
+    event = db.scalars(select(AuditEvent)).one()
+    assert event.action == "stock.adjusted"
+    assert event.entity_id == str(movement.id)
+    assert event.reason == "Opening count correction"
 
 
 def test_stock_template_exposes_owed_and_checks_mutation_results() -> None:

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app import services
 from app.db import Base
-from app.models import AppFlag, Product, ProductLot, User
+from app.models import AppFlag, AuditEvent, Product, ProductLot, User
 from tests.db_test_support import create_characterization_engine
 
 
@@ -68,6 +68,7 @@ def _user_product(db: Session) -> tuple[User, Product]:
         label_origin="Greece",
         label_usage_instructions="Cook thoroughly",
         label_nutrition="Per 100g: energy 500kJ",
+        approval_profile="RED_MEAT",
     )
     db.add_all([user, product])
     db.commit()
@@ -160,6 +161,28 @@ def test_leased_claim_error_reason_retry_cancel_and_ack_lifecycle(
     assert cancelled["status"] == "CANCELLED"
     assert services._print_job_rows(db)[0]["can_retry"] is True
 
+    events = db.scalars(
+        select(AuditEvent)
+        .where(AuditEvent.entity_type == "print_job", AuditEvent.entity_id == str(job_id))
+        .order_by(AuditEvent.id)
+    ).all()
+    assert [event.action for event in events] == [
+        "print.job.queued",
+        "print.job.claimed",
+        "print.job.error",
+        "print.job.retried",
+        "print.job.cancelled",
+    ]
+    assert [event.actor_username for event in events] == [
+        "print-admin",
+        "SYSTEM",
+        "SYSTEM",
+        "print-admin",
+        "print-admin",
+    ]
+    assert events[2].reason == "HPRT_PRINTER_NOT_FOUND"
+    assert all("claim_token" not in (event.after_json or "") for event in events)
+
 
 def test_legacy_protocol_is_deprecated_and_cannot_override_active_claim(
     db: Session, monkeypatch: pytest.MonkeyPatch
@@ -220,6 +243,12 @@ def test_legacy_protocol_is_deprecated_and_cannot_override_active_claim(
     )
     assert done["status"] == "PRINTED"
     assert db.get(AppFlag, services._print_error_key(lot.id)) is None
+    audit_actions = db.scalars(
+        select(AuditEvent.action)
+        .where(AuditEvent.entity_type == "print_job", AuditEvent.entity_id == str(lot.id))
+        .order_by(AuditEvent.id)
+    ).all()
+    assert audit_actions == ["print.job.claimed", "print.job.printed"]
 
 
 def test_current_hprt_agent_uses_only_leased_claim_endpoints() -> None:
