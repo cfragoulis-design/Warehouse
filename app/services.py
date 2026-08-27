@@ -50,6 +50,7 @@ try:
         signed_qty_expr,
     )
     from app.templating import WarehouseJinja2Templates
+    from app.stock_policy import enforce_stock_action
 except ImportError:
     from auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from db import acquire_transaction_lock, get_db
@@ -77,6 +78,7 @@ except ImportError:
         signed_qty_expr,
     )
     from templating import WarehouseJinja2Templates
+    from stock_policy import enforce_stock_action
 
 router = APIRouter()
 
@@ -1916,6 +1918,7 @@ def workshop_in(
     product_id: int = Form(...),
     qty: str = Form(...),
 ):
+    enforce_stock_action(user, "stock_in", "WORKSHOP")
     q = parse_qty(qty)
     if not q:
         return RedirectResponse("/stock", 303)
@@ -1946,6 +1949,7 @@ def workshop_out(
     product_id: int = Form(...),
     qty: str = Form(...),
 ):
+    enforce_stock_action(user, "stock_out", "WORKSHOP")
     q = parse_qty(qty)
     if not q:
         return RedirectResponse("/stock", 303)
@@ -1980,6 +1984,7 @@ def central_out(
     product_id: int = Form(...),
     qty: str = Form(...),
 ):
+    enforce_stock_action(user, "stock_out", "CENTRAL")
     q = parse_qty(qty)
     if not q:
         return RedirectResponse("/stock", 303)
@@ -2014,6 +2019,7 @@ def transfer_workshop_to_central(
     product_id: int = Form(...),
     qty: str = Form(...),
 ):
+    enforce_stock_action(user, "transfer", "WORKSHOP:CENTRAL")
     q = parse_qty(qty)
     if not q:
         return RedirectResponse("/stock", 303)
@@ -2065,6 +2071,7 @@ def transfer_central_to_workshop(
     product_id: int = Form(...),
     qty: str = Form(...),
 ):
+    enforce_stock_action(user, "transfer", "CENTRAL:WORKSHOP")
     q = parse_qty(qty)
     if not q:
         return RedirectResponse("/stock", 303)
@@ -2117,8 +2124,7 @@ def stock_set_target(
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
+    enforce_stock_action(user, "target", "CENTRAL")
     try:
         target_dec = Decimal(target)
     except Exception:
@@ -2196,10 +2202,7 @@ def stock_adjust(
     if loc not in ("CENTRAL", "WORKSHOP"):
         raise HTTPException(status_code=422, detail="Invalid location")
 
-    if loc == "CENTRAL" and user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-    if loc == "WORKSHOP" and user.role not in ("admin", "workshop"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    enforce_stock_action(user, "adjust", loc)
 
     reason_clean = (reason or "").strip()
     if not _meaningful_correction_reason(reason_clean):
@@ -2298,8 +2301,7 @@ def stock_transfer_workshop_to_central_ui(
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
-    if user.role not in ("admin", "workshop"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    enforce_stock_action(user, "transfer", "WORKSHOP:CENTRAL")
 
     try:
         q = Decimal(qty)
@@ -2399,8 +2401,7 @@ def stock_fulfill_pending(
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
-    if user.role not in ("admin", "workshop"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    enforce_stock_action(user, "fulfill", "WORKSHOP:CENTRAL")
 
 
     # If requested via fetch/AJAX, return JSON so the page does not reload.
