@@ -235,10 +235,10 @@
     </div>
     <div class="nav">
       <span id="app-datetime" class="app-datetime"></span>
-      <div class="live" id="liveBadge" title="Live updates">
+      <button class="live" id="refreshStockBtn" type="button" title="Refresh stock now">
         <span class="dot bad" id="liveDot" aria-hidden="true"></span>
-        <span id="liveText">Offline</span>
-      </div>
+        <span id="liveText">Refresh</span>
+      </button>
       <a href="/dashboard">Dashboard</a>
       <a href="/products">Products</a>
       <a href="/movements">Movements</a>
@@ -443,7 +443,9 @@
 
 <script>
 (function(){
-  const POLL_MS = 4000;
+  const POLL_MS = 15000;
+  let refreshTimer = null;
+  let refreshInFlight = false;
 
 
 const labelToast = document.getElementById("label-toast");
@@ -594,6 +596,8 @@ document.querySelectorAll(".js-label-print-form").forEach(form => {
   }
 
   async function refreshStockLive(){
+    if (refreshInFlight || document.hidden) return;
+    refreshInFlight = true;
     try{
       const params = new URLSearchParams();
       const urlParams = new URLSearchParams(window.location.search);
@@ -609,7 +613,7 @@ document.querySelectorAll(".js-label-print-form").forEach(form => {
       const dot = document.getElementById("liveDot");
       const txt = document.getElementById("liveText");
       if (dot) { dot.classList.add("ok"); dot.classList.remove("bad"); }
-      if (txt) txt.textContent = "Live";
+      if (txt) txt.textContent = `Updated ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})}`;
 
 
       for (const item of data.items){
@@ -658,13 +662,25 @@ document.querySelectorAll(".js-label-print-form").forEach(form => {
       const txt = document.getElementById("liveText");
       if (dot) { dot.classList.remove("ok"); }
       if (txt) txt.textContent = "Offline";
-      // silent
+      // Keep the last visible values and expose freshness instead of reloading.
+    }finally{
+      refreshInFlight = false;
     }
   }
-  applyOnlyPendingFilter();
 
-  refreshStockLive();
-  setInterval(refreshStockLive, POLL_MS);
+  function startVisiblePolling(){
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = null;
+    if (document.hidden) return;
+    refreshStockLive();
+    refreshTimer = setInterval(refreshStockLive, POLL_MS);
+  }
+
+  document.addEventListener("visibilitychange", startVisiblePolling);
+  const refreshStockBtn = document.getElementById("refreshStockBtn");
+  if (refreshStockBtn) refreshStockBtn.addEventListener("click", refreshStockLive);
+  applyOnlyPendingFilter();
+  startVisiblePolling();
 
   // ----
   // AJAX stock adjust (+/-) so the page doesn't jump to the top.

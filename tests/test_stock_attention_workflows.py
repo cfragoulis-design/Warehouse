@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -129,32 +128,28 @@ def test_manual_adjustment_requires_and_persists_a_meaningful_reason(db: Session
     before = db.scalar(select(func.count(StockMovement.id)))
 
     with pytest.raises(HTTPException) as rejected:
-        asyncio.run(
-            services.stock_adjust(
-                request=RequestStub(),
-                product_id=product.id,
-                location="central",
-                qty="1",
-                direction="minus",
-                reason="   ",
-                db=db,
-                user=user,
-            )
-        )
-    assert rejected.value.status_code == 422
-    assert db.scalar(select(func.count(StockMovement.id))) == before
-
-    response = asyncio.run(
         services.stock_adjust(
             request=RequestStub(),
             product_id=product.id,
             location="central",
             qty="1",
             direction="minus",
-            reason="Damaged package",
+            reason="   ",
             db=db,
             user=user,
         )
+    assert rejected.value.status_code == 422
+    assert db.scalar(select(func.count(StockMovement.id))) == before
+
+    response = services.stock_adjust(
+        request=RequestStub(),
+        product_id=product.id,
+        location="central",
+        qty="1",
+        direction="minus",
+        reason="Damaged package",
+        db=db,
+        user=user,
     )
     assert response.status_code == 200
     correction = db.scalars(

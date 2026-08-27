@@ -19,6 +19,7 @@ import urllib.request
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
@@ -139,17 +140,40 @@ def _product_code_for_lot(product: Product) -> str:
     return (cleaned[:8] or 'PRD')
 
 
-def _build_lot_code(product: Product, station: str, production_date, db: Session) -> str:
+def _build_lot_code(
+    product: Product,
+    station: str,
+    production_date,
+    db: Session,
+    *,
+    reserved: set[str] | None = None,
+) -> str:
+    """Allocate the next lot code while serializing its PostgreSQL namespace."""
+    acquire_transaction_lock(
+        db,
+        "product-lot-code",
+        product.id,
+        station,
+        production_date.isoformat(),
+    )
     day_code = production_date.strftime('%y%m%d')
     product_code = _product_code_for_lot(product)
     station_code = 'C' if station == 'CENTRAL' else 'W'
     prefix = f'{product_code}-{day_code}-{station_code}-'
-    count = db.query(func.count(ProductLot.id)).filter(
+    existing_codes = db.query(ProductLot.lot_code).filter(
         ProductLot.product_id == product.id,
         ProductLot.station == station,
         ProductLot.production_date == production_date,
-    ).scalar() or 0
-    seq = int(count) + 1
+        ProductLot.lot_code.like(f"{prefix}%"),
+    ).all()
+    candidates = [code for (code,) in existing_codes]
+    candidates.extend(code for code in (reserved or set()) if code.startswith(prefix))
+    sequences = []
+    for code in candidates:
+        suffix = code[len(prefix):]
+        if suffix.isdigit():
+            sequences.append(int(suffix))
+    seq = max(sequences, default=0) + 1
     return f'{prefix}{seq:02d}'
 
 
@@ -1167,7 +1191,7 @@ def labels_create_batch(
             "label_profile": label_profile,
         })
 
-    pending_lots: list[tuple[ProductLot, Product, dict]] = []
+    pending_lots: list[tuple[ProductLot, Product, dict, bool]] = []
     validation_errors: list[dict] = []
     reserved_lot_codes: set[str] = set()
     today = _today_athens()
@@ -1202,15 +1226,20 @@ def labels_create_batch(
         lot_code_raw = (str(raw.get("lot_code") or "")).strip()
         source_lot_code = (str(raw.get("source_lot_code") or "")).strip()[:96]
         label_origin_override = (str(raw.get("label_origin_override") or "")).strip()[:255]
-        lot_code = lot_code_raw or _build_lot_code(product, station_norm, production_date, db)
+        auto_lot_code = not bool(lot_code_raw)
+        lot_code = lot_code_raw or _build_lot_code(
+            product,
+            station_norm,
+            production_date,
+            db,
+            reserved=reserved_lot_codes,
+        )
         if lot_code_raw and (
             lot_code in reserved_lot_codes
             or db.query(ProductLot.id).filter(ProductLot.lot_code == lot_code).first()
         ):
             validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": "Lot code already exists"})
             continue
-        while lot_code in reserved_lot_codes or db.query(ProductLot.id).filter(ProductLot.lot_code == lot_code).first():
-            lot_code = f"{_product_code_for_lot(product)}-{production_date.strftime('%y%m%d')}-W-{uuid4().hex[:6].upper()}"
         reserved_lot_codes.add(lot_code)
 
         lot = ProductLot(
@@ -1239,7 +1268,7 @@ def labels_create_batch(
             sort_keys=True,
         )
 
-        pending_lots.append((lot, product, render_payload))
+        pending_lots.append((lot, product, render_payload, auto_lot_code))
 
     if validation_errors:
         raise HTTPException(
@@ -1249,14 +1278,42 @@ def labels_create_batch(
     if not pending_lots:
         raise HTTPException(status_code=400, detail="No valid label items were created")
 
-    db.add_all([lot for lot, _product, _payload in pending_lots])
-    db.flush()
+    persisted_lots: list[tuple[ProductLot, Product, dict]] = []
+    for lot, product, render_payload, auto_lot_code in pending_lots:
+        for attempt in range(3):
+            try:
+                with db.begin_nested():
+                    db.add(lot)
+                    db.flush()
+                persisted_lots.append((lot, product, render_payload))
+                break
+            except IntegrityError as exc:
+                if not auto_lot_code or attempt == 2:
+                    raise HTTPException(status_code=409, detail="Lot code collision; retry the request") from exc
+                lot.lot_code = _build_lot_code(
+                    product,
+                    station_norm,
+                    lot.production_date,
+                    db,
+                    reserved=reserved_lot_codes,
+                )
+                reserved_lot_codes.add(lot.lot_code)
+                try:
+                    render_payload = build_label_payload(product, lot, profile=label_profile)
+                except LabelValidationError as validation_exc:
+                    raise HTTPException(status_code=422, detail=str(validation_exc)) from validation_exc
+                lot.label_payload_json = json.dumps(
+                    render_payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
     created = [
         {
             **_sr_job_payload(lot, product),
             "render_payload": render_payload,
         }
-        for lot, product, render_payload in pending_lots
+        for lot, product, render_payload in persisted_lots
     ]
 
     db.commit()
@@ -1625,8 +1682,17 @@ def labels_quick_print(
         status="CREATED",
         created_by_user_id=user.id,
     )
-    db.add(lot)
-    db.flush()
+    for attempt in range(3):
+        try:
+            with db.begin_nested():
+                db.add(lot)
+                db.flush()
+            break
+        except IntegrityError as exc:
+            if attempt == 2:
+                raise HTTPException(status_code=409, detail="Lot code collision; retry the request") from exc
+            lot.lot_code = _build_lot_code(product, station_norm, production_date, db)
+            lot_code = lot.lot_code
 
     try:
         lot.status = _run_label_print_hook(product, lot)
@@ -2044,7 +2110,7 @@ def transfer_central_to_workshop(
 # Stock UI helper endpoints
 # ------------------------
 @router.post("/stock/target")
-async def stock_set_target(
+def stock_set_target(
     request: Request,
     product_id: int = Form(...),
     target: str = Form(...),
@@ -2111,7 +2177,7 @@ async def stock_set_target(
     return RedirectResponse(url="/stock", status_code=303)
 
 @router.post("/stock/adjust")
-async def stock_adjust(
+def stock_adjust(
     request: Request,
     product_id: int = Form(...),
     location: str = Form(...),
@@ -2225,7 +2291,7 @@ async def stock_adjust(
 
     return RedirectResponse(url="/stock", status_code=303)
 @router.post("/stock/transfer_wc")
-async def stock_transfer_workshop_to_central_ui(
+def stock_transfer_workshop_to_central_ui(
     request: Request,
     product_id: int = Form(...),
     qty: str = Form("1"),
@@ -2327,7 +2393,7 @@ async def stock_transfer_workshop_to_central_ui(
 
 
 @router.post("/stock/fulfill")
-async def stock_fulfill_pending(
+def stock_fulfill_pending(
     request: Request,
     product_id: int = Form(...),
     db: Session = Depends(get_db),

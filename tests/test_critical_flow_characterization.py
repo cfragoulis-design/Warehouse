@@ -228,17 +228,15 @@ def test_stock_balance_rejects_overdraw_and_pairs_transfer_rows(db: Session) -> 
 
     before_adjustment = db.scalar(select(func.count(StockMovement.id)))
     with pytest.raises(HTTPException) as negative_stock:
-        asyncio.run(
-            services.stock_adjust(
-                request=RequestStub(headers={"accept": "application/json"}),
-                product_id=product.id,
-                location="WORKSHOP",
-                qty="3",
-                direction="minus",
-                reason="Damaged stock correction",
-                db=db,
-                user=user,
-            )
+        services.stock_adjust(
+            request=RequestStub(headers={"accept": "application/json"}),
+            product_id=product.id,
+            location="WORKSHOP",
+            qty="3",
+            direction="minus",
+            reason="Damaged stock correction",
+            db=db,
+            user=user,
         )
     assert negative_stock.value.status_code == 422
     assert db.scalar(select(func.count(StockMovement.id))) == before_adjustment
@@ -251,26 +249,22 @@ def test_fulfilment_moves_available_stock_and_tracks_exact_shortfall(db: Session
     db.commit()
     request = RequestStub(headers={"accept": "application/json"})
 
-    transfer_response = asyncio.run(
-        services.stock_transfer_workshop_to_central_ui(
-            request=request,
-            product_id=product.id,
-            qty="2",
-            db=db,
-            user=user,
-        )
+    transfer_response = services.stock_transfer_workshop_to_central_ui(
+        request=request,
+        product_id=product.id,
+        qty="2",
+        db=db,
+        user=user,
     )
     assert _json(transfer_response)["missing_value"] == 0.0
     assert services.get_stock_qty(db, product.id, central.id) == Decimal("4.000")
     assert services.get_stock_qty(db, product.id, workshop.id) == Decimal("4.000")
 
-    fulfil_response = asyncio.run(
-        services.stock_fulfill_pending(
-            request=request,
-            product_id=product.id,
-            db=db,
-            user=user,
-        )
+    fulfil_response = services.stock_fulfill_pending(
+        request=request,
+        product_id=product.id,
+        db=db,
+        user=user,
     )
     payload = _json(fulfil_response)
     assert payload["pending_value"] == 2.0
@@ -285,13 +279,11 @@ def test_fulfilment_moves_available_stock_and_tracks_exact_shortfall(db: Session
 
     movement_count = db.scalar(select(func.count(StockMovement.id)))
     with pytest.raises(HTTPException) as empty_workshop:
-        asyncio.run(
-            services.stock_fulfill_pending(
-                request=request,
-                product_id=product.id,
-                db=db,
-                user=user,
-            )
+        services.stock_fulfill_pending(
+            request=request,
+            product_id=product.id,
+            db=db,
+            user=user,
         )
     assert empty_workshop.value.status_code == 422
     assert db.scalar(select(func.count(StockMovement.id))) == movement_count
