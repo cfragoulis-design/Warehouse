@@ -105,6 +105,37 @@ class AppFlag(Base):
     )
 
 
+class AuditEvent(Base):
+    """Append-only evidence for security- and operations-critical changes.
+
+    PostgreSQL immutability is enforced by the schema migration trigger.  The
+    ORM model deliberately exposes no update helpers; callers add the event in
+    the same transaction as the business change.
+    """
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=True,
+    )
+    actor_username: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(96), index=True, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    correlation_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
 
 
 
@@ -118,6 +149,10 @@ class Product(Base):
         CheckConstraint(
             "target_central >= 0",
             name="ck_products_target_central_nonnegative",
+        ),
+        CheckConstraint(
+            "approval_profile IN ('POULTRY', 'RED_MEAT', 'UNASSIGNED')",
+            name="ck_products_approval_profile",
         ),
     )
 
@@ -155,6 +190,12 @@ class Product(Base):
     label_nutrition: Mapped[str | None] = mapped_column(Text, nullable=True)
     label_single_ingredient: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     label_nutrition_exempt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    approval_profile: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="UNASSIGNED",
+        server_default="UNASSIGNED",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

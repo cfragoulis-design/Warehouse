@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -12,7 +13,7 @@ os.environ.setdefault("DATABASE_URL", configured_test_database_url())
 
 from app import catalog_service  # noqa: E402
 from app.db import Base  # noqa: E402
-from app.models import Category, Product, User  # noqa: E402
+from app.models import AuditEvent, Category, Product, User  # noqa: E402
 
 
 @pytest.fixture()
@@ -74,6 +75,12 @@ def test_category_rename_updates_legacy_product_category_atomically(db: Session)
     assert category.name == "New category"
     assert category.sort_order == 10
     assert product.category == "New category"
+    event = db.query(AuditEvent).one()
+    assert event.action == "catalog.category.updated"
+    assert event.actor_username == "catalog-admin"
+    assert json.loads(event.before_json)["name"] == "Old category"
+    assert json.loads(event.after_json)["name"] == "New category"
+    assert json.loads(event.after_json)["affected_products"] == 1
 
 
 def test_duplicate_sku_rolls_back_without_creating_second_product(db: Session) -> None:
@@ -109,3 +116,59 @@ def test_catalog_admin_dependency_fails_closed_for_non_admin(db: Session) -> Non
     with pytest.raises(HTTPException) as forbidden:
         catalog_service.require_admin(user)
     assert forbidden.value.status_code == 403
+
+
+def test_product_create_persists_explicit_profile_and_audit_evidence(db: Session) -> None:
+    admin = _user(db, "product-audit-admin")
+
+    response = catalog_service.product_create(
+        _request("/products/new"),
+        user=admin,
+        db=db,
+        name="Φιλέτο κοτόπουλο",
+        sku="CH-1",
+        category="Πουλερικά",
+        unit="kg",
+        min_stock="2.5",
+        only_in_freezer=None,
+        is_production_item="1",
+        shelf_life_days="3",
+        storage_text="0–4°C",
+        label_template=None,
+        approval_profile="POULTRY",
+    )
+
+    assert response.status_code == 303
+    product = db.query(Product).filter(Product.sku == "CH-1").one()
+    assert product.approval_profile == "POULTRY"
+    event = db.query(AuditEvent).one()
+    assert event.action == "catalog.product.created"
+    assert event.entity_id == str(product.id)
+    assert event.before_json is None
+    assert json.loads(event.after_json)["approval_profile"] == "POULTRY"
+
+
+def test_product_create_rejects_unknown_approval_profile(db: Session) -> None:
+    admin = _user(db, "invalid-profile-admin")
+
+    with pytest.raises(HTTPException) as invalid:
+        catalog_service.product_create(
+            _request("/products/new"),
+            user=admin,
+            db=db,
+            name="Unknown",
+            sku="UNKNOWN-1",
+            category=None,
+            unit="pcs",
+            min_stock="0",
+            only_in_freezer=None,
+            is_production_item=None,
+            shelf_life_days="0",
+            storage_text=None,
+            label_template=None,
+            approval_profile="AUTO_GUESS",
+        )
+
+    assert invalid.value.status_code == 422
+    assert db.query(Product).count() == 0
+    assert db.query(AuditEvent).count() == 0

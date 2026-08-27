@@ -17,6 +17,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert [migration.version for migration in catalog] == [
         "20260803_001",
         "20260823_001",
+        "20260827_001",
     ]
     migration = catalog[0]
     assert migration.checksum == hashlib.sha256(
@@ -31,6 +32,16 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in dynamic_label_migration.sql.upper()
     assert "label_payload_json" in dynamic_label_migration.sql
     assert "claim_token_hash" in dynamic_label_migration.sql
+    approval_audit_migration = catalog[2]
+    approval_audit_sql = approval_audit_migration.sql
+    assert "approval_profile" in approval_audit_sql
+    assert "UNASSIGNED" in approval_audit_sql
+    assert "audit_events" in approval_audit_sql
+    assert "trg_audit_events_append_only" in approval_audit_sql
+    assert "BEFORE UPDATE OR DELETE" in approval_audit_sql
+    assert "DROP TABLE" not in approval_audit_sql.upper()
+    assert "TRUNCATE" not in approval_audit_sql.upper()
+    assert "DELETE FROM" not in approval_audit_sql.upper()
     assert len(BASELINE_SCHEMA_FINGERPRINT) == 64
 
 

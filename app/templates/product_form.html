@@ -125,6 +125,15 @@
       <h3 style="margin:24px 0 4px;color:#8ab4ff">Στοιχεία δυναμικής ετικέτας ΕΦΕΤ</h3>
       <div class="muted">Συμπληρώνονται μία φορά ανά προϊόν και χρησιμοποιούνται αυτόματα σε κάθε νέα παρτίδα.</div>
 
+      {% set approval_profile = (product.approval_profile if product and product.approval_profile else 'UNASSIGNED') %}
+      <label>Προφίλ κωδικού έγκρισης</label>
+      <select name="approval_profile" required>
+        <option value="UNASSIGNED" {% if approval_profile == 'UNASSIGNED' %}selected{% endif %}>Χρειάζεται έλεγχο</option>
+        <option value="RED_MEAT" {% if approval_profile == 'RED_MEAT' %}selected{% endif %}>Κόκκινο κρέας</option>
+        <option value="POULTRY" {% if approval_profile == 'POULTRY' %}selected{% endif %}>Πουλερικά</option>
+      </select>
+      <div class="muted">Επιλέγει ρητά τον σωστό κωδικό έγκρισης. Το όνομα ή η κατηγορία δεν αποφασίζει πλέον αυτόματα. Το «Χρειάζεται έλεγχο» εμποδίζει την εκτύπωση ετικέτας.</div>
+
       <label>Νόμιμη/περιγραφική ονομασία τροφίμου</label>
       <input name="label_legal_name" value="{{ product.label_legal_name if product and product.label_legal_name else '' }}" placeholder="Αν μείνει κενό, χρησιμοποιείται το Όνομα προϊόντος">
 

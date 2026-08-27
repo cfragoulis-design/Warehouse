@@ -30,6 +30,7 @@ def _product(**overrides):
         "label_nutrition": "Ανά 100 g: ενέργεια 800 kJ / 190 kcal, λιπαρά 12 g, κορεσμένα 5 g, υδατάνθρακες 2 g, σάκχαρα 1 g, πρωτεΐνες 18 g, αλάτι 1,2 g",
         "label_single_ingredient": False,
         "label_nutrition_exempt": False,
+        "approval_profile": "RED_MEAT",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -77,6 +78,7 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
     assert payload == {
         "schema_version": 3,
         "profile": "DISTRIBUTION",
+        "approval_profile": "RED_MEAT",
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
             "id": 41,
@@ -103,6 +105,7 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
             "name": "Σκλαβούνος Meat",
             "address": "Διεύθυνση δοκιμής",
             "approval_number": "GR A 920 CE",
+            "approval_profile": "RED_MEAT",
         },
     }
 
@@ -141,17 +144,44 @@ def test_unified_profile_requires_business_and_both_approval_numbers(monkeypatch
     assert "extra_code" not in payload
 
 
-def test_poultry_uses_the_poultry_approval_number_automatically(monkeypatch):
+def test_explicit_poultry_profile_uses_the_poultry_approval_number(monkeypatch):
     _set_business_identity(monkeypatch)
     chicken = _product(
         name="Κοτοπουλιές Κοτόπουλο",
         category="Κοτόπουλο",
         label_legal_name="Παρασκεύασμα από κρέας κοτόπουλου",
+        approval_profile="POULTRY",
     )
 
     payload = build_label_payload(chicken, _lot(), profile=DISTRIBUTION_PROFILE)
 
     assert payload["business"]["approval_number"] == "GR PE 620 CE"
+    assert payload["approval_profile"] == "POULTRY"
+
+
+def test_product_name_does_not_override_explicit_approval_profile(monkeypatch):
+    _set_business_identity(monkeypatch)
+    chicken_name_with_red_meat_profile = _product(
+        name="Κοτόπουλο δοκιμής",
+        approval_profile="RED_MEAT",
+    )
+
+    payload = build_label_payload(
+        chicken_name_with_red_meat_profile,
+        _lot(),
+        profile=DISTRIBUTION_PROFILE,
+    )
+
+    assert payload["business"]["approval_number"] == "GR A 920 CE"
+
+
+def test_unassigned_profile_blocks_label_until_human_review(monkeypatch):
+    _set_business_identity(monkeypatch)
+    product = _product(approval_profile="UNASSIGNED")
+
+    assert "προφίλ κωδικού έγκρισης" in product_readiness(product, DISTRIBUTION_PROFILE)
+    with pytest.raises(LabelValidationError, match="προφίλ κωδικού έγκρισης"):
+        build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
 
 
 def test_distribution_profile_accepts_documented_nutrition_exemption_and_lot_origin(monkeypatch):

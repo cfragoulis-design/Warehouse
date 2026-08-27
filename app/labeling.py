@@ -4,6 +4,13 @@ from dataclasses import dataclass
 from datetime import date
 import os
 
+from .approval_profiles import (
+    POULTRY,
+    RED_MEAT,
+    UNASSIGNED,
+    normalize_approval_profile,
+)
+
 
 INTERNAL_PROFILE = "INTERNAL"
 DISTRIBUTION_PROFILE = "DISTRIBUTION"
@@ -19,30 +26,28 @@ class BusinessLabelIdentity:
     name: str
     address: str
     approval_number: str
-
-
-def _is_poultry_product(product) -> bool:
-    searchable = " ".join(
-        str(value or "").casefold()
-        for value in (
-            getattr(product, "name", None),
-            getattr(product, "category", None),
-            getattr(product, "label_legal_name", None),
-        )
-    )
-    return any(marker in searchable for marker in ("κοτ", "ορνιθ", "γαλοπ", "chicken", "poultry"))
+    approval_profile: str
 
 
 def business_label_identity(product=None) -> BusinessLabelIdentity:
     legacy_approval = (os.getenv("WAREHOUSE_LABEL_APPROVAL_NUMBER") or "").strip()
-    if product is not None and _is_poultry_product(product):
+    try:
+        approval_profile = normalize_approval_profile(
+            getattr(product, "approval_profile", None)
+        )
+    except ValueError:
+        approval_profile = UNASSIGNED
+    if approval_profile == POULTRY:
         approval_number = (os.getenv("WAREHOUSE_LABEL_POULTRY_APPROVAL_NUMBER") or "").strip()
-    else:
+    elif approval_profile == RED_MEAT:
         approval_number = (os.getenv("WAREHOUSE_LABEL_RED_MEAT_APPROVAL_NUMBER") or legacy_approval).strip()
+    else:
+        approval_number = ""
     return BusinessLabelIdentity(
         name=(os.getenv("WAREHOUSE_LABEL_BUSINESS_NAME") or "").strip(),
         address=(os.getenv("WAREHOUSE_LABEL_BUSINESS_ADDRESS") or "").strip(),
         approval_number=approval_number,
+        approval_profile=approval_profile,
     )
 
 
@@ -93,7 +98,9 @@ def product_readiness(product, profile: str) -> tuple[str, ...]:
         missing.append("επωνυμία επιχείρησης")
     if not business.address:
         missing.append("διεύθυνση επιχείρησης")
-    if not business.approval_number:
+    if business.approval_profile == UNASSIGNED:
+        missing.append("προφίλ κωδικού έγκρισης")
+    elif not business.approval_number:
         missing.append("κωδικός έγκρισης")
     return tuple(missing)
 
@@ -126,6 +133,7 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
     return {
         "schema_version": 3,
         "profile": profile,
+        "approval_profile": business.approval_profile,
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
             "id": int(product.id),
@@ -144,5 +152,6 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
             "name": business.name,
             "address": business.address,
             "approval_number": business.approval_number,
+            "approval_profile": business.approval_profile,
         },
     }

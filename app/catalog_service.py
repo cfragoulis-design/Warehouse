@@ -9,12 +9,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 try:
+    from app.approval_profiles import normalize_approval_profile
+    from app.audit import correlation_id_for_request, record_audit_event
     from app.auth import require_user
     from app.db import get_db
     from app.models import Category, Product, User
     from app.stock_domain import parse_qty
     from app.templating import WarehouseJinja2Templates
 except ImportError:
+    from approval_profiles import normalize_approval_profile
+    from audit import correlation_id_for_request, record_audit_event
     from auth import require_user
     from db import get_db
     from models import Category, Product, User
@@ -67,6 +71,55 @@ def _truthy_flag(value: str | None) -> bool:
     if value is None:
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "on", "y"}
+
+
+def _validated_approval_profile(
+    value: object,
+    *,
+    fallback: str | None = None,
+) -> str:
+    if not isinstance(value, str):
+        value = fallback
+    try:
+        return normalize_approval_profile(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _product_snapshot(product: Product) -> dict[str, object]:
+    return {
+        "id": product.id,
+        "name": product.name,
+        "sku": product.sku,
+        "category": product.category,
+        "unit": product.unit,
+        "is_active": product.is_active,
+        "min_stock": product.min_stock,
+        "target_central": product.target_central,
+        "only_in_freezer": product.only_in_freezer,
+        "is_production_item": product.is_production_item,
+        "shelf_life_days": product.shelf_life_days,
+        "storage_text": product.storage_text,
+        "label_template": product.label_template,
+        "label_legal_name": product.label_legal_name,
+        "label_ingredients": product.label_ingredients,
+        "label_allergens": product.label_allergens,
+        "label_origin": product.label_origin,
+        "label_usage_instructions": product.label_usage_instructions,
+        "label_nutrition": product.label_nutrition,
+        "label_single_ingredient": product.label_single_ingredient,
+        "label_nutrition_exempt": product.label_nutrition_exempt,
+        "approval_profile": product.approval_profile,
+    }
+
+
+def _category_snapshot(category: Category) -> dict[str, object]:
+    return {
+        "id": category.id,
+        "name": category.name,
+        "sort_order": category.sort_order,
+        "is_active": category.is_active,
+    }
 
 
 @router.get("/products", response_class=HTMLResponse)
@@ -139,8 +192,10 @@ def product_create(
     label_nutrition: str | None = Form(None),
     label_single_ingredient: str | None = Form(None),
     label_nutrition_exempt: str | None = Form(None),
+    approval_profile: str | None = Form(None),
 ):
     minimum_stock = parse_qty(min_stock) or Decimal("0")
+    approval_profile_normalized = _validated_approval_profile(approval_profile)
     product = Product(
         name=name.strip(),
         sku=sku.strip() if sku else None,
@@ -160,9 +215,22 @@ def product_create(
         label_nutrition=_optional_label_text(label_nutrition),
         label_single_ingredient=_optional_label_flag(label_single_ingredient),
         label_nutrition_exempt=_optional_label_flag(label_nutrition_exempt),
+        approval_profile=approval_profile_normalized,
     )
     db.add(product)
     try:
+        db.flush()
+        record_audit_event(
+            db,
+            actor=user,
+            action="catalog.product.created",
+            entity_type="product",
+            entity_id=product.id,
+            before=None,
+            after=_product_snapshot(product),
+            reason="Δημιουργία από τη διαχείριση καταλόγου",
+            correlation_id=correlation_id_for_request(request),
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -216,11 +284,17 @@ def product_update(
     label_nutrition: str | None = Form(None),
     label_single_ingredient: str | None = Form(None),
     label_nutrition_exempt: str | None = Form(None),
+    approval_profile: str | None = Form(None),
 ):
     product = db.get(Product, pid)
     if product is None:
         return RedirectResponse(url="/products", status_code=303)
 
+    before = _product_snapshot(product)
+    approval_profile_normalized = _validated_approval_profile(
+        approval_profile,
+        fallback=product.approval_profile,
+    )
     product.name = name.strip()
     product.sku = sku.strip() if sku else None
     product.category = category.strip() if category else None
@@ -240,7 +314,21 @@ def product_update(
     product.label_nutrition = _optional_label_text(label_nutrition)
     product.label_single_ingredient = _optional_label_flag(label_single_ingredient)
     product.label_nutrition_exempt = _optional_label_flag(label_nutrition_exempt)
+    product.approval_profile = approval_profile_normalized
     try:
+        after = _product_snapshot(product)
+        if before != after:
+            record_audit_event(
+                db,
+                actor=user,
+                action="catalog.product.updated",
+                entity_type="product",
+                entity_id=product.id,
+                before=before,
+                after=after,
+                reason="Επεξεργασία από τη διαχείριση καταλόγου",
+                correlation_id=correlation_id_for_request(request),
+            )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -255,8 +343,19 @@ def product_delete(
     db: Session = Depends(get_db),
 ):
     product = db.get(Product, pid)
-    if product is not None:
+    if product is not None and product.is_active:
+        before = _product_snapshot(product)
         product.is_active = False
+        record_audit_event(
+            db,
+            actor=user,
+            action="catalog.product.deactivated",
+            entity_type="product",
+            entity_id=product.id,
+            before=before,
+            after=_product_snapshot(product),
+            reason="Απενεργοποίηση από τη διαχείριση καταλόγου",
+        )
         db.commit()
     return RedirectResponse(url="/products", status_code=303)
 
@@ -269,7 +368,22 @@ def product_toggle(
 ):
     product = db.get(Product, pid)
     if product is not None:
+        before = _product_snapshot(product)
         product.is_active = not product.is_active
+        record_audit_event(
+            db,
+            actor=user,
+            action=(
+                "catalog.product.activated"
+                if product.is_active
+                else "catalog.product.deactivated"
+            ),
+            entity_type="product",
+            entity_id=product.id,
+            before=before,
+            after=_product_snapshot(product),
+            reason="Αλλαγή κατάστασης από τη διαχείριση καταλόγου",
+        )
         db.commit()
     return RedirectResponse(url="/products", status_code=303)
 
@@ -323,12 +437,23 @@ def category_create(
     ).scalar_one_or_none()
     if existing is not None:
         return RedirectResponse(url="/categories/new?err=exists", status_code=303)
-    db.add(
-        Category(
-            name=category_name,
-            sort_order=int(sort_order or 1000),
-            is_active=True,
-        )
+    category = Category(
+        name=category_name,
+        sort_order=int(sort_order or 1000),
+        is_active=True,
+    )
+    db.add(category)
+    db.flush()
+    record_audit_event(
+        db,
+        actor=user,
+        action="catalog.category.created",
+        entity_type="category",
+        entity_id=category.id,
+        before=None,
+        after=_category_snapshot(category),
+        reason="Δημιουργία από τη διαχείριση κατηγοριών",
+        correlation_id=correlation_id_for_request(request),
     )
     db.commit()
     return RedirectResponse(url="/categories", status_code=303)
@@ -372,10 +497,12 @@ def category_update(
     if category is None:
         return RedirectResponse(url="/categories", status_code=303)
 
+    before = _category_snapshot(category)
     new_name = (name or "").strip()
     if not new_name:
         return RedirectResponse(url=f"/categories/{cid}/edit?err=name", status_code=303)
     old_name = category.name
+    affected_products = 0
     if new_name != old_name:
         conflict = db.execute(
             select(Category).where(Category.name == new_name, Category.id != cid)
@@ -385,12 +512,26 @@ def category_update(
                 url=f"/categories/{cid}/edit?err=exists",
                 status_code=303,
             )
-        db.query(Product).filter(Product.category == old_name).update(
+        affected_products = db.query(Product).filter(Product.category == old_name).update(
             {"category": new_name}
         )
         category.name = new_name
 
     category.sort_order = int(sort_order or 1000)
+    after = _category_snapshot(category)
+    if before != after:
+        after["affected_products"] = int(affected_products or 0)
+        record_audit_event(
+            db,
+            actor=user,
+            action="catalog.category.updated",
+            entity_type="category",
+            entity_id=category.id,
+            before=before,
+            after=after,
+            reason="Επεξεργασία από τη διαχείριση κατηγοριών",
+            correlation_id=correlation_id_for_request(request),
+        )
     db.commit()
     return RedirectResponse(url="/categories", status_code=303)
 
@@ -406,6 +547,22 @@ def category_toggle(
         return admin_only_dialog(request, user)
     category = db.get(Category, cid)
     if category is not None:
+        before = _category_snapshot(category)
         category.is_active = not category.is_active
+        record_audit_event(
+            db,
+            actor=user,
+            action=(
+                "catalog.category.activated"
+                if category.is_active
+                else "catalog.category.deactivated"
+            ),
+            entity_type="category",
+            entity_id=category.id,
+            before=before,
+            after=_category_snapshot(category),
+            reason="Αλλαγή κατάστασης από τη διαχείριση κατηγοριών",
+            correlation_id=correlation_id_for_request(request),
+        )
         db.commit()
     return RedirectResponse(url="/categories", status_code=303)
