@@ -16,6 +16,7 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
             "min_stock",
             "target_central",
             "only_in_freezer",
+            "approval_profile",
         }
     ),
     "locations": frozenset({"id", "code", "name"}),
@@ -31,6 +32,21 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
         }
     ),
     "stock_missing": frozenset({"id", "product_id", "qty_missing"}),
+    "audit_events": frozenset(
+        {
+            "id",
+            "actor_user_id",
+            "actor_username",
+            "action",
+            "entity_type",
+            "entity_id",
+            "before_json",
+            "after_json",
+            "reason",
+            "correlation_id",
+            "created_at",
+        }
+    ),
     "product_lots": frozenset(
         {
             "id",

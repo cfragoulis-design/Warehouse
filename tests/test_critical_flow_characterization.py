@@ -289,6 +289,54 @@ def test_fulfilment_moves_available_stock_and_tracks_exact_shortfall(db: Session
     assert db.scalar(select(func.count(StockMovement.id))) == movement_count
 
 
+def test_repeated_partial_fulfilment_replaces_missing_with_current_shortfall(
+    db: Session,
+) -> None:
+    user, central, workshop, product = _stock_scenario(
+        db,
+        central_quantity=Decimal("1"),
+        workshop_quantity=Decimal("4"),
+    )
+    request = RequestStub(headers={"accept": "application/json"})
+
+    first_response = services.stock_fulfill_pending(
+        request=request,
+        product_id=product.id,
+        db=db,
+        user=user,
+    )
+    assert _json(first_response)["missing_value"] == 5.0
+    assert services.get_stock_qty(db, product.id, central.id) == Decimal("5.000")
+
+    replenished = services.stock_adjust(
+        request=request,
+        product_id=product.id,
+        location="WORKSHOP",
+        qty="2",
+        direction="plus",
+        reason="Production replenishment",
+        db=db,
+        user=user,
+    )
+    assert _json(replenished)["ok"] is True
+    assert services.get_stock_qty(db, product.id, workshop.id) == Decimal("2.000")
+
+    second_response = services.stock_fulfill_pending(
+        request=request,
+        product_id=product.id,
+        db=db,
+        user=user,
+    )
+    payload = _json(second_response)
+    assert payload["pending_value"] == 3.0
+    assert payload["missing_value"] == 3.0
+    missing = db.scalar(
+        select(StockMissing).where(StockMissing.product_id == product.id)
+    )
+    assert missing is not None
+    assert missing.qty_missing == Decimal("3.000")
+
+
 def test_consumable_take_caps_at_available_and_every_change_has_a_ledger_row(
     db: Session,
 ) -> None:

@@ -5,10 +5,35 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import Location
-from app.readiness import ReadinessStatus, check_readiness
+from app.readiness import _REQUIRED_SCHEMA, ReadinessStatus, check_readiness
+
+
+def _engine_with_required_schema_except(
+    *,
+    missing_table: str | None = None,
+    missing_column: tuple[str, str] | None = None,
+):
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    with engine.begin() as connection:
+        for table_name, required_columns in _REQUIRED_SCHEMA.items():
+            if table_name == missing_table:
+                continue
+            columns = sorted(required_columns)
+            if missing_column and table_name == missing_column[0]:
+                columns.remove(missing_column[1])
+            column_sql = ", ".join(f'"{column}" TEXT' for column in columns)
+            connection.execute(
+                text(f'CREATE TABLE "{table_name}" ({column_sql})')
+            )
+    return engine
 
 
 def test_readiness_checks_database_schema_and_canonical_locations() -> None:
@@ -48,6 +73,62 @@ def test_readiness_fails_closed_without_exposing_database_error_details() -> Non
     assert status.schema == "failed"
     assert status.reason == "missing-required-tables"
     assert "sqlite" not in str(status.as_dict()).casefold()
+
+
+def test_ready_returns_503_when_product_approval_profile_column_is_missing(
+    monkeypatch,
+) -> None:
+    import importlib
+
+    assert "approval_profile" in _REQUIRED_SCHEMA["products"]
+    engine = _engine_with_required_schema_except(
+        missing_column=("products", "approval_profile")
+    )
+    app_module = importlib.import_module("app.app")
+    monkeypatch.setattr(app_module, "engine", engine)
+
+    response = TestClient(
+        app_module.app,
+        base_url="https://warehouse.test",
+    ).get("/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "ready": False,
+        "checks": {
+            "database": "ok",
+            "schema": "failed",
+            "invariants": "not-checked",
+        },
+        "reason": "missing-required-columns",
+    }
+
+
+def test_ready_returns_503_when_audit_events_table_is_missing(
+    monkeypatch,
+) -> None:
+    import importlib
+
+    assert "audit_events" in _REQUIRED_SCHEMA
+    engine = _engine_with_required_schema_except(missing_table="audit_events")
+    app_module = importlib.import_module("app.app")
+    monkeypatch.setattr(app_module, "engine", engine)
+
+    response = TestClient(
+        app_module.app,
+        base_url="https://warehouse.test",
+    ).get("/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "ready": False,
+        "checks": {
+            "database": "ok",
+            "schema": "failed",
+            "invariants": "not-checked",
+        },
+        "reason": "missing-required-tables",
+    }
 
 
 def test_health_is_lightweight_and_ready_returns_safe_503(

@@ -43,8 +43,8 @@ try:
         get_missing_map,
         get_stock_for_product,
         get_stock_qty,
-        missing_add_shortfall,
         missing_reduce_on_delivery,
+        missing_set_shortfall,
         parse_qty,
         parse_qty_any as parse_qty_any,
         parse_qty_signed as parse_qty_signed,
@@ -72,8 +72,8 @@ except ImportError:
         get_missing_map,
         get_stock_for_product,
         get_stock_qty,
-        missing_add_shortfall,
         missing_reduce_on_delivery,
+        missing_set_shortfall,
         parse_qty,
         parse_qty_any as parse_qty_any,
         parse_qty_signed as parse_qty_signed,
@@ -2675,9 +2675,10 @@ def stock_fulfill_pending(
         )
     )
 
-    # Reduce existing Missing with any delivery, then add any new shortfall.
-    missing_reduce_on_delivery(db, product_id, deliver)
-    missing_add_shortfall(db, product_id, shortfall)
+    # A fulfill attempt recalculates the one current unresolved shortage. It must
+    # replace the prior value rather than add the same shortage again on every
+    # later partial delivery.
+    missing_set_shortfall(db, product_id, shortfall)
     db.commit()
 
     if wants_json:

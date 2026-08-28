@@ -91,18 +91,20 @@ def missing_reduce_on_delivery(
     return used
 
 
-def missing_add_shortfall(
+def missing_set_shortfall(
     db: Session,
     product_id: int,
     shortfall_qty: Decimal,
 ) -> None:
-    """Add only a positive unsatisfied fulfill quantity to persisted Missing."""
-    shortfall = Decimal(shortfall_qty or 0)
-    if shortfall <= 0:
-        return
-
-    record = db.query(StockMissing).filter(StockMissing.product_id == product_id).first()
+    """Set the current unresolved WORKSHOP-to-CENTRAL shortfall exactly."""
+    shortfall = max(Decimal("0"), Decimal(shortfall_qty or 0))
+    record = (
+        db.query(StockMissing)
+        .filter(StockMissing.product_id == product_id)
+        .first()
+    )
     if record is None:
-        db.add(StockMissing(product_id=product_id, qty_missing=shortfall))
-    else:
-        record.qty_missing = Decimal(record.qty_missing or 0) + shortfall
+        if shortfall > 0:
+            db.add(StockMissing(product_id=product_id, qty_missing=shortfall))
+        return
+    record.qty_missing = shortfall
