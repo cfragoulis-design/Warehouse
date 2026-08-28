@@ -76,12 +76,15 @@ def test_updated_templates_parse_and_shell_routes_are_registered() -> None:
     }.issubset(paths)
 
 
-def test_stock_switches_to_touch_friendly_cards_on_tablets() -> None:
+def test_stock_keeps_familiar_list_on_tablets_and_uses_cards_only_on_phones() -> None:
     template = (ROOT / "app" / "templates" / "stock.html").read_text(
         encoding="utf-8"
     )
 
-    assert '@media (max-width:1100px), (hover:none) and (pointer:coarse)' in template
+    assert '@media (min-width:561px) and (max-width:1100px)' in template
+    assert 'table{min-width:980px}' in template
+    assert '@media (max-width:560px)' in template
+    assert '@media (max-width:1100px), (hover:none) and (pointer:coarse)' not in template
     assert 'class="tableScroll"' in template
     assert ".tableScroll{width:100%;overflow-x:auto" in template
     assert ".tableScroll{overflow:visible}" in template

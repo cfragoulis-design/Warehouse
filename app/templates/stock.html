@@ -162,8 +162,36 @@
 .labelToast.err{border-color:rgba(255,107,107,.55); color:#ffd2d2}
 .labelBtn.isBusy{opacity:.65; pointer-events:none}
 
-    /* Tablet-first stock view: turn the wide desktop grid into touch-friendly cards. */
-    @media (max-width:1100px), (hover:none) and (pointer:coarse){
+    /* Keep the familiar stock list on tablets, but tighten it so the important
+       columns stay visible with only a small horizontal swipe when needed. */
+    @media (min-width:561px) and (max-width:1100px){
+      body{font-size:14px}
+      .wrap{max-width:none;padding:0 10px 20px}
+      .cardHead{align-items:stretch;flex-direction:column;gap:10px;padding:10px}
+      .filters,.filters form,.rightHead{width:100%}
+      .filters form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+      .filters select{grid-column:1 / -1}
+      .filters select,.filters input[type=text]{width:100%;min-width:0;min-height:42px}
+      .filters .btn{min-width:82px;min-height:42px}
+      .rightHead{justify-content:flex-start;gap:8px}
+      .rightHead .btn,.rightHead > label{min-height:40px;margin:0!important}
+      .tableScroll{overflow-x:auto}
+      table{min-width:980px}
+      th,td{padding:7px 6px}
+      th{font-size:11px;letter-spacing:.35px}
+      .catrow td{padding:10px 9px 10px 14px;font-size:17px}
+      .prod{font-size:14px}
+      .sku{font-size:11px}
+      .actions{gap:5px}
+      .pm{gap:3px}
+      .pm button,.transferBtn,.needBtn{width:30px;height:30px;border-radius:8px}
+      .pmQty,.needQty,.labelCopies{width:44px;min-width:44px;height:30px}
+      .labelBtn{min-width:66px;height:30px;padding:0 7px}
+      .targetInput{width:60px;min-width:60px;padding:6px}
+    }
+
+    /* Card mode is reserved for actual phone-sized screens. */
+    @media (max-width:560px){
       body{font-size:16px}
       .top{flex-direction:column;align-items:flex-start;gap:14px;padding:18px 16px 14px}
       .brand{font-size:30px}
@@ -216,7 +244,7 @@
       .labelToast{left:14px;right:14px;bottom:14px;max-width:none;font-size:15px}
     }
 
-    @media (max-width:700px){
+    @media (max-width:560px){
       .wrap{padding-left:12px;padding-right:12px}
       .rightHead{grid-template-columns:1fr}
       tr.stock-row{grid-template-columns:1fr;padding:13px}
