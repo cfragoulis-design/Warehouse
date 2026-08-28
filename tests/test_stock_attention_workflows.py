@@ -221,7 +221,9 @@ def test_stock_template_exposes_owed_and_checks_mutation_results() -> None:
     assert 'data-field="missing"' in stock
     assert "async function readActionResponse" in stock
     assert "if (!res.ok || !data.ok)" in stock
-    assert "Reason for this stock correction" in stock
+    assert "Reason for this stock correction" not in stock
+    assert "Γρήγορη καταχώριση αποθέματος - Κεντρικό" in stock
+    assert "Γρήγορη καταχώριση αποθέματος - Εργαστήριο" in stock
     assert "/stock?status=attention" in dashboard
     assert "/stock?status=low" in dashboard
 

@@ -369,7 +369,7 @@
                     <form method="post" action="/stock/adjust" class="pm" data-zone="Central">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input type="hidden" name="location" value="central" />
-                      <input type="hidden" name="reason" value="" />
+                      <input type="hidden" name="reason" value="Γρήγορη καταχώριση αποθέματος - Κεντρικό" />
                       <button class="btnTiny minus" name="direction" value="minus" type="submit" title="Αφαίρεση ποσότητας">−</button>
                       <input class="pmQty" name="qty" value="1" inputmode="decimal" aria-label="Ποσότητα Central" title="Γράψτε την ποσότητα και πατήστε + ή −" />
                       <button class="btnTiny plus" name="direction" value="plus" type="submit" title="Προσθήκη ποσότητας">+</button>
@@ -381,7 +381,7 @@
                     <form method="post" action="/stock/adjust" class="pm" data-zone="Workshop">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
                       <input type="hidden" name="location" value="workshop" />
-                      <input type="hidden" name="reason" value="" />
+                      <input type="hidden" name="reason" value="Γρήγορη καταχώριση αποθέματος - Εργαστήριο" />
                       <button class="btnTiny minus" name="direction" value="minus" type="submit" title="Αφαίρεση ποσότητας">−</button>
                       <input class="pmQty" name="qty" value="1" inputmode="decimal" aria-label="Ποσότητα Workshop" title="Γράψτε την ποσότητα και πατήστε + ή −" />
                       <button class="btnTiny plus" name="direction" value="plus" type="submit" title="Προσθήκη ποσότητας">+</button>
@@ -771,13 +771,6 @@ document.querySelectorAll(".js-label-print-form").forEach(form => {
         return;
       }
 
-      const reason = window.prompt("Reason for this stock correction (at least 5 characters):", "");
-      if (reason === null) return;
-      if (reason.trim().length < 5 || !/[\p{L}\p{N}]/u.test(reason)){
-        showLabelToast("A meaningful correction reason of at least 5 characters is required.", "err");
-        return;
-      }
-
       // Disable both buttons briefly to avoid double clicks
       const buttons = Array.from(form.querySelectorAll('button[type="submit"]'));
       buttons.forEach(b => b.disabled = true);
@@ -785,7 +778,9 @@ document.querySelectorAll(".js-label-print-form").forEach(form => {
       try{
         const fd = new FormData(form);
         fd.set("direction", btn.value);
-        fd.set("reason", reason.trim());
+        // Routine +/- operations use a fixed, auditable reason so workshop
+        // staff can record stock with one tap. Exceptional corrections made
+        // from the dedicated movement form still require a written reason.
 
         const res = await fetch(form.action, {
           method: "POST",
