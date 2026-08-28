@@ -18,6 +18,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20260803_001",
         "20260823_001",
         "20260827_001",
+        "20260828_001",
     ]
     migration = catalog[0]
     assert migration.checksum == hashlib.sha256(
@@ -34,6 +35,9 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "claim_token_hash" in dynamic_label_migration.sql
     approval_audit_migration = catalog[2]
     approval_audit_sql = approval_audit_migration.sql
+    assert approval_audit_migration.checksum == (
+        "bd3378387a3eb9040f10935f6d66ceaf5ff461f2d079b51daaf551a5a94975d9"
+    )
     assert "approval_profile" in approval_audit_sql
     assert "UNASSIGNED" in approval_audit_sql
     assert "audit_events" in approval_audit_sql
@@ -42,6 +46,17 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in approval_audit_sql.upper()
     assert "TRUNCATE" not in approval_audit_sql.upper()
     assert "DELETE FROM" not in approval_audit_sql.upper()
+    locale_safe_backfill = catalog[3]
+    locale_safe_sql = locale_safe_backfill.sql
+    assert "translate(" in locale_safe_sql
+    assert "approval_profile = 'UNASSIGNED'" in locale_safe_sql
+    assert "classified.is_poultry <> classified.is_red_meat" in locale_safe_sql
+    assert "catalog.product.approval_profile.backfilled" in locale_safe_sql
+    assert "catalog.product.updated" in locale_safe_sql
+    assert "INSERT INTO audit_events" in locale_safe_sql
+    assert "DROP TABLE" not in locale_safe_sql.upper()
+    assert "TRUNCATE" not in locale_safe_sql.upper()
+    assert "DELETE FROM" not in locale_safe_sql.upper()
     assert len(BASELINE_SCHEMA_FINGERPRINT) == 64
 
 
