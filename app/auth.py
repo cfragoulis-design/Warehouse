@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 from passlib.hash import bcrypt
 
 from .db import get_db
-from .models import User
+from .models import OneSsoMapping, User
+from .runtime_config import load_one_sso_settings
 from .templating import WarehouseJinja2Templates
 
 router = APIRouter()
@@ -22,6 +23,14 @@ _LOGIN_WINDOW_SECONDS = 300
 _LOGIN_MAX_FAILURES = 8
 _login_failures: dict[str, deque[float]] = {}
 _login_failures_lock = threading.Lock()
+
+
+def _login_context(request: Request, *, err: str = "") -> dict[str, object]:
+    return {
+        "request": request,
+        "err": err,
+        "one_sso_enabled": load_one_sso_settings().enabled,
+    }
 
 
 def _limit_bcrypt_secret(s: str) -> str:
@@ -47,7 +56,40 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User | 
     uid = request.session.get("uid")
     if not uid:
         return None
-    return db.get(User, int(uid))
+    try:
+        user = db.get(User, int(uid))
+    except (TypeError, ValueError):
+        request.session.clear()
+        return None
+    if user is None or not user.is_active:
+        request.session.clear()
+        return None
+
+    if request.session.get("auth_source") == "one":
+        session_expires_at = request.session.get("one_session_expires_at")
+        if (
+            isinstance(session_expires_at, bool)
+            or not isinstance(session_expires_at, int)
+            or session_expires_at <= int(time.time())
+        ):
+            request.session.clear()
+            return None
+        mapping_id = request.session.get("one_mapping_id")
+        try:
+            mapping = db.get(OneSsoMapping, int(mapping_id))
+        except (TypeError, ValueError):
+            mapping = None
+        if (
+            mapping is None
+            or not mapping.is_active
+            or mapping.local_user_id != user.id
+            or mapping.local_role != user.role
+            or request.session.get("one_local_location")
+            != mapping.local_location_code
+        ):
+            request.session.clear()
+            return None
+    return user
 
 
 def _require_same_origin(request: Request) -> None:
@@ -155,7 +197,7 @@ def require_role(role: str):
 def login_form(request: Request):
     return templates.TemplateResponse(
         "login.html",
-        {"request": request, "err": request.query_params.get("err", "")},
+        _login_context(request, err=request.query_params.get("err", "")),
     )
 
 
@@ -174,18 +216,18 @@ def login(
     if retry_after:
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "err": "rate"},
+            _login_context(request, err="rate"),
             status_code=429,
             headers={"Retry-After": str(retry_after)},
         )
 
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
-    if not user or not verify_pin(pin, user.pin_hash):
+    if not user or not user.is_active or not verify_pin(pin, user.pin_hash):
         retry_after = _record_login_failure(username)
         if retry_after:
             return templates.TemplateResponse(
                 "login.html",
-                {"request": request, "err": "rate"},
+                _login_context(request, err="rate"),
                 status_code=429,
                 headers={"Retry-After": str(retry_after)},
             )

@@ -19,6 +19,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20260823_001",
         "20260827_001",
         "20260828_001",
+        "20260828_002",
     ]
     migration = catalog[0]
     assert migration.checksum == hashlib.sha256(
@@ -57,6 +58,18 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in locale_safe_sql.upper()
     assert "TRUNCATE" not in locale_safe_sql.upper()
     assert "DELETE FROM" not in locale_safe_sql.upper()
+    one_sso_mapping = catalog[4]
+    one_sso_sql = one_sso_mapping.sql
+    assert "one_sso_mappings" in one_sso_sql
+    assert "one_sso_redemptions" in one_sso_sql
+    assert "local_role IN ('admin', 'workshop', 'warehouse')" in one_sso_sql
+    assert "code_digest" in one_sso_sql
+    assert "warehouse_protect_one_sso_mapping" in one_sso_sql
+    assert "BEFORE UPDATE OR DELETE" in one_sso_sql
+    assert "cannot be reactivated" in one_sso_sql
+    assert "DROP TABLE" not in one_sso_sql.upper()
+    assert "TRUNCATE" not in one_sso_sql.upper()
+    assert "DELETE FROM" not in one_sso_sql.upper()
     assert len(BASELINE_SCHEMA_FINGERPRINT) == 64
 
 

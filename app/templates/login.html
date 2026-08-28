@@ -121,10 +121,12 @@
       <img src="/static/brand/cf-logo-stacked-dark.svg" alt="Christos Fragoulis Digital Solutions" width="220" height="220">
     </div>
 
-    <h1>Σύνδεση στο Warehouse</h1>
+    <h1>{{ 'Εφεδρική τοπική σύνδεση' if one_sso_enabled else 'Σύνδεση στο Warehouse' }}</h1>
 
     {% if err == 'rate' %}
       <div class="err">Πολλές αποτυχημένες προσπάθειες. Περιμένετε λίγα λεπτά και δοκιμάστε ξανά.</div>
+    {% elif err == 'sso' %}
+      <div class="err">Η ασφαλής σύνδεση από το One δεν ολοκληρώθηκε. Επιστρέψτε στο One και δοκιμάστε ξανά.</div>
     {% elif err %}
       <div class="err">Λάθος όνομα χρήστη ή PIN.</div>
     {% endif %}
@@ -140,7 +142,11 @@
     </form>
 
     <div class="hint">
-      Η πρόσβαση επιτρέπεται μόνο σε εξουσιοδοτημένους χρήστες της επιχείρησης.
+      {% if one_sso_enabled %}
+        Η κανονική πρόσβαση γίνεται από το Sklavounos One. Το τοπικό PIN διατηρείται μόνο για ελεγχόμενη εφεδρική πρόσβαση.
+      {% else %}
+        Η πρόσβαση επιτρέπεται μόνο σε εξουσιοδοτημένους χρήστες της επιχείρησης.
+      {% endif %}
     </div>
   </div>
 </body>

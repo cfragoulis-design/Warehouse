@@ -4,6 +4,11 @@ from dataclasses import dataclass
 
 from sqlalchemy import Engine, inspect, text
 
+try:
+    from .runtime_config import load_one_sso_settings
+except ImportError:
+    from runtime_config import load_one_sso_settings
+
 
 _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
     "users": frozenset({"id", "username", "role", "pin_hash"}),
@@ -84,13 +89,33 @@ class ReadinessStatus:
 
 
 def _schema_problem(bind: Engine) -> str | None:
+    required_schema = dict(_REQUIRED_SCHEMA)
+    if load_one_sso_settings().enabled:
+        required_schema["users"] = required_schema["users"] | {"is_active"}
+        required_schema["one_sso_mappings"] = frozenset(
+            {
+                "id",
+                "one_subject",
+                "one_employee_id",
+                "one_location_id",
+                "one_department_id",
+                "local_user_id",
+                "local_role",
+                "local_location_code",
+                "expected_email",
+                "is_active",
+            }
+        )
+        required_schema["one_sso_redemptions"] = frozenset(
+            {"id", "code_digest", "mapping_id", "issued_at", "expires_at"}
+        )
     schema = inspect(bind)
     available_tables = set(schema.get_table_names())
-    missing_tables = sorted(set(_REQUIRED_SCHEMA) - available_tables)
+    missing_tables = sorted(set(required_schema) - available_tables)
     if missing_tables:
         return "missing-required-tables"
 
-    for table_name, required_columns in _REQUIRED_SCHEMA.items():
+    for table_name, required_columns in required_schema.items():
         available_columns = {
             column["name"] for column in schema.get_columns(table_name)
         }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import secrets
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
@@ -30,6 +31,7 @@ _POSTGRESQL_SCHEMES = frozenset(
     }
 )
 _MIN_INTEGRATION_TOKEN_LENGTH = 32
+_ONE_SSO_PERMISSION = "external.warehouse.launch"
 
 
 def _boolean_environment(name: str, *, default: bool) -> bool:
@@ -61,6 +63,172 @@ class WarehousePredeployReport:
     inventory_read_enabled: bool
     consumables_read_enabled: bool
     database_backend: str
+
+
+@dataclass(frozen=True)
+class OneSsoSettings:
+    enabled: bool
+    one_origin: str | None
+    exchange_url: str | None
+    client_id: str | None
+    client_secret: str | None
+    timeout_seconds: float
+    required_assurance_level: int
+    required_permission: str
+    max_assertion_lifetime_seconds: int
+    session_ttl_seconds: int
+
+
+def _bounded_float_environment(
+    name: str,
+    *,
+    default: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    raw_value = (os.getenv(name) or "").strip()
+    if not raw_value:
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a number") from exc
+    if not minimum <= value <= maximum:
+        raise RuntimeError(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
+def _bounded_int_environment(
+    name: str,
+    *,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    raw_value = (os.getenv(name) or "").strip()
+    if not raw_value:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer") from exc
+    if not minimum <= value <= maximum:
+        raise RuntimeError(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
+def _validate_one_origin(value: str) -> str:
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError("ONE_SSO_ORIGIN must be an exact HTTPS origin")
+    canonical = f"https://{parsed.netloc}"
+    if value.rstrip("/") != canonical:
+        raise RuntimeError("ONE_SSO_ORIGIN must use its canonical HTTPS origin")
+    return canonical
+
+
+def _validate_one_exchange_url(value: str, *, one_origin: str) -> str:
+    parsed = urlsplit(value)
+    exchange_origin = f"{parsed.scheme}://{parsed.netloc}"
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or not parsed.path.startswith("/")
+        or parsed.path == "/"
+        or parsed.query
+        or parsed.fragment
+        or exchange_origin != one_origin
+    ):
+        raise RuntimeError(
+            "ONE_SSO_EXCHANGE_URL must be an exact HTTPS URL on ONE_SSO_ORIGIN"
+        )
+    return value
+
+
+def load_one_sso_settings() -> OneSsoSettings:
+    """Load the optional One SSO receiver configuration.
+
+    The integration is deliberately off by default. Enabling it is all-or-
+    nothing: the exact issuer origin, exchange endpoint and a dedicated client
+    credential must be configured before the callback can operate.
+    """
+
+    enabled = _boolean_environment("ONE_SSO_ENABLED", default=False)
+    timeout_seconds = _bounded_float_environment(
+        "ONE_SSO_TIMEOUT_SECONDS",
+        default=3.0,
+        minimum=0.5,
+        maximum=5.0,
+    )
+    required_assurance_level = _bounded_int_environment(
+        "ONE_SSO_REQUIRED_ASSURANCE_LEVEL",
+        default=2,
+        minimum=1,
+        maximum=2,
+    )
+    max_assertion_lifetime_seconds = _bounded_int_environment(
+        "ONE_SSO_MAX_ASSERTION_LIFETIME_SECONDS",
+        default=120,
+        minimum=10,
+        maximum=300,
+    )
+    session_ttl_seconds = _bounded_int_environment(
+        "ONE_SSO_SESSION_TTL_SECONDS",
+        default=28_800,
+        minimum=300,
+        maximum=57_600,
+    )
+
+    if not enabled:
+        return OneSsoSettings(
+            enabled=False,
+            one_origin=None,
+            exchange_url=None,
+            client_id=None,
+            client_secret=None,
+            timeout_seconds=timeout_seconds,
+            required_assurance_level=required_assurance_level,
+            required_permission=_ONE_SSO_PERMISSION,
+            max_assertion_lifetime_seconds=max_assertion_lifetime_seconds,
+            session_ttl_seconds=session_ttl_seconds,
+        )
+
+    one_origin = _validate_one_origin((os.getenv("ONE_SSO_ORIGIN") or "").strip())
+    exchange_url = _validate_one_exchange_url(
+        (os.getenv("ONE_SSO_EXCHANGE_URL") or "").strip(),
+        one_origin=one_origin,
+    )
+    client_id = (os.getenv("ONE_SSO_CLIENT_ID") or "").strip()
+    client_secret = (os.getenv("ONE_SSO_CLIENT_SECRET") or "").strip()
+    if not client_id or len(client_id) > 128:
+        raise RuntimeError("ONE_SSO_CLIENT_ID must be configured")
+    if len(client_secret) < _MIN_INTEGRATION_TOKEN_LENGTH:
+        raise RuntimeError(
+            "ONE_SSO_CLIENT_SECRET must contain at least 32 characters"
+        )
+
+    return OneSsoSettings(
+        enabled=True,
+        one_origin=one_origin,
+        exchange_url=exchange_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        timeout_seconds=timeout_seconds,
+        required_assurance_level=required_assurance_level,
+        required_permission=_ONE_SSO_PERMISSION,
+        max_assertion_lifetime_seconds=max_assertion_lifetime_seconds,
+        session_ttl_seconds=session_ttl_seconds,
+    )
 
 
 def _is_managed_environment() -> bool:
@@ -103,6 +271,7 @@ def resolve_session_secret(settings: WarehouseRuntimeSettings) -> str | None:
 def validate_predeploy_environment() -> WarehousePredeployReport:
     """Validate deployment configuration without touching a database or provider."""
     settings = load_runtime_settings()
+    load_one_sso_settings()
     managed_environment = _is_managed_environment()
     resolve_session_secret(settings)
 

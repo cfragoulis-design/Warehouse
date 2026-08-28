@@ -7,7 +7,66 @@ from pathlib import Path
 
 import pytest
 
-from app.runtime_config import load_runtime_settings, resolve_session_secret
+from app.runtime_config import (
+    load_one_sso_settings,
+    load_runtime_settings,
+    resolve_session_secret,
+)
+
+
+def test_one_sso_is_default_off_and_requires_an_exact_https_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in (
+        "ONE_SSO_ENABLED",
+        "ONE_SSO_ORIGIN",
+        "ONE_SSO_EXCHANGE_URL",
+        "ONE_SSO_CLIENT_ID",
+        "ONE_SSO_CLIENT_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    assert load_one_sso_settings().enabled is False
+
+    monkeypatch.setenv("ONE_SSO_ENABLED", "true")
+    monkeypatch.setenv("ONE_SSO_ORIGIN", "https://one.example.test")
+    monkeypatch.setenv(
+        "ONE_SSO_EXCHANGE_URL",
+        "https://one.example.test/api/v1/sso/exchange",
+    )
+    monkeypatch.setenv("ONE_SSO_CLIENT_ID", "warehouse-staging")
+    monkeypatch.setenv("ONE_SSO_CLIENT_SECRET", "s" * 32)
+    settings = load_one_sso_settings()
+    assert settings.enabled is True
+    assert settings.required_assurance_level == 2
+    assert settings.required_permission == "external.warehouse.launch"
+
+    monkeypatch.setenv("ONE_SSO_EXCHANGE_URL", "https://attacker.test/exchange")
+    with pytest.raises(RuntimeError, match="ONE_SSO_ORIGIN"):
+        load_one_sso_settings()
+
+    monkeypatch.setenv("ONE_SSO_EXCHANGE_URL", "http://one.example.test/exchange")
+    with pytest.raises(RuntimeError, match="exact HTTPS"):
+        load_one_sso_settings()
+
+
+def test_one_sso_timeout_and_assurance_are_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ONE_SSO_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_SSO_TIMEOUT_SECONDS", "20")
+    with pytest.raises(RuntimeError, match="between"):
+        load_one_sso_settings()
+
+    monkeypatch.setenv("ONE_SSO_TIMEOUT_SECONDS", "3")
+    monkeypatch.setenv("ONE_SSO_REQUIRED_ASSURANCE_LEVEL", "0")
+    with pytest.raises(RuntimeError, match="between"):
+        load_one_sso_settings()
+
+    monkeypatch.setenv("ONE_SSO_REQUIRED_ASSURANCE_LEVEL", "2")
+    monkeypatch.setenv("ONE_SSO_SESSION_TTL_SECONDS", "57601")
+    with pytest.raises(RuntimeError, match="between"):
+        load_one_sso_settings()
 
 
 def test_runtime_defaults_preserve_existing_warehouse_behavior(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
@@ -129,6 +130,22 @@ def test_ready_returns_503_when_audit_events_table_is_missing(
         },
         "reason": "missing-required-tables",
     }
+
+
+def test_readiness_requires_sso_schema_only_when_sso_is_enabled(monkeypatch) -> None:
+    from app import readiness
+
+    engine = _engine_with_required_schema_except()
+    monkeypatch.setattr(
+        readiness,
+        "load_one_sso_settings",
+        lambda: SimpleNamespace(enabled=True),
+    )
+
+    status = readiness.check_readiness(engine)
+
+    assert status.ready is False
+    assert status.reason == "missing-required-tables"
 
 
 def test_health_is_lightweight_and_ready_returns_safe_503(
