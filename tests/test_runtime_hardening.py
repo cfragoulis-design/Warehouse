@@ -179,6 +179,18 @@ def test_security_headers_are_added_without_blocking_existing_inline_ui() -> Non
     assert response.headers["strict-transport-security"].startswith("max-age=")
 
 
+def test_hsts_honors_https_forwarded_by_the_managed_proxy() -> None:
+    from app.app import app
+
+    response = TestClient(app, base_url="http://warehouse.test").get(
+        "/health",
+        headers={"x-forwarded-proto": "https"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["strict-transport-security"].startswith("max-age=")
+
+
 def test_weekly_scheduler_does_not_run_database_ddl(monkeypatch) -> None:
     from app import weekly_vet_report_cron as cron
 

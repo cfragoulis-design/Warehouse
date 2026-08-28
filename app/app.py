@@ -85,7 +85,9 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
-    if request.url.scheme == "https":
+    forwarded_scheme = request.headers.get("x-forwarded-proto", "").split(",", 1)[0]
+    is_https = request.url.scheme == "https" or forwarded_scheme.strip().lower() == "https"
+    if is_https:
         response.headers["Strict-Transport-Security"] = (
             "max-age=31536000; includeSubDomains"
         )
