@@ -416,6 +416,19 @@ async def one_sso_callback(
     if not settings.enabled:
         return _denied_response()
 
+    # Protocol v1 carries the opaque code only in the bounded POST body.
+    # Reject every query string so codes, redirect targets or look-alike
+    # parameters can never be accepted from URLs, browser history or logs.
+    if request.url.query:
+        _record_outcome(
+            db,
+            request=request,
+            action="warehouse.one_sso.login_denied",
+            outcome="query_forbidden",
+        )
+        db.commit()
+        return _denied_response()
+
     try:
         version, code = await _read_callback_fields(request, settings=settings)
     except OneSsoRequestError:

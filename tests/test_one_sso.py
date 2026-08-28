@@ -32,7 +32,9 @@ def _settings(*, enabled: bool = True) -> OneSsoSettings:
         enabled=enabled,
         one_origin="https://one.example.test" if enabled else None,
         exchange_url=(
-            "https://one.example.test/api/v1/sso/exchange" if enabled else None
+            "https://one.example.test/api/v1/external-access/exchange"
+            if enabled
+            else None
         ),
         client_id="warehouse-staging" if enabled else None,
         client_secret=("dedicated-warehouse-client-secret-123456" if enabled else None),
@@ -428,6 +430,39 @@ def test_callback_requires_the_exact_one_origin(
     assert called is False
 
 
+def test_callback_rejects_every_query_string_before_exchange(
+    sso_app,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, session_factory = sso_app
+    calls = 0
+
+    def exchange(_settings, _code):
+        nonlocal calls
+        calls += 1
+        return _payload()
+
+    monkeypatch.setattr(one_sso, "exchange_one_code", exchange)
+
+    response = client.post(
+        "/auth/one/callback?next=%2Fdashboard",
+        data={"version": "1", "code": "opaque-code-value-1234567890"},
+        headers={"Origin": "https://one.example.test"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login?err=sso"
+    assert calls == 0
+    with session_factory() as db:
+        event = db.execute(
+            select(AuditEvent).where(
+                AuditEvent.action == "warehouse.one_sso.login_denied"
+            )
+        ).scalar_one()
+        assert json.loads(event.after_json or "{}")["outcome"] == "query_forbidden"
+
+
 def test_disabled_receiver_fails_closed_without_exchange(
     sso_app,
     monkeypatch: pytest.MonkeyPatch,
@@ -492,7 +527,7 @@ def test_exchange_uses_exact_body_dedicated_credential_timeout_and_no_redirect(
     assert captured["port"] == 443
     assert captured["timeout"] == 1.0
     assert captured["method"] == "POST"
-    assert captured["path"] == "/api/v1/sso/exchange"
+    assert captured["path"] == "/api/v1/external-access/exchange"
     assert json.loads(captured["body"]) == {
         "version": 1,
         "app_code": "warehouse",

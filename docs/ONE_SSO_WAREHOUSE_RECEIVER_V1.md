@@ -51,7 +51,7 @@ The feature remains unavailable unless all of these are present:
 ```text
 ONE_SSO_ENABLED=true
 ONE_SSO_ORIGIN=https://one.example
-ONE_SSO_EXCHANGE_URL=https://one.example/api/v1/sso/exchange
+ONE_SSO_EXCHANGE_URL=https://one.example/api/v1/external-access/exchange
 ONE_SSO_CLIENT_ID=warehouse-staging
 ONE_SSO_CLIENT_SECRET=<dedicated random value, at least 32 characters>
 ONE_SSO_REQUIRED_ASSURANCE_LEVEL=2

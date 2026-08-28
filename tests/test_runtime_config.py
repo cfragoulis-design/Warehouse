@@ -32,7 +32,7 @@ def test_one_sso_is_default_off_and_requires_an_exact_https_configuration(
     monkeypatch.setenv("ONE_SSO_ORIGIN", "https://one.example.test")
     monkeypatch.setenv(
         "ONE_SSO_EXCHANGE_URL",
-        "https://one.example.test/api/v1/sso/exchange",
+        "https://one.example.test/api/v1/external-access/exchange",
     )
     monkeypatch.setenv("ONE_SSO_CLIENT_ID", "warehouse-staging")
     monkeypatch.setenv("ONE_SSO_CLIENT_SECRET", "s" * 32)
