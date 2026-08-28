@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -71,7 +71,7 @@ class OneSsoSettings:
     one_origin: str | None
     exchange_url: str | None
     client_id: str | None
-    client_secret: str | None
+    client_secret: str | None = field(repr=False)
     timeout_seconds: float
     required_assurance_level: int
     required_permission: str

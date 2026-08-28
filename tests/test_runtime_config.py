@@ -35,11 +35,13 @@ def test_one_sso_is_default_off_and_requires_an_exact_https_configuration(
         "https://one.example.test/api/v1/external-access/exchange",
     )
     monkeypatch.setenv("ONE_SSO_CLIENT_ID", "warehouse-staging")
-    monkeypatch.setenv("ONE_SSO_CLIENT_SECRET", "s" * 32)
+    client_secret = "warehouse-client-secret-must-never-appear"
+    monkeypatch.setenv("ONE_SSO_CLIENT_SECRET", client_secret)
     settings = load_one_sso_settings()
     assert settings.enabled is True
     assert settings.required_assurance_level == 2
     assert settings.required_permission == "external.warehouse.launch"
+    assert client_secret not in repr(settings)
 
     monkeypatch.setenv("ONE_SSO_EXCHANGE_URL", "https://attacker.test/exchange")
     with pytest.raises(RuntimeError, match="ONE_SSO_ORIGIN"):
