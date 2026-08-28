@@ -46,7 +46,14 @@ def test_one_sso_is_default_off_and_requires_an_exact_https_configuration(
         load_one_sso_settings()
 
     monkeypatch.setenv("ONE_SSO_EXCHANGE_URL", "http://one.example.test/exchange")
-    with pytest.raises(RuntimeError, match="exact HTTPS"):
+    with pytest.raises(RuntimeError, match="canonical external-access"):
+        load_one_sso_settings()
+
+    monkeypatch.setenv(
+        "ONE_SSO_EXCHANGE_URL",
+        "https://one.example.test/api/v1/sso/exchange",
+    )
+    with pytest.raises(RuntimeError, match="canonical external-access"):
         load_one_sso_settings()
 
 

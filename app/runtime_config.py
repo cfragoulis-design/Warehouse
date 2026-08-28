@@ -143,14 +143,14 @@ def _validate_one_exchange_url(value: str, *, one_origin: str) -> str:
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
-        or not parsed.path.startswith("/")
-        or parsed.path == "/"
+        or parsed.path != "/api/v1/external-access/exchange"
         or parsed.query
         or parsed.fragment
         or exchange_origin != one_origin
     ):
         raise RuntimeError(
-            "ONE_SSO_EXCHANGE_URL must be an exact HTTPS URL on ONE_SSO_ORIGIN"
+            "ONE_SSO_EXCHANGE_URL must be the canonical external-access exchange "
+            "endpoint on ONE_SSO_ORIGIN"
         )
     return value
 

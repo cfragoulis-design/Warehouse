@@ -12,7 +12,15 @@ Warehouse session value. It posts only a short-lived opaque code to Warehouse.
 - exact `Content-Type: application/x-www-form-urlencoded`;
 - bounded body and declared `Content-Length`;
 - exactly one `version=1` and one `code` field;
+- code alphabet and length exactly `[A-Za-z0-9_-]{32,256}`;
 - no query token, identity fields, JWT, `next` path or duplicate fields.
+
+Before any exchange, the public callback applies a proxy-independent,
+process-wide admission gate: at most 30 enabled callback attempts per 60
+seconds and at most four concurrent One exchanges. A limited request receives
+`429`, `Retry-After` and `Cache-Control: no-store`; repeated limited attempts
+produce at most one denial audit per 60 seconds. This is defense in depth in
+addition to Railway edge controls, not an identity or authorization decision.
 
 Warehouse redeems the code server-to-server with a bounded TLS request that
 does not follow redirects:

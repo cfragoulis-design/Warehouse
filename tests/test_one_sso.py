@@ -25,6 +25,7 @@ ONE_LOCATION_ID = "f60b4baf-831e-4a9c-a714-169bad599663"
 ONE_DEPARTMENT_ID = "784a7bb9-54bd-420e-9a5d-eab196af9910"
 ONE_SUBJECT = "d48c0a8e-d8dc-4c12-af8d-ed5710ee395f"
 ONE_EMPLOYEE_ID = "42c97395-48e8-4847-a871-756d608a8cf0"
+VALID_CODE = "opaque-code-value-1234567890-ABCDEF"
 
 
 def _settings(*, enabled: bool = True) -> OneSsoSettings:
@@ -71,7 +72,12 @@ def _payload(**overrides):
 
 
 @pytest.fixture
-def sso_app():
+def sso_app(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        one_sso,
+        "_GLOBAL_ONE_SSO_ADMISSION",
+        one_sso.OneSsoAdmissionController(),
+    )
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -135,7 +141,7 @@ def sso_app():
         engine.dispose()
 
 
-def _post_code(client: TestClient, code: str = "opaque-code-value-1234567890"):
+def _post_code(client: TestClient, code: str = VALID_CODE):
     return client.post(
         "/auth/one/callback",
         data={"version": "1", "code": code},
@@ -389,7 +395,7 @@ def test_callback_accepts_only_one_code_and_one_version(
         "/auth/one/callback",
         data={
             "version": "1",
-            "code": "opaque-code-value-1234567890",
+            "code": VALID_CODE,
             "email": "attacker@example.test",
         },
         headers={"Origin": "https://one.example.test"},
@@ -421,7 +427,7 @@ def test_callback_requires_the_exact_one_origin(
     headers = {"Origin": origin} if origin else {}
     response = client.post(
         "/auth/one/callback",
-        data={"version": "1", "code": "opaque-code-value-1234567890"},
+        data={"version": "1", "code": VALID_CODE},
         headers=headers,
         follow_redirects=False,
     )
@@ -446,7 +452,7 @@ def test_callback_rejects_every_query_string_before_exchange(
 
     response = client.post(
         "/auth/one/callback?next=%2Fdashboard",
-        data={"version": "1", "code": "opaque-code-value-1234567890"},
+        data={"version": "1", "code": VALID_CODE},
         headers={"Origin": "https://one.example.test"},
         follow_redirects=False,
     )
@@ -461,6 +467,128 @@ def test_callback_rejects_every_query_string_before_exchange(
             )
         ).scalar_one()
         assert json.loads(event.after_json or "{}")["outcome"] == "query_forbidden"
+
+
+def test_callback_admission_limits_match_the_receiver_contract() -> None:
+    assert one_sso.ONE_SSO_CALLBACK_RATE_LIMIT == 30
+    assert one_sso.ONE_SSO_CALLBACK_RATE_WINDOW_SECONDS == 60
+    assert one_sso.ONE_SSO_MAX_CONCURRENT_EXCHANGES == 4
+    assert one_sso.ONE_SSO_BUSY_RETRY_AFTER_SECONDS == 1
+    assert one_sso.ONE_SSO_LIMITED_AUDIT_INTERVAL_SECONDS == 60
+
+
+def test_global_callback_rate_limit_rejects_before_exchange_and_bounds_audit(
+    sso_app,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, session_factory = sso_app
+    controller = one_sso.OneSsoAdmissionController(
+        rate_limit=1,
+        window_seconds=60,
+        max_concurrent_exchanges=4,
+        limited_audit_interval_seconds=60,
+    )
+    monkeypatch.setattr(one_sso, "_GLOBAL_ONE_SSO_ADMISSION", controller)
+    calls = 0
+
+    def exchange(_settings, _code):
+        nonlocal calls
+        calls += 1
+        return _payload()
+
+    monkeypatch.setattr(one_sso, "exchange_one_code", exchange)
+    assert _post_code(client).status_code == 303
+
+    first_limited = _post_code(client, "B" * 48)
+    second_limited = _post_code(client, "C" * 48)
+
+    assert first_limited.status_code == 429
+    assert second_limited.status_code == 429
+    assert first_limited.headers["cache-control"] == "no-store"
+    assert int(first_limited.headers["retry-after"]) >= 1
+    assert calls == 1
+    with session_factory() as db:
+        limited = [
+            event
+            for event in db.execute(
+                select(AuditEvent).where(
+                    AuditEvent.action == "warehouse.one_sso.login_denied"
+                )
+            ).scalars()
+            if json.loads(event.after_json or "{}").get("outcome")
+            == "admission_limited"
+        ]
+        assert len(limited) == 1
+
+
+def test_concurrent_exchange_gate_rejects_before_exchange(
+    sso_app,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _session_factory = sso_app
+    controller = one_sso.OneSsoAdmissionController(
+        rate_limit=10,
+        window_seconds=60,
+        max_concurrent_exchanges=1,
+        limited_audit_interval_seconds=60,
+    )
+    monkeypatch.setattr(one_sso, "_GLOBAL_ONE_SSO_ADMISSION", controller)
+    assert controller.try_acquire_exchange().allowed is True
+    calls = 0
+
+    def exchange(_settings, _code):
+        nonlocal calls
+        calls += 1
+        return _payload()
+
+    monkeypatch.setattr(one_sso, "exchange_one_code", exchange)
+    try:
+        busy = _post_code(client)
+    finally:
+        controller.release_exchange()
+
+    assert busy.status_code == 429
+    assert busy.headers["retry-after"] == "1"
+    assert busy.headers["cache-control"] == "no-store"
+    assert calls == 0
+    assert _post_code(client, "D" * 48).status_code == 303
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["A" * 31, "A" * 257, "A" * 32 + "."],
+)
+def test_callback_rejects_codes_outside_the_exact_issuer_contract_before_exchange(
+    sso_app,
+    monkeypatch: pytest.MonkeyPatch,
+    code: str,
+) -> None:
+    client, _session_factory = sso_app
+    calls = 0
+
+    def exchange(_settings, _code):
+        nonlocal calls
+        calls += 1
+        return _payload()
+
+    monkeypatch.setattr(one_sso, "exchange_one_code", exchange)
+    response = _post_code(client, code)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login?err=sso"
+    assert calls == 0
+
+
+def test_callback_accepts_issuer_code_length_boundaries(
+    sso_app,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _session_factory = sso_app
+    monkeypatch.setattr(one_sso, "exchange_one_code", lambda *_args: _payload())
+
+    assert _post_code(client, "A" * 32).status_code == 303
+    assert _post_code(client, "B" * 256).status_code == 303
 
 
 def test_disabled_receiver_fails_closed_without_exchange(
@@ -521,7 +649,7 @@ def test_exchange_uses_exact_body_dedicated_credential_timeout_and_no_redirect(
     monkeypatch.setattr(one_sso.ssl, "create_default_context", lambda: "tls-context")
 
     with pytest.raises(OneSsoExchangeError, match="exchange_rejected"):
-        one_sso.exchange_one_code(_settings(), "opaque-code-value-1234567890")
+        one_sso.exchange_one_code(_settings(), VALID_CODE)
 
     assert captured["host"] == "one.example.test"
     assert captured["port"] == 443
@@ -531,7 +659,7 @@ def test_exchange_uses_exact_body_dedicated_credential_timeout_and_no_redirect(
     assert json.loads(captured["body"]) == {
         "version": 1,
         "app_code": "warehouse",
-        "code": "opaque-code-value-1234567890",
+        "code": VALID_CODE,
     }
     headers = captured["headers"]
     assert headers["Authorization"] == (

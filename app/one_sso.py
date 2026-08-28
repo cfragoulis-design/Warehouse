@@ -5,17 +5,21 @@ import hashlib
 import hmac
 import http.client
 import json
+import math
 import re
 import ssl
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parseaddr
+from threading import Lock
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -38,7 +42,12 @@ router = APIRouter()
 
 _MAX_EXCHANGE_RESPONSE_BYTES = 64 * 1024
 _MAX_CALLBACK_BODY_BYTES = 4096
-_CODE_PATTERN = re.compile(r"[A-Za-z0-9._~-]{24,512}\Z")
+ONE_SSO_CALLBACK_RATE_LIMIT = 30
+ONE_SSO_CALLBACK_RATE_WINDOW_SECONDS = 60
+ONE_SSO_MAX_CONCURRENT_EXCHANGES = 4
+ONE_SSO_LIMITED_AUDIT_INTERVAL_SECONDS = 60
+ONE_SSO_BUSY_RETRY_AFTER_SECONDS = 1
+_CODE_PATTERN = re.compile(r"[A-Za-z0-9_-]{32,256}\Z")
 _SAFE_SSO_DESTINATIONS = frozenset({"/dashboard", "/consumables/take"})
 
 
@@ -56,6 +65,93 @@ class OneSsoAssertionError(Exception):
 
 class OneSsoRequestError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class OneSsoAdmissionDecision:
+    allowed: bool
+    retry_after_seconds: int = 0
+    audit_rejection: bool = False
+
+
+class OneSsoAdmissionController:
+    """Process-local, proxy-independent callback and exchange admission gate."""
+
+    def __init__(
+        self,
+        *,
+        rate_limit: int = ONE_SSO_CALLBACK_RATE_LIMIT,
+        window_seconds: int = ONE_SSO_CALLBACK_RATE_WINDOW_SECONDS,
+        max_concurrent_exchanges: int = ONE_SSO_MAX_CONCURRENT_EXCHANGES,
+        limited_audit_interval_seconds: int = (
+            ONE_SSO_LIMITED_AUDIT_INTERVAL_SECONDS
+        ),
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if min(
+            rate_limit,
+            window_seconds,
+            max_concurrent_exchanges,
+            limited_audit_interval_seconds,
+        ) <= 0:
+            raise ValueError("One SSO admission limits must be positive")
+        self._rate_limit = rate_limit
+        self._window_seconds = window_seconds
+        self._max_concurrent_exchanges = max_concurrent_exchanges
+        self._limited_audit_interval_seconds = limited_audit_interval_seconds
+        self._clock = clock
+        self._lock = Lock()
+        self._window_started_at = clock()
+        self._request_count = 0
+        self._active_exchanges = 0
+        self._last_limited_audit_at: float | None = None
+
+    def _limited_audit_is_due(self, now: float) -> bool:
+        last = self._last_limited_audit_at
+        if last is not None and now - last < self._limited_audit_interval_seconds:
+            return False
+        self._last_limited_audit_at = now
+        return True
+
+    def admit_callback(self) -> OneSsoAdmissionDecision:
+        now = self._clock()
+        with self._lock:
+            elapsed = now - self._window_started_at
+            if elapsed < 0 or elapsed >= self._window_seconds:
+                self._window_started_at = now
+                self._request_count = 0
+                elapsed = 0
+            if self._request_count >= self._rate_limit:
+                return OneSsoAdmissionDecision(
+                    allowed=False,
+                    retry_after_seconds=max(
+                        1,
+                        math.ceil(self._window_seconds - elapsed),
+                    ),
+                    audit_rejection=self._limited_audit_is_due(now),
+                )
+            self._request_count += 1
+            return OneSsoAdmissionDecision(allowed=True)
+
+    def try_acquire_exchange(self) -> OneSsoAdmissionDecision:
+        now = self._clock()
+        with self._lock:
+            if self._active_exchanges >= self._max_concurrent_exchanges:
+                return OneSsoAdmissionDecision(
+                    allowed=False,
+                    retry_after_seconds=ONE_SSO_BUSY_RETRY_AFTER_SECONDS,
+                    audit_rejection=self._limited_audit_is_due(now),
+                )
+            self._active_exchanges += 1
+            return OneSsoAdmissionDecision(allowed=True)
+
+    def release_exchange(self) -> None:
+        with self._lock:
+            if self._active_exchanges > 0:
+                self._active_exchanges -= 1
+
+
+_GLOBAL_ONE_SSO_ADMISSION = OneSsoAdmissionController()
 
 
 @dataclass(frozen=True)
@@ -341,6 +437,17 @@ def _denied_response() -> RedirectResponse:
     )
 
 
+def _admission_failure(retry_after_seconds: int) -> PlainTextResponse:
+    return PlainTextResponse(
+        "SSO sign-in temporarily unavailable",
+        status_code=429,
+        headers={
+            "Cache-Control": "no-store",
+            "Retry-After": str(max(1, retry_after_seconds)),
+        },
+    )
+
+
 async def _read_callback_fields(
     request: Request,
     *,
@@ -416,6 +523,18 @@ async def one_sso_callback(
     if not settings.enabled:
         return _denied_response()
 
+    request_admission = _GLOBAL_ONE_SSO_ADMISSION.admit_callback()
+    if not request_admission.allowed:
+        if request_admission.audit_rejection:
+            _record_outcome(
+                db,
+                request=request,
+                action="warehouse.one_sso.login_denied",
+                outcome="admission_limited",
+            )
+            db.commit()
+        return _admission_failure(request_admission.retry_after_seconds)
+
     # Protocol v1 carries the opaque code only in the bounded POST body.
     # Reject every query string so codes, redirect targets or look-alike
     # parameters can never be accepted from URLs, browser history or logs.
@@ -466,8 +585,28 @@ async def one_sso_callback(
         db.commit()
         return _denied_response()
 
+    exchange_admission = _GLOBAL_ONE_SSO_ADMISSION.try_acquire_exchange()
+    if not exchange_admission.allowed:
+        if exchange_admission.audit_rejection:
+            _record_outcome(
+                db,
+                request=request,
+                action="warehouse.one_sso.login_denied",
+                outcome="admission_limited",
+            )
+            db.commit()
+        return _admission_failure(exchange_admission.retry_after_seconds)
+
+    def exchange_with_release() -> dict[str, Any]:
+        try:
+            return exchange_one_code(settings, code)
+        finally:
+            # Keep the slot until the worker really exits. ASGI cancellation
+            # must not make an in-flight synchronous exchange disappear.
+            _GLOBAL_ONE_SSO_ADMISSION.release_exchange()
+
     try:
-        payload = await asyncio.to_thread(exchange_one_code, settings, code)
+        payload = await asyncio.to_thread(exchange_with_release)
         assertion = validate_one_assertion(payload, settings=settings)
     except OneSsoExchangeError as exc:
         _record_outcome(
