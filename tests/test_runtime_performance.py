@@ -177,10 +177,12 @@ def test_sync_sqlalchemy_stock_routes_are_regular_functions() -> None:
 
 def test_stock_polling_is_visible_only_slow_and_manually_refreshable() -> None:
     template = (ROOT / "app/templates/stock.html").read_text(encoding="utf-8")
+    shell = (ROOT / "app/templates/_warehouse_shell.html").read_text(encoding="utf-8")
     assert "const POLL_MS = 15000" in template
     assert "if (refreshInFlight || document.hidden) return" in template
     assert 'document.addEventListener("visibilitychange", startVisiblePolling)' in template
-    assert 'id="refreshStockBtn"' in template
+    assert "{% set shell_stock_refresh = true %}" in template
+    assert 'id="refreshStockBtn"' in shell
     assert 'addEventListener("click", refreshStockLive)' in template
     assert "Updated ${new Date().toLocaleTimeString" in template
     assert "POLL_MS = 4000" not in template
