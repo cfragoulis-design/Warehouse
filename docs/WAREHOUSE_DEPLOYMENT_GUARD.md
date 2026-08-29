@@ -7,8 +7,9 @@ Warehouse deployment. It is based on the unchanged Warehouse runtime at commit
 ## Fail-closed sequence
 
 1. Railway builds the candidate image.
-2. `python scripts/verify_runtime_predeploy.py` validates configuration without
-   connecting to PostgreSQL, reading business data or invoking a provider.
+2. `python scripts/warehouse_predeploy.py` validates configuration without
+   reading business data or invoking a provider. Migrations remain disabled
+   unless the deployment explicitly opts in.
 3. A non-zero result stops the deployment before the candidate can serve traffic.
 4. Railway starts the candidate only after the pre-deploy check passes.
 5. Railway requests `/health` for up to 120 seconds and retains the previous
@@ -21,6 +22,11 @@ The pre-deploy check validates:
 - source-mode mutation and scheduler boundaries;
 - explicit Operations read switches and a minimum-length read token;
 - the dependency between detailed inventory reads and the base read API.
+- when migrations are enabled, the exact target/database confirmation,
+  disabled in-web mutations and schedulers, a separately approved Production
+  gate and an explicit 40-character candidate commit;
+- when Railway supplies its own Git SHA, exact equality between that SHA and
+  `WAREHOUSE_CANDIDATE_COMMIT`.
 
 Output is limited to booleans and the database backend name. It never prints a
 secret, token, database URL, hostname, credential or business value.

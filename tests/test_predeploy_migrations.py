@@ -83,6 +83,7 @@ def test_staging_migration_requires_exact_explicit_identity_and_commit(
     )
     monkeypatch.setenv("DATABASE_URL", "postgresql://hidden/db")
     monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "c" * 40)
+    monkeypatch.setenv("WAREHOUSE_CANDIDATE_COMMIT", "c" * 40)
     calls: list[dict[str, object]] = []
 
     def _apply(**kwargs):
@@ -103,6 +104,25 @@ def test_staging_migration_requires_exact_explicit_identity_and_commit(
             "candidate_commit": "c" * 40,
         }
     ]
+
+
+def test_migration_rejects_a_railway_commit_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    monkeypatch.setenv("WAREHOUSE_MIGRATIONS_ENABLED", "true")
+    monkeypatch.setenv("WAREHOUSE_MIGRATION_TARGET", "staging")
+    monkeypatch.setenv("WAREHOUSE_MIGRATION_DATABASE", "warehouse_fullui_staging")
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_CONFIRM_DATABASE", "warehouse_fullui_staging"
+    )
+    monkeypatch.setenv("DATABASE_URL", "postgresql://hidden/db")
+    monkeypatch.setenv("WAREHOUSE_CANDIDATE_COMMIT", "c" * 40)
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "d" * 40)
+
+    with pytest.raises(RuntimeError, match="does not match"):
+        warehouse_predeploy.run_predeploy()
 
 
 def test_migration_managed_deploy_rejects_in_web_mutations(

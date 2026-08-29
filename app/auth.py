@@ -66,6 +66,9 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User | 
         return None
 
     if request.session.get("auth_source") == "one":
+        if not load_one_sso_settings().enabled:
+            request.session.clear()
+            return None
         session_expires_at = request.session.get("one_session_expires_at")
         if (
             isinstance(session_expires_at, bool)
@@ -234,6 +237,7 @@ def login(
         return RedirectResponse(url="/login?err=1", status_code=303)
 
     _clear_login_failures(username)
+    request.session.clear()
     request.session["uid"] = user.id
     return RedirectResponse(url=home_for_user(user), status_code=303)
 

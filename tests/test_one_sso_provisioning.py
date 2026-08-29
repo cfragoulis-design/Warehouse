@@ -28,6 +28,14 @@ def mapping_db(monkeypatch: pytest.MonkeyPatch):
             is_active=True,
         )
     )
+    db.add(
+        User(
+            username="admin",
+            role="admin",
+            pin_hash="break-glass-admin-pin-hash",
+            is_active=True,
+        )
+    )
     db.commit()
     monkeypatch.setattr(
         provisioning,
@@ -58,19 +66,34 @@ def _provision(db: Session, *, apply: bool, **overrides):
         "allow_admin": False,
         "confirm_local_username": "workshop-one" if apply else None,
         "confirm_one_employee_id": EMPLOYEE if apply else None,
+        "confirm_plan_fingerprint": None,
     }
     arguments.update(overrides)
+    if apply and "confirm_plan_fingerprint" not in overrides:
+        plan_arguments = {
+            **arguments,
+            "apply": False,
+            "confirm_local_username": None,
+            "confirm_one_employee_id": None,
+            "confirm_plan_fingerprint": None,
+        }
+        arguments["confirm_plan_fingerprint"] = provisioning.provision_mapping(
+            db,
+            **plan_arguments,
+        ).plan_fingerprint
     return provisioning.provision_mapping(db, **arguments)
 
 
 def test_plan_is_read_only_and_apply_is_audited(mapping_db: Session) -> None:
     plan = _provision(mapping_db, apply=False)
     assert plan.status == "would_create"
+    assert len(plan.plan_fingerprint) == 64
     assert mapping_db.query(OneSsoMapping).count() == 0
 
     result = _provision(mapping_db, apply=True)
 
     assert result.status == "created"
+    assert result.plan_fingerprint == plan.plan_fingerprint
     mapping = mapping_db.query(OneSsoMapping).one()
     assert mapping.one_subject == SUBJECT
     assert mapping.one_employee_id == EMPLOYEE
@@ -92,6 +115,20 @@ def test_apply_requires_exact_dual_identity_confirmation(mapping_db: Session) ->
     assert mapping_db.query(OneSsoMapping).count() == 0
 
 
+def test_apply_is_bound_to_the_exact_reviewed_plan(mapping_db: Session) -> None:
+    plan = _provision(mapping_db, apply=False)
+
+    with pytest.raises(RuntimeError, match="plan-fingerprint"):
+        _provision(
+            mapping_db,
+            apply=True,
+            expected_email="changed@example.test",
+            confirm_plan_fingerprint=plan.plan_fingerprint,
+        )
+
+    assert mapping_db.query(OneSsoMapping).count() == 0
+
+
 def test_mapping_cannot_be_repointed_or_promoted(mapping_db: Session) -> None:
     _provision(mapping_db, apply=True)
 
@@ -104,3 +141,55 @@ def test_mapping_cannot_be_repointed_or_promoted(mapping_db: Session) -> None:
 
     with pytest.raises(RuntimeError, match="allow-admin"):
         _provision(mapping_db, apply=False, local_role="admin")
+
+
+def test_admin_mapping_requires_explicit_global_scope_and_plan_confirmation(
+    mapping_db: Session,
+) -> None:
+    arguments = {
+        "expected_database": "warehouse_fullui_staging",
+        "confirmed_database": "warehouse_fullui_staging",
+        "local_username": "admin",
+        "local_role": "admin",
+        "local_location_code": "ALL",
+        "one_subject": SUBJECT,
+        "one_employee_id": EMPLOYEE,
+        "one_location_id": None,
+        "one_department_id": None,
+        "expected_email": "admin@example.test",
+        "apply": False,
+        "allow_admin": True,
+        "confirm_local_username": None,
+        "confirm_one_employee_id": None,
+        "confirm_plan_fingerprint": None,
+    }
+    plan = provisioning.provision_mapping(mapping_db, **arguments)
+    assert plan.status == "would_create"
+    assert plan.local_role == "admin"
+    assert plan.local_location_code == "ALL"
+
+    with pytest.raises(RuntimeError, match="global scope"):
+        provisioning.provision_mapping(
+            mapping_db,
+            **{
+                **arguments,
+                "one_location_id": LOCATION,
+            },
+        )
+
+    created = provisioning.provision_mapping(
+        mapping_db,
+        **{
+            **arguments,
+            "apply": True,
+            "confirm_local_username": "admin",
+            "confirm_one_employee_id": EMPLOYEE,
+            "confirm_plan_fingerprint": plan.plan_fingerprint,
+        },
+    )
+    assert created.status == "created"
+    mapping = mapping_db.query(OneSsoMapping).one()
+    assert mapping.local_role == "admin"
+    assert mapping.local_location_code == "ALL"
+    assert mapping.one_location_id is None
+    assert mapping.one_department_id is None

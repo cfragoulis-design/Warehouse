@@ -76,8 +76,10 @@ browser.
 
 Migration `20260828_002` adds the inactive-by-policy mapping boundary. Provision
 only after that migration succeeds. The script is read-only unless `--apply` is
-explicitly supplied and requires exact database, local username and employee ID
-confirmations.
+explicitly supplied. Its plan returns a SHA-256 fingerprint that binds the
+database, local account, One identifiers, scope and pinned email without
+printing those identity values again. Apply requires that exact reviewed plan
+fingerprint together with the local username and employee ID confirmations.
 
 Plan example:
 
@@ -95,19 +97,24 @@ python scripts/provision_one_sso_mapping.py `
   --expected-email employee@example.com
 ```
 
-Run the same command with `--apply`, `--confirm-local-username workshop-one`
-and `--confirm-one-employee-id <stable-one-employee-id>` only after reviewing
-the plan. The local account must already exist, be active and have the exact
-role. Admin mapping additionally requires `--allow-admin` and a reviewed global
-scope; it is never inferred.
+Run the same command with `--apply`, `--confirm-local-username workshop-one`,
+`--confirm-one-employee-id <stable-one-employee-id>` and
+`--confirm-plan-fingerprint <fingerprint-from-plan>` only after reviewing the
+plan. Any changed identity, scope, role, email or database produces a different
+fingerprint and is rejected. The local account must already exist, be active
+and have the exact role. Admin mapping additionally requires `--allow-admin`
+and a reviewed global scope; it is never inferred.
 
 ## Rollback and local login
 
-Set `ONE_SSO_ENABLED=false` to close the callback without deleting mappings.
+Set `ONE_SSO_ENABLED=false` to close the callback and invalidate existing
+One-backed Warehouse sessions without deleting mappings.
 Set a mapping or local user inactive to invalidate its existing One-backed
 session on the next request. One-backed local sessions also expire after eight
 hours by default and can never be configured beyond sixteen hours. Local PIN
 login remains available as a controlled
 compatibility/break-glass path and is labelled as such whenever SSO is enabled.
+Completing a local PIN login clears all prior One-session metadata so this
+fallback remains independent during an SSO rollback.
 
 No Production migration, mapping or activation is part of this candidate.

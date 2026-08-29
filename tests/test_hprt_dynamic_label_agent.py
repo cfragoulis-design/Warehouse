@@ -133,8 +133,11 @@ def test_status_ui_exposes_live_printer_queue_history_and_safe_actions():
 
 
 def test_creator_assets_are_exact_approved_canonical_copies():
-    assert CREATOR_WEB_LOGO.stat().st_size == 2_013
-    assert hashlib.sha256(CREATOR_WEB_LOGO.read_bytes()).hexdigest() == (
+    # Git may materialize text assets with CRLF on Windows.  Verify the exact
+    # approved SVG content after normalizing only that transport-level detail.
+    canonical_web_logo = CREATOR_WEB_LOGO.read_bytes().replace(b"\r\n", b"\n")
+    assert len(canonical_web_logo) == 2_013
+    assert hashlib.sha256(canonical_web_logo).hexdigest() == (
         "22f3bebc8e2e6202274db8f19a6338fad1419e998f83d966822ece4e5297439a"
     )
     assert CREATOR_APP_ICON.stat().st_size == 2_499

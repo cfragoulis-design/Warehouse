@@ -77,10 +77,12 @@ def run_predeploy() -> dict[str, object]:
 
     expected_database = _required_environment("WAREHOUSE_MIGRATION_DATABASE")
     confirmed_database = _required_environment("WAREHOUSE_MIGRATION_CONFIRM_DATABASE")
-    candidate_commit = (
-        (os.getenv("RAILWAY_GIT_COMMIT_SHA") or "").strip()
-        or _required_environment("WAREHOUSE_CANDIDATE_COMMIT")
-    )
+    candidate_commit = _required_environment("WAREHOUSE_CANDIDATE_COMMIT")
+    railway_commit = (os.getenv("RAILWAY_GIT_COMMIT_SHA") or "").strip()
+    if railway_commit and railway_commit != candidate_commit:
+        raise RuntimeError(
+            "Railway commit SHA does not match the explicitly confirmed candidate"
+        )
 
     result = apply_pending_migrations(
         database_url=_required_environment("DATABASE_URL"),

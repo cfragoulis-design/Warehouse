@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 from dataclasses import asdict, dataclass
 from typing import Sequence
@@ -21,6 +23,7 @@ class ProvisioningResult:
     local_username: str
     local_role: str
     local_location_code: str
+    plan_fingerprint: str
     status: str
 
 
@@ -40,6 +43,40 @@ def _database_identity(db: Session) -> str:
     return str(value.scalar_one())
 
 
+def _plan_fingerprint(
+    *,
+    database: str,
+    local_user_id: int,
+    local_username: str,
+    local_role: str,
+    local_location_code: str,
+    one_subject: str,
+    one_employee_id: str,
+    one_location_id: str | None,
+    one_department_id: str | None,
+    expected_email: str | None,
+) -> str:
+    payload = json.dumps(
+        {
+            "version": 1,
+            "database": database,
+            "local_user_id": local_user_id,
+            "local_username": local_username,
+            "local_role": local_role,
+            "local_location_code": local_location_code,
+            "one_subject": one_subject,
+            "one_employee_id": one_employee_id,
+            "one_location_id": one_location_id,
+            "one_department_id": one_department_id,
+            "expected_email": expected_email,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def provision_mapping(
     db: Session,
     *,
@@ -57,6 +94,7 @@ def provision_mapping(
     allow_admin: bool,
     confirm_local_username: str | None,
     confirm_one_employee_id: str | None,
+    confirm_plan_fingerprint: str | None,
 ) -> ProvisioningResult:
     actual_database = _database_identity(db)
     if (
@@ -110,6 +148,19 @@ def provision_mapping(
     if user.role != clean_role:
         raise RuntimeError("The requested role does not match the local Warehouse user")
 
+    plan_fingerprint = _plan_fingerprint(
+        database=actual_database,
+        local_user_id=user.id,
+        local_username=clean_username,
+        local_role=clean_role,
+        local_location_code=clean_location,
+        one_subject=clean_subject,
+        one_employee_id=clean_employee_id,
+        one_location_id=canonical_location_id,
+        one_department_id=canonical_department_id,
+        expected_email=clean_email,
+    )
+
     collisions = db.execute(
         select(OneSsoMapping).where(
             or_(
@@ -142,6 +193,7 @@ def provision_mapping(
             local_username=clean_username,
             local_role=clean_role,
             local_location_code=clean_location,
+            plan_fingerprint=plan_fingerprint,
             status="already_present",
         )
 
@@ -152,6 +204,7 @@ def provision_mapping(
             local_username=clean_username,
             local_role=clean_role,
             local_location_code=clean_location,
+            plan_fingerprint=plan_fingerprint,
             status="would_create",
         )
 
@@ -162,8 +215,12 @@ def provision_mapping(
             field="confirm_one_employee_id",
         )
         != clean_employee_id
+        or not isinstance(confirm_plan_fingerprint, str)
+        or not hmac.compare_digest(confirm_plan_fingerprint, plan_fingerprint)
     ):
-        raise RuntimeError("Apply requires exact local-user and employee-id confirmation")
+        raise RuntimeError(
+            "Apply requires exact local-user, employee-id and plan-fingerprint confirmation"
+        )
 
     mapping = OneSsoMapping(
         one_subject=clean_subject,
@@ -199,6 +256,7 @@ def provision_mapping(
         local_username=clean_username,
         local_role=clean_role,
         local_location_code=clean_location,
+        plan_fingerprint=plan_fingerprint,
         status="created",
     )
 
@@ -221,6 +279,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-admin", action="store_true")
     parser.add_argument("--confirm-local-username")
     parser.add_argument("--confirm-one-employee-id")
+    parser.add_argument("--confirm-plan-fingerprint")
     return parser
 
 
@@ -243,6 +302,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             allow_admin=args.allow_admin,
             confirm_local_username=args.confirm_local_username,
             confirm_one_employee_id=args.confirm_one_employee_id,
+            confirm_plan_fingerprint=args.confirm_plan_fingerprint,
         )
     print(json.dumps(asdict(result), ensure_ascii=False, sort_keys=True))
     return 0

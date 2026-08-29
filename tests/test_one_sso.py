@@ -132,6 +132,8 @@ def sso_app(monkeypatch: pytest.MonkeyPatch):
 
     application.dependency_overrides[get_db] = override_db
     application.dependency_overrides[get_one_sso_settings] = _settings
+    monkeypatch.setattr(warehouse_auth, "load_one_sso_settings", _settings)
+    application.include_router(warehouse_auth.router)
     client = TestClient(application, base_url="https://warehouse.example.test")
     try:
         yield client, session_factory
@@ -196,6 +198,51 @@ def test_one_backed_local_session_has_a_bounded_absolute_expiry(
 
     assert expired.status_code == 303
     assert expired.headers["location"] == "/login"
+
+
+def test_disabling_sso_invalidates_an_existing_one_backed_session(
+    sso_app,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _session_factory = sso_app
+    monkeypatch.setattr(one_sso, "exchange_one_code", lambda _settings, _code: _payload())
+    assert _post_code(client).headers["location"] == "/dashboard"
+    assert client.get("/protected").status_code == 200
+
+    monkeypatch.setattr(
+        warehouse_auth,
+        "load_one_sso_settings",
+        lambda: _settings(enabled=False),
+    )
+    disabled = client.get("/protected", follow_redirects=False)
+
+    assert disabled.status_code == 303
+    assert disabled.headers["location"] == "/login"
+
+
+def test_local_fallback_login_replaces_one_session_metadata(
+    sso_app,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _session_factory = sso_app
+    monkeypatch.setattr(one_sso, "exchange_one_code", lambda _settings, _code: _payload())
+    assert _post_code(client).headers["location"] == "/dashboard"
+    monkeypatch.setattr(warehouse_auth, "verify_pin", lambda _pin, _hash: True)
+
+    local_login = client.post(
+        "/login",
+        data={"username": "one-workshop", "pin": "break-glass"},
+        headers={"Origin": "https://warehouse.example.test"},
+        follow_redirects=False,
+    )
+    assert local_login.status_code == 303
+
+    monkeypatch.setattr(
+        warehouse_auth,
+        "load_one_sso_settings",
+        lambda: _settings(enabled=False),
+    )
+    assert client.get("/protected").status_code == 200
 
 
 def test_replayed_code_is_denied_before_a_second_exchange(
