@@ -490,6 +490,32 @@ def _movement_athens_date(value: datetime | None) -> date | None:
     return value.astimezone(ZoneInfo("Europe/Athens")).date()
 
 
+def _movement_page_url(
+    *,
+    page: int,
+    q: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    product_id: int | None = None,
+    location_id: int | None = None,
+    movement_type: str = "",
+) -> str:
+    """Return a host-independent pagination target for the movement browser."""
+    values = (
+        ("q", (q or "").strip()),
+        ("date_from", date_from),
+        ("date_to", date_to),
+        ("product_id", product_id),
+        ("location_id", location_id),
+        ("movement_type", movement_type),
+        ("page", max(int(page), 1)),
+    )
+    query = urllib.parse.urlencode(
+        [(name, value) for name, value in values if value not in (None, "")]
+    )
+    return f"/movements?{query}"
+
+
 def build_movement_history(
     db: Session,
     *,
@@ -652,6 +678,15 @@ def movements_list(
     products = db.execute(select(Product).order_by(Product.name.asc())).scalars().all()
     locations = db.execute(select(Location).order_by(Location.id.asc())).scalars().all()
 
+    pagination_filters = {
+        "q": q,
+        "date_from": history["date_from"],
+        "date_to": history["date_to"],
+        "product_id": product_id,
+        "location_id": location_id,
+        "movement_type": history["movement_type"],
+    }
+
     return templates.TemplateResponse(
         "movements_list.html",
         {
@@ -663,6 +698,16 @@ def movements_list(
             "q": q,
             "product_id": product_id,
             "location_id": location_id,
+            "previous_page_url": (
+                _movement_page_url(page=history["page"] - 1, **pagination_filters)
+                if history["has_previous"]
+                else None
+            ),
+            "next_page_url": (
+                _movement_page_url(page=history["page"] + 1, **pagination_filters)
+                if history["has_next"]
+                else None
+            ),
             **history,
         },
     )

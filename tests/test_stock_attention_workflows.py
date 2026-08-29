@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 import pytest
@@ -374,3 +375,32 @@ def test_movements_template_has_filters_paging_and_responsive_cards() -> None:
     assert "@media(max-width:820px)" in template
     assert 'class="movementCard"' in template
     assert "50 ανά σελίδα" in template
+    assert "request.url" not in template
+    assert "previous_page_url" in template
+    assert "next_page_url" in template
+
+
+def test_movement_pagination_url_is_relative_and_keeps_valid_filters() -> None:
+    target = services._movement_page_url(
+        page=3,
+        q=" κοτόπουλο & sauce ",
+        date_from="2026-08-01",
+        date_to="2026-08-30",
+        product_id=17,
+        location_id=2,
+        movement_type="TRANSFER",
+    )
+
+    parsed = urlsplit(target)
+    assert parsed.scheme == ""
+    assert parsed.netloc == ""
+    assert parsed.path == "/movements"
+    assert parse_qs(parsed.query) == {
+        "q": ["κοτόπουλο & sauce"],
+        "date_from": ["2026-08-01"],
+        "date_to": ["2026-08-30"],
+        "product_id": ["17"],
+        "location_id": ["2"],
+        "movement_type": ["TRANSFER"],
+        "page": ["3"],
+    }
