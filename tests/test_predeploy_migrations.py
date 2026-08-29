@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
+from app.release_manifest import (
+    RELEASE_MANIFEST_FILENAME,
+    build_release_manifest,
+    canonical_manifest_bytes,
+)
 from scripts import warehouse_predeploy
 
 
@@ -43,6 +50,8 @@ def _clear(monkeypatch: pytest.MonkeyPatch) -> None:
         "WAREHOUSE_MIGRATION_CONFIRM_DATABASE",
         "WAREHOUSE_CANDIDATE_COMMIT",
         "WAREHOUSE_APPROVED_CANDIDATE_COMMIT",
+        "WAREHOUSE_APPROVED_TREE_SHA256",
+        "WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256",
         "WAREHOUSE_PRODUCTION_MIGRATIONS_APPROVED",
         "WAREHOUSE_PRODUCTION_DATABASE_SERVICE_ID",
         "RAILWAY_GIT_COMMIT_SHA",
@@ -87,6 +96,25 @@ def _configure_production(monkeypatch: pytest.MonkeyPatch) -> None:
     }
     for name, value in values.items():
         monkeypatch.setenv(name, value)
+
+
+def _configure_cli_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    root: Path,
+    *,
+    candidate: str = "c" * 40,
+) -> None:
+    monkeypatch.delenv("RAILWAY_GIT_COMMIT_SHA", raising=False)
+    monkeypatch.setattr(warehouse_predeploy, "PROJECT_ROOT", root)
+    (root / "warehouse.py").write_text("RELEASE = True\n", encoding="utf-8")
+    manifest = build_release_manifest(root, candidate_commit=candidate)
+    manifest_bytes = canonical_manifest_bytes(manifest)
+    (root / RELEASE_MANIFEST_FILENAME).write_bytes(manifest_bytes)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_TREE_SHA256", str(manifest["tree_sha256"]))
+    monkeypatch.setenv(
+        "WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256",
+        hashlib.sha256(manifest_bytes).hexdigest(),
+    )
 
 
 def test_predeploy_keeps_migrations_disabled_by_default(
@@ -298,13 +326,102 @@ def test_production_migration_rejects_every_wrong_database_target(
         warehouse_predeploy.run_predeploy()
 
 
-def test_production_migration_requires_platform_attested_commit(
+def test_production_cli_migration_requires_a_release_manifest(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     _clear(monkeypatch)
     _stub_runtime(monkeypatch)
     _configure_production(monkeypatch)
     monkeypatch.delenv("RAILWAY_GIT_COMMIT_SHA")
+    monkeypatch.setattr(warehouse_predeploy, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_TREE_SHA256", "a" * 64)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256", "b" * 64)
 
-    with pytest.raises(RuntimeError, match="RAILWAY_GIT_COMMIT_SHA is required"):
+    with pytest.raises(RuntimeError, match="manifest is missing"):
+        warehouse_predeploy.run_predeploy()
+
+
+def test_production_cli_migration_accepts_exact_approved_tree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _configure_production(monkeypatch)
+    _configure_cli_manifest(monkeypatch, tmp_path)
+    calls: list[dict[str, object]] = []
+
+    def _apply(**kwargs):
+        calls.append(kwargs)
+        return _MigrationResult(
+            database="railway",
+            target="production",
+            applied_versions=("20260828_002",),
+            current_version="20260828_002",
+        )
+
+    monkeypatch.setattr(warehouse_predeploy, "apply_pending_migrations", _apply)
+
+    result = warehouse_predeploy.run_predeploy()
+
+    assert result["migrations"] == "applied"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    (
+        (
+            "WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256",
+            "d" * 64,
+            "manifest hash",
+        ),
+        ("WAREHOUSE_APPROVED_TREE_SHA256", "d" * 64, "manifest tree"),
+    ),
+)
+def test_production_cli_migration_rejects_wrong_approved_artifact_hash(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    name: str,
+    value: str,
+    message: str,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _configure_production(monkeypatch)
+    _configure_cli_manifest(monkeypatch, tmp_path)
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(RuntimeError, match=message):
+        warehouse_predeploy.run_predeploy()
+
+
+def test_production_cli_migration_rejects_a_tampered_deployed_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _configure_production(monkeypatch)
+    _configure_cli_manifest(monkeypatch, tmp_path)
+    (tmp_path / "warehouse.py").write_text("RELEASE = False\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="file hash"):
+        warehouse_predeploy.run_predeploy()
+
+
+def test_production_cli_migration_rejects_any_unmanifested_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _configure_production(monkeypatch)
+    _configure_cli_manifest(monkeypatch, tmp_path)
+    unexpected = tmp_path / "app" / "__pycache__"
+    unexpected.mkdir(parents=True)
+    (unexpected / "injected.pyc").write_bytes(b"not-approved")
+
+    with pytest.raises(RuntimeError, match="file set"):
         warehouse_predeploy.run_predeploy()

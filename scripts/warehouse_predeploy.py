@@ -16,6 +16,7 @@ from app.runtime_config import (  # noqa: E402
     load_runtime_settings,
     validate_predeploy_environment,
 )
+from app.release_manifest import verify_release_manifest  # noqa: E402
 from app.schema_migrations import apply_pending_migrations  # noqa: E402
 
 
@@ -67,12 +68,12 @@ def _validate_production_target(
 ) -> None:
     """Bind a Production migration to the reviewed Railway resources and SHA.
 
-    `RAILWAY_GIT_COMMIT_SHA` is supplied by Railway for a Git-backed build and
-    is mandatory here.  The separately configured approved SHA records the
-    release decision, while `WAREHOUSE_CANDIDATE_COMMIT` is the value written
-    to the migration ledger.  All three must be the same full lowercase SHA;
-    therefore an operator-controlled candidate value alone can never authorize
-    a Production migration.
+    A Git-backed build uses Railway's platform-attested commit.  An exact CLI
+    artifact instead uses a canonical file manifest whose manifest and tree
+    hashes are approved independently.  The separately configured approved SHA
+    records the release decision, while `WAREHOUSE_CANDIDATE_COMMIT` is written
+    to the migration ledger.  An operator-controlled candidate value alone can
+    never authorize a Production migration.
     """
     _require_exact_environment("RAILWAY_PROJECT_ID", PRODUCTION_PROJECT_ID)
     _require_exact_environment("RAILWAY_ENVIRONMENT_ID", PRODUCTION_ENVIRONMENT_ID)
@@ -93,22 +94,33 @@ def _validate_production_target(
             "DATABASE_URL database does not match the reviewed Production target"
         )
 
-    railway_commit = _required_environment("RAILWAY_GIT_COMMIT_SHA")
+    railway_commit = (os.getenv("RAILWAY_GIT_COMMIT_SHA") or "").strip()
     approved_commit = _required_environment("WAREHOUSE_APPROVED_CANDIDATE_COMMIT")
     if (
-        len(railway_commit) != _COMMIT_LENGTH
-        or railway_commit != railway_commit.casefold()
-        or any(character not in "0123456789abcdef" for character in railway_commit)
+        len(candidate_commit) != _COMMIT_LENGTH
+        or candidate_commit != candidate_commit.casefold()
+        or any(character not in "0123456789abcdef" for character in candidate_commit)
     ):
-        raise RuntimeError("Railway candidate commit must be one full lowercase SHA")
-    if railway_commit != candidate_commit:
-        raise RuntimeError(
-            "Railway commit SHA does not match the migration-ledger candidate"
-        )
+        raise RuntimeError("Migration-ledger candidate must be one full lowercase SHA")
     if approved_commit != candidate_commit:
         raise RuntimeError(
             "Approved candidate SHA does not match the migration-ledger candidate"
         )
+    if railway_commit:
+        if railway_commit != candidate_commit:
+            raise RuntimeError(
+                "Railway commit SHA does not match the migration-ledger candidate"
+            )
+        return
+
+    verify_release_manifest(
+        PROJECT_ROOT,
+        expected_commit=candidate_commit,
+        expected_tree_sha256=_required_environment("WAREHOUSE_APPROVED_TREE_SHA256"),
+        expected_manifest_sha256=_required_environment(
+            "WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256"
+        ),
+    )
 
 
 def run_predeploy() -> dict[str, object]:
