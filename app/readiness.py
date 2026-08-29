@@ -17,6 +17,7 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
             "target_central",
             "only_in_freezer",
             "approval_profile",
+            "label_plain_piece",
         }
     ),
     "locations": frozenset({"id", "code", "name"}),
@@ -120,6 +121,17 @@ def _invariant_problem(bind: Engine) -> str | None:
         ).first()
         if invalid_product is not None:
             return "invalid-product-stock-threshold"
+
+        invalid_plain_piece = connection.execute(
+            text(
+                "SELECT 1 FROM products "
+                "WHERE label_plain_piece = TRUE "
+                "AND (unit IS NULL OR lower(trim(unit)) <> 'pcs') "
+                "LIMIT 1"
+            )
+        ).first()
+        if invalid_plain_piece is not None:
+            return "invalid-plain-piece-unit"
 
         invalid_missing = connection.execute(
             text("SELECT 1 FROM stock_missing WHERE qty_missing < 0 LIMIT 1")

@@ -31,12 +31,13 @@ PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHO
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "profile": profile,
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
             "id": 41,
             "sku": "MB-41",
+            "unit": "kg",
             "display_name": "Μπιφτέκι Μοσχαρίσιο",
             "legal_name": "Παρασκεύασμα κρέατος από βόειο κρέας",
             "ingredients": "Βόειο κρέας 95%, κρεμμύδι, αλάτι",
@@ -45,6 +46,7 @@ def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
             "usage_instructions": "Πλήρης θερμική επεξεργασία",
             "nutrition": "Ανά 100 g: ενέργεια 873,23 kJ / 210 kcal, λιπαρά 14 g, κορεσμένα 6 g, υδατάνθρακες 3 g, σάκχαρα 1,5 g, πρωτεΐνες 18 g, αλάτι 1,5 g",
             "single_ingredient": False,
+            "plain_piece": False,
             "nutrition_exempt": False,
         },
         "traceability": {
@@ -293,10 +295,184 @@ def test_renderer_builds_unified_greek_bitmap_label_and_chain_copies(tmp_path: P
     assert struct.unpack(">II", png[16:24]) == (400, 560)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+def test_renderer_builds_plain_piece_label_without_composition_blocks(tmp_path: Path):
+    output = tmp_path / "plain-piece.tspl"
+    preview = tmp_path / "plain-piece.png"
+    payload = _payload()
+    product = payload["product"]
+    assert isinstance(product, dict)
+    product.update(
+        {
+            "display_name": "Κοπανάκι κοτόπουλο",
+            "legal_name": "Νωπό κοτόπουλο",
+            "unit": "pcs",
+            "ingredients": "",
+            "allergens": "",
+            "plain_piece": True,
+        }
+    )
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RENDERER),
+            "-PayloadBase64Url",
+            _encoded(payload),
+            "-Copies",
+            "1",
+            "-PrinterName",
+            "DRY-RUN",
+            "-DryRunOutputPath",
+            str(output),
+            "-PreviewOutputPath",
+            str(preview),
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert output.read_bytes().startswith(b"SIZE 50 mm,70 mm\r\n")
+    assert preview.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+def test_renderer_accepts_plain_piece_with_documented_nutrition_exemption(tmp_path: Path):
+    output = tmp_path / "plain-piece-exempt.tspl"
+    payload = _payload()
+    product = payload["product"]
+    assert isinstance(product, dict)
+    product.update(
+        {
+            "unit": "pcs",
+            "ingredients": "",
+            "allergens": "",
+            "nutrition": "",
+            "plain_piece": True,
+            "nutrition_exempt": True,
+        }
+    )
+
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RENDERER),
+            "-PayloadBase64Url",
+            _encoded(payload),
+            "-Copies",
+            "1",
+            "-PrinterName",
+            "DRY-RUN",
+            "-DryRunOutputPath",
+            str(output),
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert output.read_bytes().startswith(b"SIZE 50 mm,70 mm\r\n")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+def test_renderer_remains_compatible_with_queued_schema_v3_labels(tmp_path: Path):
+    output = tmp_path / "schema-v3.tspl"
+    payload = _payload()
+    payload["schema_version"] = 3
+    product = payload["product"]
+    assert isinstance(product, dict)
+    product.pop("unit")
+    product.pop("plain_piece")
+
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RENDERER),
+            "-PayloadBase64Url",
+            _encoded(payload),
+            "-Copies",
+            "1",
+            "-PrinterName",
+            "DRY-RUN",
+            "-DryRunOutputPath",
+            str(output),
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert output.read_bytes().startswith(b"SIZE 50 mm,70 mm\r\n")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+def test_schema_v3_single_ingredient_keeps_legacy_ingredient_omission(tmp_path: Path):
+    output = tmp_path / "schema-v3-single.tspl"
+    payload = _payload()
+    payload["schema_version"] = 3
+    product = payload["product"]
+    assert isinstance(product, dict)
+    product.pop("unit")
+    product.pop("plain_piece")
+    product["single_ingredient"] = True
+    product["ingredients"] = "X" * 3500
+
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RENDERER),
+            "-PayloadBase64Url",
+            _encoded(payload),
+            "-Copies",
+            "1",
+            "-PrinterName",
+            "DRY-RUN",
+            "-DryRunOutputPath",
+            str(output),
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert output.read_bytes().startswith(b"SIZE 50 mm,70 mm\r\n")
+
+
 def test_renderer_source_contains_centered_greek_allergens_nutrition_and_approval_oval():
     renderer = RENDERER.read_text(encoding="utf-8-sig")
     assert "SingleBitPerPixelGridFit" in renderer
     assert "ΑΛΛΕΡΓΙΟΓΟΝΑ:" in renderer
+    assert "if ($allergenText)" in renderer
+    assert "if ($ingredientText -and (-not $singleIngredient -or $plainPiece))" in renderer
+    assert "Plain piece labels require unit pcs." in renderer
     assert "ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ ΑΝΑ 100 g" in renderer
     assert "DrawEllipse" in renderer
     assert "BITMAP 0,0,50,560,0," in renderer
@@ -324,6 +500,9 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     assert "extraCodeDefault" not in html
     assert "Καθ. ποσότητα" not in html
     assert "Extra code" not in html
+    product_form = (ROOT / "app" / "templates" / "product_form.html").read_text(encoding="utf-8")
+    assert 'name="label_plain_piece"' in product_form
+    assert "Απλό τεμαχιακό προϊόν" in product_form
     assert 'href="{{ hprt_agent_download_url }}"' in html
     assert "{{ hprt_agent_download_label }}" in html
     services = (ROOT / "app" / "services.py").read_text(encoding="utf-8")

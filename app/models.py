@@ -154,6 +154,10 @@ class Product(Base):
             "approval_profile IN ('POULTRY', 'RED_MEAT', 'UNASSIGNED')",
             name="ck_products_approval_profile",
         ),
+        CheckConstraint(
+            "NOT label_plain_piece OR lower(trim(unit)) = 'pcs'",
+            name="ck_products_label_plain_piece_unit",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -189,6 +193,12 @@ class Product(Base):
     label_usage_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     label_nutrition: Mapped[str | None] = mapped_column(Text, nullable=True)
     label_single_ingredient: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    label_plain_piece: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
     label_nutrition_exempt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     approval_profile: Mapped[str] = mapped_column(
         String(16),

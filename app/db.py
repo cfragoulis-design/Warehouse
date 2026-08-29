@@ -151,8 +151,34 @@ def init_db() -> None:
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_single_ingredient BOOLEAN NOT NULL DEFAULT FALSE"
             )
             conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_plain_piece BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            conn.exec_driver_sql(
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_nutrition_exempt BOOLEAN NOT NULL DEFAULT FALSE"
             )
+            if engine.dialect.name == "postgresql":
+                conn.exec_driver_sql(
+                    """
+                    DO $compatibility$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_constraint
+                            WHERE conname = 'ck_products_label_plain_piece_unit'
+                              AND conrelid = 'products'::regclass
+                        ) THEN
+                            ALTER TABLE products
+                                ADD CONSTRAINT ck_products_label_plain_piece_unit
+                                CHECK (NOT label_plain_piece OR lower(trim(unit)) = 'pcs')
+                                NOT VALID;
+                        END IF;
+                    END
+                    $compatibility$;
+                    """
+                )
+                conn.exec_driver_sql(
+                    "ALTER TABLE products VALIDATE CONSTRAINT ck_products_label_plain_piece_unit"
+                )
     except Exception as exc:
         _handle_startup_ddl_failure("products.label_metadata", exc)
 

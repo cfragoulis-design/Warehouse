@@ -155,12 +155,24 @@ function Convert-BitmapToMonochromeBytes {
 
 function New-UnifiedLabelBitmap {
     param([Parameter(Mandatory)][object]$Payload)
-    if ([int]$Payload.schema_version -ne 3) { throw 'Unsupported dynamic label schema.' }
+    $schemaVersion = [int]$Payload.schema_version
+    if ($schemaVersion -ne 3 -and $schemaVersion -ne 4) { throw 'Unsupported dynamic label schema.' }
     if ([string]$Payload.printer_profile -cne 'HPRT_LPQ80_BITMAP_50X70') { throw 'Wrong dynamic printer profile.' }
     if (([string]$Payload.profile).Trim().ToUpperInvariant() -cne 'DISTRIBUTION') { throw 'Unsupported dynamic label profile.' }
 
     $displayName = Get-LabelText -Value $Payload.product.display_name -Maximum 255
     $legalName = Get-LabelText -Value $Payload.product.legal_name -Maximum 500
+    $unit = if ($schemaVersion -ge 4) { (Get-LabelText -Value $Payload.product.unit -Maximum 8).Trim().ToLowerInvariant() } else { '' }
+    $plainPiece = $schemaVersion -ge 4 -and [bool]$Payload.product.plain_piece
+    $singleIngredient = [bool]$Payload.product.single_ingredient
+    $ingredientText = Get-LabelText -Value $Payload.product.ingredients
+    $allergenText = Get-LabelText -Value $Payload.product.allergens
+    $nutritionText = Get-LabelText -Value $Payload.product.nutrition
+    $nutritionExempt = [bool]$Payload.product.nutrition_exempt
+    if ($plainPiece -and $unit -cne 'pcs') { throw 'Plain piece labels require unit pcs.' }
+    if (-not $plainPiece -and -not $singleIngredient -and -not $ingredientText) { throw 'Ingredients are required.' }
+    if (-not $plainPiece -and -not $allergenText) { throw 'Allergen declaration is required.' }
+    if (-not $nutritionText -and -not $nutritionExempt) { throw 'Nutrition declaration or documented exemption is required.' }
     if (-not $displayName) { $displayName = $legalName }
     $bitmap = New-Object Drawing.Bitmap(400, 560, [Drawing.Imaging.PixelFormat]::Format24bppRgb)
     $bitmap.SetResolution(203, 203)
@@ -177,16 +189,21 @@ function New-UnifiedLabelBitmap {
         Add-LabelText -Graphics $graphics -Text $legalName -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 29)) -MaximumFontPixels 14 -MinimumFontPixels 9
         $y += 29
 
-        if (-not [bool]$Payload.product.single_ingredient) {
-            $ingredients = 'Συστατικά: ' + (Get-LabelText -Value $Payload.product.ingredients)
+        if ($ingredientText -and (-not $singleIngredient -or $plainPiece)) {
+            $ingredients = 'Συστατικά: ' + $ingredientText
             Add-LabelText -Graphics $graphics -Text $ingredients -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 52)) -MaximumFontPixels 13 -MinimumFontPixels 9
             $y += 52
         }
-        $allergens = 'ΑΛΛΕΡΓΙΟΓΟΝΑ: ' + (Get-LabelText -Value $Payload.product.allergens)
-        Add-LabelText -Graphics $graphics -Text $allergens -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 31)) -MaximumFontPixels 14 -MinimumFontPixels 10 -Style Bold
-        $y += 34
+        if ($allergenText) {
+            $allergens = 'ΑΛΛΕΡΓΙΟΓΟΝΑ: ' + $allergenText
+            Add-LabelText -Graphics $graphics -Text $allergens -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 31)) -MaximumFontPixels 14 -MinimumFontPixels 10 -Style Bold
+            $y += 34
+        }
 
-        $nutritionHeight = Add-NutritionTable -Graphics $graphics -Nutrition (Get-LabelText -Value $Payload.product.nutrition) -Y $y
+        $nutritionHeight = 0
+        if ($nutritionText) {
+            $nutritionHeight = Add-NutritionTable -Graphics $graphics -Nutrition $nutritionText -Y $y
+        }
         if ($nutritionHeight -gt 0) { $y += $nutritionHeight + 4 }
 
         $dates = 'ΠΑΡΑΓΩΓΗ: {0}     ΑΝΑΛΩΣΗ ΕΩΣ: {1}' -f (Get-LabelText $Payload.traceability.production_date 16), (Get-LabelText $Payload.traceability.use_by_date 16)

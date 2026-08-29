@@ -19,6 +19,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20260823_001",
         "20260827_001",
         "20260828_001",
+        "20260829_001",
     ]
     migration = catalog[0]
     assert migration.checksum == hashlib.sha256(
@@ -57,6 +58,14 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in locale_safe_sql.upper()
     assert "TRUNCATE" not in locale_safe_sql.upper()
     assert "DELETE FROM" not in locale_safe_sql.upper()
+    plain_piece = catalog[4]
+    plain_piece_sql = plain_piece.sql
+    assert "label_plain_piece BOOLEAN NOT NULL DEFAULT FALSE" in plain_piece_sql
+    assert "NOT label_plain_piece OR lower(trim(unit)) = 'pcs'" in plain_piece_sql
+    assert "UPDATE products" not in plain_piece_sql
+    assert "DROP TABLE" not in plain_piece_sql.upper()
+    assert "TRUNCATE" not in plain_piece_sql.upper()
+    assert "DELETE FROM" not in plain_piece_sql.upper()
     assert len(BASELINE_SCHEMA_FINGERPRINT) == 64
 
 

@@ -41,6 +41,20 @@ def _optional_label_flag(value: object) -> bool:
     return _truthy_flag(value) if isinstance(value, str) else False
 
 
+def _normalized_unit(value: object) -> str:
+    return str(value or "").strip().casefold()
+
+
+def _validated_plain_piece_flag(*, unit: str, value: object) -> bool:
+    enabled = _optional_label_flag(value)
+    if enabled and unit != "pcs":
+        raise HTTPException(
+            status_code=422,
+            detail="Η επιλογή απλού τεμαχιακού προϊόντος επιτρέπεται μόνο με μονάδα Τεμάχια.",
+        )
+    return enabled
+
+
 def require_admin(user: User = Depends(require_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
@@ -108,6 +122,7 @@ def _product_snapshot(product: Product) -> dict[str, object]:
         "label_usage_instructions": product.label_usage_instructions,
         "label_nutrition": product.label_nutrition,
         "label_single_ingredient": product.label_single_ingredient,
+        "label_plain_piece": product.label_plain_piece,
         "label_nutrition_exempt": product.label_nutrition_exempt,
         "approval_profile": product.approval_profile,
     }
@@ -191,16 +206,19 @@ def product_create(
     label_usage_instructions: str | None = Form(None),
     label_nutrition: str | None = Form(None),
     label_single_ingredient: str | None = Form(None),
+    label_plain_piece: str | None = Form(None),
     label_nutrition_exempt: str | None = Form(None),
     approval_profile: str | None = Form(None),
 ):
     minimum_stock = parse_qty(min_stock) or Decimal("0")
     approval_profile_normalized = _validated_approval_profile(approval_profile)
+    unit_normalized = _normalized_unit(unit)
+    plain_piece = _validated_plain_piece_flag(unit=unit_normalized, value=label_plain_piece)
     product = Product(
         name=name.strip(),
         sku=sku.strip() if sku else None,
         category=category.strip() if category else None,
-        unit=unit,
+        unit=unit_normalized,
         min_stock=float(minimum_stock),
         only_in_freezer=_truthy_flag(only_in_freezer),
         is_production_item=_truthy_flag(is_production_item),
@@ -214,6 +232,7 @@ def product_create(
         label_usage_instructions=_optional_label_text(label_usage_instructions),
         label_nutrition=_optional_label_text(label_nutrition),
         label_single_ingredient=_optional_label_flag(label_single_ingredient),
+        label_plain_piece=plain_piece,
         label_nutrition_exempt=_optional_label_flag(label_nutrition_exempt),
         approval_profile=approval_profile_normalized,
     )
@@ -283,6 +302,7 @@ def product_update(
     label_usage_instructions: str | None = Form(None),
     label_nutrition: str | None = Form(None),
     label_single_ingredient: str | None = Form(None),
+    label_plain_piece: str | None = Form(None),
     label_nutrition_exempt: str | None = Form(None),
     approval_profile: str | None = Form(None),
 ):
@@ -295,10 +315,12 @@ def product_update(
         approval_profile,
         fallback=product.approval_profile,
     )
+    unit_normalized = _normalized_unit(unit)
+    plain_piece = _validated_plain_piece_flag(unit=unit_normalized, value=label_plain_piece)
     product.name = name.strip()
     product.sku = sku.strip() if sku else None
     product.category = category.strip() if category else None
-    product.unit = unit
+    product.unit = unit_normalized
     product.only_in_freezer = _truthy_flag(only_in_freezer)
     product.is_production_item = _truthy_flag(is_production_item)
     minimum_stock = parse_qty(min_stock)
@@ -313,6 +335,7 @@ def product_update(
     product.label_usage_instructions = _optional_label_text(label_usage_instructions)
     product.label_nutrition = _optional_label_text(label_nutrition)
     product.label_single_ingredient = _optional_label_flag(label_single_ingredient)
+    product.label_plain_piece = plain_piece
     product.label_nutrition_exempt = _optional_label_flag(label_nutrition_exempt)
     product.approval_profile = approval_profile_normalized
     try:

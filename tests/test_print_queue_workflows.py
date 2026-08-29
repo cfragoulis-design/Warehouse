@@ -110,6 +110,70 @@ def test_batch_validation_is_atomic_and_request_id_prevents_duplicates(db: Sessi
     assert db.scalar(select(func.count(ProductLot.id))) == 1
 
 
+def test_plain_piece_mode_is_server_owned_and_snapshotted_in_queue(db: Session) -> None:
+    user = User(username="plain-piece-print-admin", role="admin", pin_hash="not-used")
+    allowed = Product(
+        sku="PIECE-QUEUE-1",
+        name="Κοπανάκι κοτόπουλο",
+        unit="pcs",
+        is_active=True,
+        only_in_freezer=False,
+        shelf_life_days=4,
+        storage_text="0–4°C",
+        label_legal_name="Νωπό κοτόπουλο",
+        label_ingredients=None,
+        label_allergens=None,
+        label_origin="Ελλάδα",
+        label_nutrition="Ανά 100 g: ενέργεια 500 kJ / 120 kcal",
+        label_plain_piece=True,
+        approval_profile="POULTRY",
+    )
+    blocked = Product(
+        sku="PIECE-QUEUE-2",
+        name="Μη ταξινομημένο κοπανάκι",
+        unit="pcs",
+        is_active=True,
+        only_in_freezer=False,
+        shelf_life_days=4,
+        storage_text="0–4°C",
+        label_legal_name="Νωπό κοτόπουλο",
+        label_ingredients=None,
+        label_allergens=None,
+        label_origin="Ελλάδα",
+        label_nutrition="Ανά 100 g: ενέργεια 500 kJ / 120 kcal",
+        label_plain_piece=False,
+        approval_profile="POULTRY",
+    )
+    db.add_all([user, allowed, blocked])
+    db.commit()
+
+    created = _json(
+        services.labels_create_batch(
+            RequestStub(payload=_create_payload(allowed.id, "plain-piece-queue")),
+            user=user,
+            db=db,
+        )
+    )
+    queued = db.get(ProductLot, created["items"][0]["id"])
+    snapshot = json.loads(queued.label_payload_json)
+    assert snapshot["schema_version"] == 4
+    assert snapshot["product"]["plain_piece"] is True
+    assert snapshot["product"]["unit"] == "pcs"
+    assert snapshot["product"]["ingredients"] == ""
+    assert snapshot["product"]["allergens"] == ""
+    assert snapshot["product"]["origin"] == "Ελλάδα"
+    assert snapshot["traceability"]["internal_lot"] == queued.lot_code
+
+    spoofed = _create_payload(blocked.id, "plain-piece-spoof")
+    spoofed["items"][0]["plain_piece"] = True
+    with pytest.raises(HTTPException) as rejected:
+        services.labels_create_batch(RequestStub(payload=spoofed), user=user, db=db)
+
+    assert rejected.value.status_code == 422
+    assert "συστατικά" in str(rejected.value.detail)
+    assert db.scalar(select(func.count(ProductLot.id))) == 1
+
+
 def test_leased_claim_error_reason_retry_cancel_and_ack_lifecycle(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -20,6 +20,7 @@ def _product(**overrides):
         "id": 41,
         "name": "Μοσχαρίσιο μπιφτέκι",
         "sku": "MB-41",
+        "unit": "kg",
         "shelf_life_days": 3,
         "storage_text": "Διατηρείται στους 0–4°C",
         "label_legal_name": "Παρασκεύασμα κρέατος από βόειο κρέας",
@@ -29,6 +30,7 @@ def _product(**overrides):
         "label_usage_instructions": "Να καταναλωθεί κατόπιν πλήρους θερμικής επεξεργασίας",
         "label_nutrition": "Ανά 100 g: ενέργεια 800 kJ / 190 kcal, λιπαρά 12 g, κορεσμένα 5 g, υδατάνθρακες 2 g, σάκχαρα 1 g, πρωτεΐνες 18 g, αλάτι 1,2 g",
         "label_single_ingredient": False,
+        "label_plain_piece": False,
         "label_nutrition_exempt": False,
         "approval_profile": "RED_MEAT",
     }
@@ -76,13 +78,14 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
     payload = build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
 
     assert payload == {
-        "schema_version": 3,
+        "schema_version": 4,
         "profile": "DISTRIBUTION",
         "approval_profile": "RED_MEAT",
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
             "id": 41,
             "sku": "MB-41",
+            "unit": "kg",
             "display_name": "Μοσχαρίσιο μπιφτέκι",
             "legal_name": "Παρασκεύασμα κρέατος από βόειο κρέας",
             "ingredients": "Βόειο κρέας 95%, κρεμμύδι, αλάτι, μπαχαρικά",
@@ -91,6 +94,7 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
             "usage_instructions": "Να καταναλωθεί κατόπιν πλήρους θερμικής επεξεργασίας",
             "nutrition": "Ανά 100 g: ενέργεια 800 kJ / 190 kcal, λιπαρά 12 g, κορεσμένα 5 g, υδατάνθρακες 2 g, σάκχαρα 1 g, πρωτεΐνες 18 g, αλάτι 1,2 g",
             "single_ingredient": False,
+            "plain_piece": False,
             "nutrition_exempt": False,
         },
         "traceability": {
@@ -194,3 +198,60 @@ def test_distribution_profile_accepts_documented_nutrition_exemption_and_lot_ori
     assert payload["product"]["nutrition"] == ""
     assert payload["product"]["nutrition_exempt"] is True
     assert payload["product"]["origin"] == "Ιρλανδία"
+
+
+def test_plain_piece_product_may_omit_only_ingredients_and_allergens(monkeypatch):
+    _set_business_identity(monkeypatch)
+    product = _product(
+        name="Κοπανάκι κοτόπουλο",
+        unit="pcs",
+        approval_profile="POULTRY",
+        label_ingredients="",
+        label_allergens="",
+        label_plain_piece=True,
+    )
+
+    assert product_readiness(product, DISTRIBUTION_PROFILE) == ()
+    payload = build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
+
+    assert payload["schema_version"] == 4
+    assert payload["product"]["unit"] == "pcs"
+    assert payload["product"]["plain_piece"] is True
+    assert payload["product"]["ingredients"] == ""
+    assert payload["product"]["allergens"] == ""
+    assert payload["product"]["origin"] == "Ελλάδα"
+    assert payload["product"]["nutrition"]
+    assert payload["traceability"]["internal_lot"] == "MB41-260823-W-01"
+    assert payload["business"]["approval_number"] == "GR PE 620 CE"
+
+
+def test_plain_piece_flag_is_fail_closed_outside_piece_unit(monkeypatch):
+    _set_business_identity(monkeypatch)
+    product = _product(
+        unit="kg",
+        label_ingredients="",
+        label_allergens="",
+        label_plain_piece=True,
+    )
+
+    missing = product_readiness(product, DISTRIBUTION_PROFILE)
+    assert "μονάδα «Τεμάχια» για απλό τεμαχιακό προϊόν" in missing
+    with pytest.raises(LabelValidationError, match="μονάδα «Τεμάχια»"):
+        build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
+
+
+def test_plain_piece_does_not_waive_nutrition_or_origin(monkeypatch):
+    _set_business_identity(monkeypatch)
+    product = _product(
+        unit="pcs",
+        label_plain_piece=True,
+        label_ingredients="",
+        label_allergens="",
+        label_origin="",
+        label_nutrition="",
+        label_nutrition_exempt=False,
+    )
+
+    missing = product_readiness(product, DISTRIBUTION_PROFILE)
+    assert "χώρα καταγωγής / προέλευση" in missing
+    assert "διατροφική δήλωση ή τεκμηριωμένη εξαίρεση" in missing

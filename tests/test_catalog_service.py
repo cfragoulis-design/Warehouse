@@ -172,3 +172,135 @@ def test_product_create_rejects_unknown_approval_profile(db: Session) -> None:
     assert invalid.value.status_code == 422
     assert db.query(Product).count() == 0
     assert db.query(AuditEvent).count() == 0
+
+
+def test_plain_piece_classification_is_persisted_and_audited_for_pcs(db: Session) -> None:
+    admin = _user(db, "plain-piece-admin")
+
+    response = catalog_service.product_create(
+        _request("/products/new"),
+        user=admin,
+        db=db,
+        name="Κοπανάκι κοτόπουλο",
+        sku="CH-PIECE-1",
+        category="Πουλερικά",
+        unit="pcs",
+        min_stock="0",
+        only_in_freezer=None,
+        is_production_item=None,
+        shelf_life_days="4",
+        storage_text="0–4°C",
+        label_template=None,
+        label_plain_piece="1",
+        approval_profile="POULTRY",
+    )
+
+    assert response.status_code == 303
+    product = db.query(Product).filter(Product.sku == "CH-PIECE-1").one()
+    assert product.label_plain_piece is True
+    event = db.query(AuditEvent).one()
+    assert json.loads(event.after_json)["label_plain_piece"] is True
+
+
+@pytest.mark.parametrize("unit", ["kg", "box", "tray"])
+def test_plain_piece_classification_rejects_non_piece_units(db: Session, unit: str) -> None:
+    admin = _user(db, f"plain-piece-{unit}")
+
+    with pytest.raises(HTTPException) as invalid:
+        catalog_service.product_create(
+            _request("/products/new"),
+            user=admin,
+            db=db,
+            name=f"Invalid {unit}",
+            sku=f"INVALID-{unit}",
+            category=None,
+            unit=unit,
+            min_stock="0",
+            only_in_freezer=None,
+            is_production_item=None,
+            shelf_life_days="4",
+            storage_text="0–4°C",
+            label_template=None,
+            label_plain_piece="1",
+            approval_profile="POULTRY",
+        )
+
+    assert invalid.value.status_code == 422
+    assert db.query(Product).count() == 0
+    assert db.query(AuditEvent).count() == 0
+
+
+def test_plain_piece_update_normalizes_unit_and_fails_before_mutation(db: Session) -> None:
+    admin = _user(db, "plain-piece-update-admin")
+    product = Product(name="Κοπανάκι", sku="PIECE-UP", unit="pcs")
+    db.add(product)
+    db.commit()
+
+    response = catalog_service.product_update(
+        product.id,
+        _request(f"/products/{product.id}/edit"),
+        user=admin,
+        db=db,
+        name=product.name,
+        sku=product.sku,
+        category=None,
+        unit=" PCS ",
+        min_stock="0",
+        only_in_freezer=None,
+        is_production_item=None,
+        shelf_life_days="0",
+        storage_text=None,
+        label_template=None,
+        label_legal_name=None,
+        label_ingredients=None,
+        label_allergens=None,
+        label_origin=None,
+        label_usage_instructions=None,
+        label_nutrition=None,
+        label_single_ingredient=None,
+        label_plain_piece="1",
+        label_nutrition_exempt=None,
+        approval_profile="POULTRY",
+    )
+
+    assert response.status_code == 303
+    db.refresh(product)
+    assert product.unit == "pcs"
+    assert product.label_plain_piece is True
+    first_event = db.query(AuditEvent).one()
+    assert json.loads(first_event.before_json)["label_plain_piece"] is False
+    assert json.loads(first_event.after_json)["label_plain_piece"] is True
+
+    with pytest.raises(HTTPException) as invalid:
+        catalog_service.product_update(
+            product.id,
+            _request(f"/products/{product.id}/edit"),
+            user=admin,
+            db=db,
+            name=product.name,
+            sku=product.sku,
+            category=None,
+            unit="kg",
+            min_stock="0",
+            only_in_freezer=None,
+            is_production_item=None,
+            shelf_life_days="0",
+            storage_text=None,
+            label_template=None,
+            label_legal_name=None,
+            label_ingredients=None,
+            label_allergens=None,
+            label_origin=None,
+            label_usage_instructions=None,
+            label_nutrition=None,
+            label_single_ingredient=None,
+            label_plain_piece="1",
+            label_nutrition_exempt=None,
+            approval_profile="POULTRY",
+        )
+
+    assert invalid.value.status_code == 422
+    db.refresh(product)
+    assert product.unit == "pcs"
+    assert product.label_plain_piece is True
+    assert db.query(AuditEvent).count() == 1

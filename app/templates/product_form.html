@@ -53,8 +53,8 @@
           <input name="sku" value="{{ product.sku if product else '' }}">
         </div>
         <div>
-          <label>Μονάδα</label>
-          <select name="unit">
+          <label for="product_unit">Μονάδα</label>
+          <select id="product_unit" name="unit">
             <option value="box" {% if product and product.unit=='box' %}selected{% endif %}>Κιβώτια</option>
             <option value="pcs" {% if product and product.unit=='pcs' %}selected{% endif %}>Τεμάχια</option>
             <option value="tray" {% if product and product.unit=='tray' %}selected{% endif %}>Δίσκος</option>
@@ -143,6 +143,12 @@
       </div>
       <div class="muted">Π.χ. νωπό μοσχάρι. Αν δεν είναι ενεργό, απαιτείται κατάλογος συστατικών για ετικέτα διάθεσης.</div>
 
+      <div class="checkrow">
+        <input id="label_plain_piece" name="label_plain_piece" type="checkbox" value="1" aria-describedby="label_plain_piece_help" {% if product and product.label_plain_piece %}checked{% endif %}>
+        <label class="label" for="label_plain_piece">Απλό τεμαχιακό προϊόν — χωρίς πρόσθετα και δηλωτέα αλλεργιογόνα</label>
+      </div>
+      <div id="label_plain_piece_help" class="muted">Μόνο για μονάδα «Τεμάχια», π.χ. κοπανάκι κοτόπουλο. Παραλείπει μόνο τα κενά συστατικά και αλλεργιογόνα. Προέλευση, LOT, ημερομηνίες, συντήρηση, κωδικός έγκρισης και διατροφική δήλωση ή ξεχωριστή τεκμηριωμένη εξαίρεση παραμένουν υποχρεωτικά.</div>
+
       <label>Συστατικά</label>
       <textarea name="label_ingredients" placeholder="Κατά φθίνουσα σειρά περιεκτικότητας">{{ product.label_ingredients if product and product.label_ingredients else '' }}</textarea>
 
@@ -200,6 +206,8 @@
   const hidden = document.getElementById("category_hidden");
   const wrap = document.getElementById("custom_wrap");
   const custom = document.getElementById("custom_input");
+  const unit = document.getElementById("product_unit");
+  const plainPiece = document.getElementById("label_plain_piece");
 
   function sync(){
     const v = sel.value || "";
@@ -212,10 +220,19 @@
     }
   }
 
+  function syncPlainPiece(){
+    if(!unit || !plainPiece) return;
+    const invalid = plainPiece.checked && unit.value !== "pcs";
+    plainPiece.setCustomValidity(invalid ? "Η επιλογή ισχύει μόνο με μονάδα Τεμάχια." : "");
+  }
+
   sel.addEventListener("change", sync);
   if(custom) custom.addEventListener("input", sync);
+  if(unit) unit.addEventListener("change", syncPlainPiece);
+  if(plainPiece) plainPiece.addEventListener("change", syncPlainPiece);
 
   sync();
+  syncPlainPiece();
 })();
 </script>
 

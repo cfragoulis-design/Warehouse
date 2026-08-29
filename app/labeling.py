@@ -83,11 +83,15 @@ def product_readiness(product, profile: str) -> tuple[str, ...]:
     if not _clean(getattr(product, "storage_text", None)):
         missing.append("συνθήκες συντήρησης")
 
-    single_ingredient = bool(getattr(product, "label_single_ingredient", False))
-    if not single_ingredient and not _clean(getattr(product, "label_ingredients", None)):
-        missing.append("συστατικά")
-    if not _clean(getattr(product, "label_allergens", None)):
-        missing.append("δήλωση αλλεργιογόνων")
+    plain_piece = bool(getattr(product, "label_plain_piece", False))
+    if plain_piece and str(getattr(product, "unit", "") or "").strip().casefold() != "pcs":
+        missing.append("μονάδα «Τεμάχια» για απλό τεμαχιακό προϊόν")
+    if not plain_piece:
+        single_ingredient = bool(getattr(product, "label_single_ingredient", False))
+        if not single_ingredient and not _clean(getattr(product, "label_ingredients", None)):
+            missing.append("συστατικά")
+        if not _clean(getattr(product, "label_allergens", None)):
+            missing.append("δήλωση αλλεργιογόνων")
     if not _clean(getattr(product, "label_origin", None)):
         missing.append("χώρα καταγωγής / προέλευση")
     nutrition_exempt = bool(getattr(product, "label_nutrition_exempt", False))
@@ -106,6 +110,7 @@ def product_readiness(product, profile: str) -> tuple[str, ...]:
 
 
 def product_label_metadata(product) -> dict[str, object]:
+    plain_piece = bool(getattr(product, "label_plain_piece", False))
     return {
         "display_name": _clean(getattr(product, "name", None)),
         "legal_name": _clean(getattr(product, "label_legal_name", None) or getattr(product, "name", None)),
@@ -115,6 +120,7 @@ def product_label_metadata(product) -> dict[str, object]:
         "usage_instructions": _clean(getattr(product, "label_usage_instructions", None)),
         "nutrition": _clean(getattr(product, "label_nutrition", None)),
         "single_ingredient": bool(getattr(product, "label_single_ingredient", False)),
+        "plain_piece": plain_piece,
         "nutrition_exempt": bool(getattr(product, "label_nutrition_exempt", False)),
     }
 
@@ -131,13 +137,14 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
     if origin_override:
         metadata["origin"] = origin_override
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "profile": profile,
         "approval_profile": business.approval_profile,
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
             "id": int(product.id),
             "sku": _clean(getattr(product, "sku", None), maximum=64),
+            "unit": _clean(getattr(product, "unit", None), maximum=8),
             **metadata,
         },
         "traceability": {

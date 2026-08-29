@@ -61,6 +61,36 @@ def test_readiness_checks_database_schema_and_canonical_locations() -> None:
     }
 
 
+def test_readiness_rejects_plain_piece_classification_outside_pieces() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            Location.__table__.insert(),
+            [
+                {"code": "CENTRAL", "name": "Κεντρικό"},
+                {"code": "WORKSHOP", "name": "Εργαστήριο"},
+            ],
+        )
+        connection.execute(text("PRAGMA ignore_check_constraints = ON"))
+        connection.execute(
+            text(
+                "INSERT INTO products "
+                "(name, unit, is_active, min_stock, target_central, only_in_freezer, "
+                "is_production_item, shelf_life_days, label_single_ingredient, "
+                "label_plain_piece, label_nutrition_exempt, approval_profile) "
+                "VALUES ('Invalid plain piece', 'kg', 1, 0, 0, 0, 0, 0, 0, 1, 0, 'POULTRY')"
+            )
+        )
+
+    status = check_readiness(engine)
+
+    assert status.ready is False
+    assert status.schema == "ok"
+    assert status.invariants == "failed"
+    assert status.reason == "invalid-plain-piece-unit"
+
+
 def test_readiness_fails_closed_without_exposing_database_error_details() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     with engine.begin() as connection:
