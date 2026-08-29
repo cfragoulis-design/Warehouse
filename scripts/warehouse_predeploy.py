@@ -6,6 +6,8 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
+from sqlalchemy.engine import make_url
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -19,6 +21,19 @@ from app.schema_migrations import apply_pending_migrations  # noqa: E402
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
+_COMMIT_LENGTH = 40
+
+# These are the reviewed, immutable Production resources.  Railway itself
+# attests the first three values.  The database service ID is an explicit
+# operator confirmation and the independently parsed private host/database are
+# the effective connection boundary, so changing only an environment variable
+# cannot redirect a Production migration to another database.
+PRODUCTION_PROJECT_ID = "4cd318f3-41f9-43c5-8664-44ff7e581a6a"
+PRODUCTION_ENVIRONMENT_ID = "99388a85-6dd8-4658-9841-8c41232aef49"
+PRODUCTION_WEB_SERVICE_ID = "3e4da5fe-12f5-4c38-8274-efe6c241c7a9"
+PRODUCTION_DATABASE_SERVICE_ID = "7a31254a-67e9-48ee-8cd4-77c64e087ad5"
+PRODUCTION_DATABASE_HOST = "postgres-4p5a.railway.internal"
+PRODUCTION_DATABASE_NAME = "railway"
 
 
 def _boolean_environment(name: str, *, default: bool = False) -> bool:
@@ -38,6 +53,62 @@ def _required_environment(name: str) -> str:
     if not value:
         raise RuntimeError(f"{name} is required when Warehouse migrations are enabled")
     return value
+
+
+def _require_exact_environment(name: str, expected: str) -> None:
+    if _required_environment(name) != expected:
+        raise RuntimeError(f"{name} does not match the reviewed Production target")
+
+
+def _validate_production_target(
+    *,
+    database_url: str,
+    candidate_commit: str,
+) -> None:
+    """Bind a Production migration to the reviewed Railway resources and SHA.
+
+    `RAILWAY_GIT_COMMIT_SHA` is supplied by Railway for a Git-backed build and
+    is mandatory here.  The separately configured approved SHA records the
+    release decision, while `WAREHOUSE_CANDIDATE_COMMIT` is the value written
+    to the migration ledger.  All three must be the same full lowercase SHA;
+    therefore an operator-controlled candidate value alone can never authorize
+    a Production migration.
+    """
+    _require_exact_environment("RAILWAY_PROJECT_ID", PRODUCTION_PROJECT_ID)
+    _require_exact_environment("RAILWAY_ENVIRONMENT_ID", PRODUCTION_ENVIRONMENT_ID)
+    _require_exact_environment("RAILWAY_SERVICE_ID", PRODUCTION_WEB_SERVICE_ID)
+    _require_exact_environment(
+        "WAREHOUSE_PRODUCTION_DATABASE_SERVICE_ID",
+        PRODUCTION_DATABASE_SERVICE_ID,
+    )
+
+    try:
+        database = make_url(database_url)
+    except Exception as exc:
+        raise RuntimeError("Production DATABASE_URL is invalid") from exc
+    if database.host != PRODUCTION_DATABASE_HOST:
+        raise RuntimeError("DATABASE_URL host does not match the reviewed Production target")
+    if database.database != PRODUCTION_DATABASE_NAME:
+        raise RuntimeError(
+            "DATABASE_URL database does not match the reviewed Production target"
+        )
+
+    railway_commit = _required_environment("RAILWAY_GIT_COMMIT_SHA")
+    approved_commit = _required_environment("WAREHOUSE_APPROVED_CANDIDATE_COMMIT")
+    if (
+        len(railway_commit) != _COMMIT_LENGTH
+        or railway_commit != railway_commit.casefold()
+        or any(character not in "0123456789abcdef" for character in railway_commit)
+    ):
+        raise RuntimeError("Railway candidate commit must be one full lowercase SHA")
+    if railway_commit != candidate_commit:
+        raise RuntimeError(
+            "Railway commit SHA does not match the migration-ledger candidate"
+        )
+    if approved_commit != candidate_commit:
+        raise RuntimeError(
+            "Approved candidate SHA does not match the migration-ledger candidate"
+        )
 
 
 def run_predeploy() -> dict[str, object]:
@@ -78,14 +149,20 @@ def run_predeploy() -> dict[str, object]:
     expected_database = _required_environment("WAREHOUSE_MIGRATION_DATABASE")
     confirmed_database = _required_environment("WAREHOUSE_MIGRATION_CONFIRM_DATABASE")
     candidate_commit = _required_environment("WAREHOUSE_CANDIDATE_COMMIT")
+    database_url = _required_environment("DATABASE_URL")
     railway_commit = (os.getenv("RAILWAY_GIT_COMMIT_SHA") or "").strip()
-    if railway_commit and railway_commit != candidate_commit:
+    if target == "production":
+        _validate_production_target(
+            database_url=database_url,
+            candidate_commit=candidate_commit,
+        )
+    elif railway_commit and railway_commit != candidate_commit:
         raise RuntimeError(
             "Railway commit SHA does not match the explicitly confirmed candidate"
         )
 
     result = apply_pending_migrations(
-        database_url=_required_environment("DATABASE_URL"),
+        database_url=database_url,
         expected_database=expected_database,
         confirmed_database=confirmed_database,
         target=target,  # type: ignore[arg-type]
