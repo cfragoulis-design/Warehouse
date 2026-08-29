@@ -25,8 +25,9 @@ STOCK_PAGE = ROOT / "app" / "templates" / "stock.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10-STAGING.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.14-STAGING.zip"
 PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.13.zip"
+STAGING_RELEASE_MANIFEST = ROOT / "app" / "static" / "downloads" / "HPRT-AGENT-RELEASE-MANIFEST.json"
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -176,10 +177,42 @@ def test_status_ui_snapshot_mode_is_provider_free_and_does_not_open_a_window():
 
 
 def test_staging_download_is_exact_secret_free_package():
-    assert STAGING_DOWNLOAD.stat().st_size == 23_341
+    assert STAGING_DOWNLOAD.stat().st_size == 25_196
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
-        "13633c85d604d21b6f87b711bb14eeae13a94178cf22d806630dabaf4775593d"
+        "a56dfcc74c6e1131073099604af28df58b2afb6515c8e9e270b0f78d8d255ff0"
     )
+    with zipfile.ZipFile(STAGING_DOWNLOAD) as archive:
+        assert set(archive.namelist()) == {
+            "Diagnose-WarehouseHprtAgent.ps1",
+            "favicon-64.png",
+            "HprtLpq80Print.ps1",
+            "Install-WarehouseHprtAgent.ps1",
+            "PACKAGE-MANIFEST.json",
+            "README.txt",
+            "SETUP.cmd",
+            "WarehouseHprtAgent.ps1",
+            "WarehouseHprtAgent.Status.ps1",
+        }
+        setup = archive.read("SETUP.cmd").decode("utf-8-sig")
+        assert "warehouse-full-ui-staging-characterization.up.railway.app" in setup
+        assert "https://sklavounoswh.up.railway.app" not in setup
+        manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
+        assert manifest["version"] == "1.0.14-staging"
+        assert manifest["environment"] == "staging"
+        assert manifest["label_payload_schemas"] == [3, 4]
+        assert manifest["contains_agent_token"] is False
+        assert archive.read("HprtLpq80Print.ps1") == RENDERER.read_bytes()
+    release_manifest = json.loads(STAGING_RELEASE_MANIFEST.read_text(encoding="utf-8"))
+    assert release_manifest == {
+        "product": "Sklavounos Warehouse HPRT Agent",
+        "version": "1.0.14-staging",
+        "creator": "Christos Fragoulis",
+        "source_commit": "de940185a39ea3be25f16bbf400e5cfd3189b8e3",
+        "package": STAGING_DOWNLOAD.name,
+        "package_sha256": hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest(),
+        "contains_agent_token": False,
+        "production_release": False,
+    }
 
 
 def test_production_download_is_exact_secret_free_and_targets_only_production():
@@ -509,6 +542,7 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     assert 'request.url.hostname or ""' in services
     assert '== "sklavounoswh.up.railway.app"' in services
     assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.13.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.14-STAGING.zip" in services
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")

@@ -1120,12 +1120,12 @@ def labels_center(
     hprt_agent_download_url = (
         "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.13.zip"
         if production_host
-        else "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10-STAGING.zip"
+        else "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.14-STAGING.zip"
     )
     hprt_agent_download_label = (
         "↓ Λήψη HPRT Agent v1.0.13 · Production"
         if production_host
-        else "↓ Λήψη HPRT Agent v1.0.10 · Staging"
+        else "↓ Λήψη HPRT Agent v1.0.14 · Staging"
     )
     return templates.TemplateResponse(
         "labels_center.html",

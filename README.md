@@ -26,7 +26,11 @@ Configure the public business identity once in each Railway environment:
 
 The Windows package is in `scripts/windows/hprt-warehouse-agent`. It renders a complete Greek bitmap through TSPL for
 the HPRT LPQ80 and is separate from the existing Brother restaurant-label agent.
-The approval number is selected automatically from the product name/category; batch operators do not enter it.
+The approval number comes from the product's explicit `POULTRY` or `RED_MEAT` approval profile;
+batch operators do not enter it and the application never guesses it from the product name.
+Administrators may classify a `pcs` product as a controlled plain-piece item. That classification
+waives only blank ingredients and allergen fields; origin, lot, dates, storage, approval profile and
+nutrition data (or its separate documented exemption) remain fail-closed requirements.
 
 Creator branding follows [`docs/PERSONAL_BRAND_ASSET_POLICY.md`](docs/PERSONAL_BRAND_ASSET_POLICY.md).
 
