@@ -8,10 +8,34 @@ from pathlib import Path
 import pytest
 
 from app.runtime_config import (
+    load_hprt_agent_release_settings,
     load_one_sso_settings,
     load_runtime_settings,
     resolve_session_secret,
 )
+
+
+def test_hprt_agent_release_channel_is_explicit_and_fails_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", raising=False)
+    default = load_hprt_agent_release_settings()
+    assert default.channel == "disabled"
+    assert default.explicit is False
+    assert default.valid is False
+
+    monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", " production ")
+    production = load_hprt_agent_release_settings()
+    assert production.channel == "production"
+    assert production.explicit is True
+    assert production.valid is True
+
+    monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "preview-ish")
+    invalid = load_hprt_agent_release_settings()
+    assert invalid.channel == "disabled"
+    assert invalid.explicit is True
+    assert invalid.valid is False
+    assert "preview-ish" not in repr(invalid)
 
 
 def test_one_sso_is_default_off_and_requires_an_exact_https_configuration(

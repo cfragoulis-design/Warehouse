@@ -404,3 +404,33 @@ def test_movement_pagination_url_is_relative_and_keeps_valid_filters() -> None:
         "movement_type": ["TRANSFER"],
         "page": ["3"],
     }
+
+
+def test_rendered_movement_pagination_never_embeds_the_upstream_origin() -> None:
+    template = services.templates.env.get_template("movements_list.html")
+    previous_url = services._movement_page_url(page=1, q="needle")
+    next_url = services._movement_page_url(page=3, q="needle")
+
+    rendered = template.render(
+        request=None,
+        user={"username": "tester", "role": "admin"},
+        products=[],
+        locations=[],
+        movement_types=services.MOVEMENT_TYPES,
+        q="needle",
+        product_id=None,
+        location_id=None,
+        events=[],
+        total=101,
+        page=2,
+        total_pages=3,
+        previous_page_url=previous_url,
+        next_page_url=next_url,
+        date_from="",
+        date_to="",
+        movement_type="",
+    )
+
+    assert "up.railway.app" not in rendered
+    assert 'href="/movements?q=needle&amp;page=1"' in rendered
+    assert 'href="/movements?q=needle&amp;page=3"' in rendered

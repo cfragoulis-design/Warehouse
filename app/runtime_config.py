@@ -32,6 +32,7 @@ _POSTGRESQL_SCHEMES = frozenset(
 )
 _MIN_INTEGRATION_TOKEN_LENGTH = 32
 _ONE_SSO_PERMISSION = "external.warehouse.launch"
+_HPRT_AGENT_RELEASE_CHANNELS = frozenset({"production", "staging", "disabled"})
 
 
 def _boolean_environment(name: str, *, default: bool) -> bool:
@@ -77,6 +78,42 @@ class OneSsoSettings:
     required_permission: str
     max_assertion_lifetime_seconds: int
     session_ttl_seconds: int
+
+
+@dataclass(frozen=True)
+class HprtAgentReleaseSettings:
+    channel: str
+    explicit: bool
+    valid: bool
+
+
+def load_hprt_agent_release_settings() -> HprtAgentReleaseSettings:
+    """Select the downloadable HPRT agent without trusting the request host.
+
+    An unset or unrecognised channel disables the download instead of ever
+    falling through to a release package.
+    """
+
+    raw_value = os.getenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL")
+    if raw_value is None or not raw_value.strip():
+        return HprtAgentReleaseSettings(
+            channel="disabled",
+            explicit=False,
+            valid=False,
+        )
+
+    channel = raw_value.strip().casefold()
+    if channel not in _HPRT_AGENT_RELEASE_CHANNELS:
+        return HprtAgentReleaseSettings(
+            channel="disabled",
+            explicit=True,
+            valid=False,
+        )
+    return HprtAgentReleaseSettings(
+        channel=channel,
+        explicit=True,
+        valid=True,
+    )
 
 
 def _bounded_float_environment(

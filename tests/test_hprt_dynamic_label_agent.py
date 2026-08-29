@@ -11,6 +11,8 @@ import zipfile
 
 import pytest
 
+from app import services
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "scripts" / "windows" / "hprt-warehouse-agent"
@@ -327,12 +329,42 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     assert "extraCodeDefault" not in html
     assert "Καθ. ποσότητα" not in html
     assert "Extra code" not in html
+    assert "{% if hprt_agent_download_url %}" in html
     assert 'href="{{ hprt_agent_download_url }}"' in html
+    assert 'class="download disabled"' in html
     assert "{{ hprt_agent_download_label }}" in html
     services = (ROOT / "app" / "services.py").read_text(encoding="utf-8")
-    assert 'request.url.hostname or ""' in services
-    assert '== "sklavounoswh.up.railway.app"' in services
+    assert 'request.url.hostname or ""' not in services
+    assert "load_hprt_agent_release_settings" in services
     assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.13.zip" in services
+
+
+def test_label_center_agent_download_does_not_depend_on_request_hostname(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", raising=False)
+    missing_url, missing_label = services._hprt_agent_download()
+    assert missing_url is None
+    assert "απενεργοποιημένη" in missing_label
+
+    monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "production")
+    production_url, production_label = services._hprt_agent_download()
+    assert production_url == (
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.13.zip"
+    )
+    assert "Production" in production_label
+
+    monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "staging")
+    staging_url, staging_label = services._hprt_agent_download()
+    assert staging_url == (
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.10-STAGING.zip"
+    )
+    assert "Staging" in staging_label
+
+    monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "invalid")
+    disabled_url, disabled_label = services._hprt_agent_download()
+    assert disabled_url is None
+    assert "απενεργοποιημένη" in disabled_label
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
