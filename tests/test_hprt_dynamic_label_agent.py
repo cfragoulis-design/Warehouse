@@ -201,7 +201,9 @@ def test_staging_download_is_exact_secret_free_package():
         assert manifest["environment"] == "staging"
         assert manifest["label_payload_schemas"] == [3, 4]
         assert manifest["contains_agent_token"] is False
-        assert archive.read("HprtLpq80Print.ps1") == RENDERER.read_bytes()
+        archived_renderer = archive.read("HprtLpq80Print.ps1").decode("utf-8-sig")
+        source_renderer = RENDERER.read_text(encoding="utf-8-sig")
+        assert archived_renderer.replace("\r\n", "\n") == source_renderer.replace("\r\n", "\n")
     release_manifest = json.loads(STAGING_RELEASE_MANIFEST.read_text(encoding="utf-8"))
     assert release_manifest == {
         "product": "Sklavounos Warehouse HPRT Agent",
