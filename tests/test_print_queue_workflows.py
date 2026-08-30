@@ -339,4 +339,7 @@ def test_print_center_reports_queue_state_and_prevents_double_submit() -> None:
     assert "if (printBatchBtn.disabled) return" in center
     assert "Μπήκε στην ουρά" in center
     assert "Μπήκε στην ουρά" in stock
+    assert "function detailMessage(detail, fallback)" in stock
+    assert "detailMessage(data.detail || data.error, \"Η εκτύπωση label απέτυχε.\")" in stock
+    assert "throw new Error(data.detail || data.error" not in stock
     assert "Στάλθηκαν" not in stock

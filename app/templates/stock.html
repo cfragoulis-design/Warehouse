@@ -478,6 +478,24 @@ function showLabelToast(message, kind){
   }, 2200);
 }
 
+function detailMessage(detail, fallback){
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (detail && Array.isArray(detail.items)){
+    const messages = detail.items.map((item) => {
+      const index = Number(item?.index);
+      const position = Number.isFinite(index) ? `#${index + 1}` : "";
+      const product = String(item?.product_name || "").trim();
+      const reason = String(item?.error || "").trim();
+      return [position, product, reason].filter(Boolean).join(" ");
+    }).filter(Boolean);
+    if (messages.length) return messages.join(" · ");
+  }
+  if (detail && typeof detail.message === "string" && detail.message.trim()){
+    return detail.message;
+  }
+  return fallback;
+}
+
 async function readActionResponse(res){
   const contentType = (res.headers.get("content-type") || "").toLowerCase();
   if (!contentType.includes("application/json")){
@@ -489,7 +507,7 @@ async function readActionResponse(res){
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok){
-    throw new Error(data.detail || data.error || "The stock change failed.");
+    throw new Error(detailMessage(data.detail || data.error, "The stock change failed."));
   }
   return data;
 }
@@ -531,7 +549,7 @@ async function submitLabelFormAjax(form){
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok){
-      throw new Error(data.detail || data.error || "Η εκτύπωση label απέτυχε.");
+      throw new Error(detailMessage(data.detail || data.error, "Η εκτύπωση label απέτυχε."));
     }
     showLabelToast(`Μπήκε στην ουρά: ${copies} ${copies === 1 ? "ετικέτα" : "ετικέτες"}.`, "ok");
   }catch(err){
