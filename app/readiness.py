@@ -13,7 +13,7 @@ except ImportError:
     from runtime_config import load_one_sso_settings
 
 
-logger = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(__name__)
 
 
 _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
@@ -81,6 +81,7 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
             "contract_version",
             "settings_json",
             "settings_sha256",
+            "based_on_version_id",
             "created_by_user_id",
             "change_reason",
             "created_at",
@@ -96,6 +97,96 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
         }
     ),
 }
+
+
+_LABEL_TRIGGER_CONTRACTS: dict[str, dict[str, object]] = {
+    "trg_label_layout_versions_append_only": {
+        "table": "label_layout_versions",
+        "function": "warehouse_reject_label_layout_version_mutation",
+        "trigger_type": 27,  # BEFORE ROW UPDATE OR DELETE
+        "update_columns": (),
+        "function_source": (
+            "BEGIN RAISE EXCEPTION "
+            "'label_layout_versions is append-only'; END"
+        ),
+    },
+    "trg_product_lots_label_payload_immutable": {
+        "table": "product_lots",
+        "function": "warehouse_reject_label_payload_mutation",
+        "trigger_type": 19,  # BEFORE ROW UPDATE
+        "update_columns": ("label_payload_json",),
+        "function_source": (
+            "BEGIN IF OLD.label_payload_json IS DISTINCT FROM "
+            "NEW.label_payload_json THEN RAISE EXCEPTION "
+            "'queued label payload is immutable'; END IF; RETURN NEW; END"
+        ),
+    },
+}
+
+
+def _normalized_definition(value: object) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _label_trigger_contract_problem(
+    rows: list[dict[str, object]],
+) -> str | None:
+    """Validate the exact database-enforced label immutability boundary."""
+    if len(rows) != len(_LABEL_TRIGGER_CONTRACTS):
+        return "missing-label-layout-immutability-triggers"
+
+    by_name: dict[str, dict[str, object]] = {}
+    for row in rows:
+        name = str(row.get("trigger_name") or "")
+        if name in by_name:
+            return "missing-label-layout-immutability-triggers"
+        by_name[name] = row
+    if set(by_name) != set(_LABEL_TRIGGER_CONTRACTS):
+        return "missing-label-layout-immutability-triggers"
+
+    for name, expected in _LABEL_TRIGGER_CONTRACTS.items():
+        row = by_name[name]
+        update_columns = tuple(str(value) for value in row.get("update_columns") or ())
+        expected_function = str(expected["function"])
+        trigger_definition = _normalized_definition(row.get("trigger_definition"))
+        trigger_type = row.get("trigger_type")
+        argument_count = row.get("trigger_argument_count")
+        constraint_oid = row.get("constraint_oid")
+        expected_definition_tokens = (
+            f"CREATE TRIGGER {name}",
+            "BEFORE",
+            "FOR EACH ROW",
+            "EXECUTE FUNCTION",
+            f"{expected_function}()",
+        )
+        if (
+            row.get("table_schema") != "public"
+            or row.get("table_name") != expected["table"]
+            or row.get("trigger_enabled") not in {"O", "A"}
+            or trigger_type is None
+            or int(trigger_type) != expected["trigger_type"]
+            or argument_count is None
+            or int(argument_count) != 0
+            or row.get("trigger_condition") is not None
+            or constraint_oid is None
+            or int(constraint_oid) != 0
+            or update_columns != expected["update_columns"]
+            or row.get("function_schema") != "public"
+            or row.get("function_name") != expected_function
+            or row.get("function_arguments") != ""
+            or row.get("function_language") != "plpgsql"
+            or row.get("function_return_type") != "trigger"
+            or row.get("function_kind") != "f"
+            or row.get("function_volatility") != "v"
+            or bool(row.get("function_security_definer"))
+            or bool(row.get("function_leakproof"))
+            or row.get("function_config") not in (None, (), [])
+            or _normalized_definition(row.get("function_source"))
+            != expected["function_source"]
+            or any(token not in trigger_definition for token in expected_definition_tokens)
+        ):
+            return "missing-label-layout-immutability-triggers"
+    return None
 
 
 def _schema6_layout_enabled() -> bool:
@@ -171,10 +262,7 @@ def _invariant_problem(bind: Engine) -> str | None:
     with bind.connect() as connection:
         required_locations = set(
             connection.execute(
-                text(
-                    "SELECT code FROM locations "
-                    "WHERE code IN ('CENTRAL', 'WORKSHOP')"
-                )
+                text("SELECT code FROM locations WHERE code IN ('CENTRAL', 'WORKSHOP')")
             ).scalars()
         )
         if required_locations != {"CENTRAL", "WORKSHOP"}:
@@ -237,18 +325,62 @@ def _invariant_problem(bind: Engine) -> str | None:
         if bind.dialect.name == "postgresql":
             installed_triggers = connection.execute(
                 text(
-                    "SELECT COUNT(DISTINCT t.tgname) "
-                    "FROM pg_trigger AS t "
-                    "JOIN pg_class AS c ON c.oid = t.tgrelid "
-                    "WHERE NOT t.tgisinternal AND ("
-                    "(t.tgname = 'trg_label_layout_versions_append_only' "
-                    "AND c.relname = 'label_layout_versions') OR "
-                    "(t.tgname = 'trg_product_lots_label_payload_immutable' "
-                    "AND c.relname = 'product_lots'))"
+                    "SELECT "
+                    "t.tgname AS trigger_name, "
+                    "table_ns.nspname AS table_schema, "
+                    "c.relname AS table_name, "
+                    "t.tgenabled AS trigger_enabled, "
+                    "t.tgtype AS trigger_type, "
+                    "t.tgnargs AS trigger_argument_count, "
+                    "t.tgqual AS trigger_condition, "
+                    "t.tgconstraint AS constraint_oid, "
+                    "COALESCE(("
+                    "  SELECT pg_catalog.array_agg("
+                    "      a.attname ORDER BY positions.ordinality"
+                    "  ) "
+                    "  FROM pg_catalog.unnest(t.tgattr::smallint[]) "
+                    "       WITH ORDINALITY "
+                    "       AS positions(attnum, ordinality) "
+                    "  JOIN pg_catalog.pg_attribute AS a "
+                    "    ON a.attrelid = c.oid "
+                    "   AND a.attnum = positions.attnum"
+                    "), ARRAY[]::name[]) AS update_columns, "
+                    "function_ns.nspname AS function_schema, "
+                    "p.proname AS function_name, "
+                    "pg_catalog.pg_get_function_identity_arguments(p.oid) "
+                    "  AS function_arguments, "
+                    "language.lanname AS function_language, "
+                    "p.prorettype::regtype::text AS function_return_type, "
+                    "p.prokind AS function_kind, "
+                    "p.provolatile AS function_volatility, "
+                    "p.prosecdef AS function_security_definer, "
+                    "p.proleakproof AS function_leakproof, "
+                    "p.proconfig AS function_config, "
+                    "p.prosrc AS function_source, "
+                    "pg_catalog.pg_get_triggerdef(t.oid, true) "
+                    "  AS trigger_definition "
+                    "FROM pg_catalog.pg_trigger AS t "
+                    "JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid "
+                    "JOIN pg_catalog.pg_namespace AS table_ns "
+                    "  ON table_ns.oid = c.relnamespace "
+                    "JOIN pg_catalog.pg_proc AS p ON p.oid = t.tgfoid "
+                    "JOIN pg_catalog.pg_namespace AS function_ns "
+                    "  ON function_ns.oid = p.pronamespace "
+                    "JOIN pg_catalog.pg_language AS language "
+                    "  ON language.oid = p.prolang "
+                    "WHERE NOT t.tgisinternal "
+                    "AND t.tgname IN ("
+                    "  'trg_label_layout_versions_append_only', "
+                    "  'trg_product_lots_label_payload_immutable'"
+                    ") "
+                    "ORDER BY table_ns.nspname, c.relname, t.tgname"
                 )
-            ).scalar_one()
-            if int(installed_triggers or 0) != 2:
-                return "missing-label-layout-immutability-triggers"
+            ).mappings().all()
+            label_trigger_problem = _label_trigger_contract_problem(
+                [dict(row) for row in installed_triggers]
+            )
+            if label_trigger_problem:
+                return label_trigger_problem
 
             if load_one_sso_settings().enabled:
                 sso_trigger_count = connection.execute(
@@ -345,8 +477,11 @@ def check_readiness(bind: Engine) -> ReadinessStatus:
 
     try:
         invariant_problem = _invariant_problem(bind)
-    except Exception:
-        logger.exception("Warehouse invariant readiness check raised unexpectedly")
+    except Exception as exc:
+        _LOGGER.error(
+            "Warehouse readiness invariant check failed exception_type=%s",
+            type(exc).__name__,
+        )
         invariant_problem = "invariant-check-failed"
     if invariant_problem:
         return ReadinessStatus(

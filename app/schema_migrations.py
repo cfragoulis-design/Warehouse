@@ -24,6 +24,23 @@ STAGING_DATABASE_SUFFIX = "_staging"
 _MIGRATION_LOCK_KEY = 907_541_063_337_221_119
 _COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 _DATABASE_PATTERN = re.compile(r"[A-Za-z0-9_]+\Z")
+_ROLE_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}\Z")
+_LABEL_VERSION_INSERT_COLUMNS = (
+    "printer_profile",
+    "version",
+    "contract_version",
+    "settings_json",
+    "settings_sha256",
+    "based_on_version_id",
+    "created_by_user_id",
+    "change_reason",
+)
+_LABEL_ACTIVE_UPDATE_COLUMNS = (
+    "active_version_id",
+    "lock_version",
+    "updated_by_user_id",
+    "updated_at",
+)
 
 
 @dataclass(frozen=True)
@@ -85,6 +102,10 @@ def migration_catalog() -> tuple[MigrationDefinition, ...]:
             "20260830_002",
             "20260830_002_label_layout_versions.sql",
         ),
+        (
+            "20260830_003",
+            "20260830_003_label_layout_runtime_privileges.sql",
+        ),
     )
     catalog: list[MigrationDefinition] = []
     for version, filename in entries:
@@ -105,7 +126,9 @@ def _postgres_url(database_url: str) -> URL:
     try:
         url = make_url(database_url)
     except Exception as exc:
-        raise ValueError("A valid Warehouse PostgreSQL database URL is required") from exc
+        raise ValueError(
+            "A valid Warehouse PostgreSQL database URL is required"
+        ) from exc
     if not url.drivername.startswith("postgresql") or not url.host or not url.database:
         raise ValueError("Warehouse migrations require an explicit PostgreSQL database")
     return url
@@ -117,6 +140,258 @@ def _psycopg_url(url: URL) -> str:
     )
 
 
+def validate_runtime_role_confirmation(
+    runtime_role: str,
+    confirmed_runtime_role: str,
+) -> None:
+    if not _ROLE_PATTERN.fullmatch(runtime_role) or runtime_role.casefold() == "public":
+        raise ValueError(
+            "Warehouse runtime role must be an explicit PostgreSQL identifier"
+        )
+    if (
+        not _ROLE_PATTERN.fullmatch(confirmed_runtime_role)
+        or confirmed_runtime_role.casefold() == "public"
+    ):
+        raise ValueError(
+            "Warehouse confirmed runtime role must be an explicit PostgreSQL identifier"
+        )
+    if runtime_role != confirmed_runtime_role:
+        raise ValueError("Warehouse runtime database role confirmation does not match")
+
+
+def _boolean_query(connection, query: str, parameters: tuple[object, ...]) -> bool:
+    row = connection.execute(query, parameters).fetchone()
+    return row is not None and bool(row[0])
+
+
+def _validate_label_layout_runtime_privileges(connection, runtime_role: str) -> None:
+    relations = connection.execute(
+        """
+        SELECT
+            to_regclass('public.label_layout_versions')::oid,
+            to_regclass('public.label_layout_active')::oid,
+            to_regclass(
+                pg_catalog.pg_get_serial_sequence(
+                    'public.label_layout_versions',
+                    'id'
+                )
+            )::oid,
+            to_regnamespace('public')::oid
+        """
+    ).fetchone()
+    if relations is None or any(value is None for value in relations):
+        raise RuntimeError("Warehouse label-layout privilege targets are missing")
+    versions_rel, active_rel, versions_seq, public_schema = relations
+
+    role_oid_row = connection.execute(
+        "SELECT oid FROM pg_catalog.pg_roles WHERE rolname = %s",
+        (runtime_role,),
+    ).fetchone()
+    if role_oid_row is None:
+        raise RuntimeError("Warehouse runtime database role does not exist")
+    runtime_oid = role_oid_row[0]
+
+    unsafe_identity = _boolean_query(
+        connection,
+        """
+        SELECT
+            EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_roles AS assumable_role
+                WHERE assumable_role.oid <> %s::oid
+                  AND pg_catalog.pg_has_role(
+                      %s::oid,
+                      assumable_role.oid,
+                      'SET'
+                  )
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_roles AS elevated_role
+                WHERE (
+                    elevated_role.rolsuper
+                    OR elevated_role.rolcreaterole
+                    OR elevated_role.rolcreatedb
+                    OR elevated_role.rolreplication
+                    OR elevated_role.rolbypassrls
+                )
+                  AND pg_catalog.pg_has_role(%s::oid, elevated_role.oid, 'MEMBER')
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_database AS database_entry
+                WHERE database_entry.datname = current_database()
+                  AND pg_catalog.pg_has_role(%s::oid, database_entry.datdba, 'MEMBER')
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_namespace AS namespace
+                WHERE namespace.oid = %s::oid
+                  AND pg_catalog.pg_has_role(%s::oid, namespace.nspowner, 'MEMBER')
+            )
+            OR pg_catalog.has_schema_privilege(%s, %s::oid, 'CREATE')
+            OR EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_class AS relation
+                WHERE relation.oid IN (%s::oid, %s::oid, %s::oid)
+                  AND pg_catalog.pg_has_role(%s::oid, relation.relowner, 'MEMBER')
+            )
+        """,
+        (
+            runtime_oid,
+            runtime_oid,
+            runtime_oid,
+            runtime_oid,
+            public_schema,
+            runtime_oid,
+            runtime_role,
+            public_schema,
+            versions_rel,
+            active_rel,
+            versions_seq,
+            runtime_oid,
+        ),
+    )
+    if unsafe_identity:
+        raise RuntimeError(
+            "Warehouse runtime database role is an owner or can create/elevate"
+        )
+
+    required_access = (
+        _boolean_query(
+            connection,
+            "SELECT pg_catalog.has_table_privilege(%s, %s::oid, 'SELECT')",
+            (runtime_role, versions_rel),
+        )
+        and _boolean_query(
+            connection,
+            "SELECT pg_catalog.has_table_privilege(%s, %s::oid, 'SELECT')",
+            (runtime_role, active_rel),
+        )
+        and all(
+            _boolean_query(
+                connection,
+                "SELECT pg_catalog.has_column_privilege(%s, %s::oid, %s, 'INSERT')",
+                (runtime_role, versions_rel, column),
+            )
+            for column in _LABEL_VERSION_INSERT_COLUMNS
+        )
+        and all(
+            _boolean_query(
+                connection,
+                "SELECT pg_catalog.has_column_privilege(%s, %s::oid, %s, 'UPDATE')",
+                (runtime_role, active_rel, column),
+            )
+            for column in _LABEL_ACTIVE_UPDATE_COLUMNS
+        )
+        and _boolean_query(
+            connection,
+            "SELECT pg_catalog.has_sequence_privilege(%s, %s::oid, 'USAGE')",
+            (runtime_role, versions_seq),
+        )
+    )
+    if not required_access:
+        raise RuntimeError(
+            "Warehouse runtime database role is missing required label-layout access"
+        )
+
+    forbidden_access = (
+        any(
+            _boolean_query(
+                connection,
+                "SELECT pg_catalog.has_column_privilege(%s, %s::oid, %s, 'INSERT')",
+                (runtime_role, versions_rel, column),
+            )
+            for column in ("id", "created_at")
+        )
+        or _boolean_query(
+            connection,
+            "SELECT pg_catalog.has_any_column_privilege(%s, %s::oid, 'UPDATE')",
+            (runtime_role, versions_rel),
+        )
+        or _boolean_query(
+            connection,
+            "SELECT pg_catalog.has_any_column_privilege(%s, %s::oid, 'REFERENCES')",
+            (runtime_role, versions_rel),
+        )
+        or _boolean_query(
+            connection,
+            "SELECT pg_catalog.has_any_column_privilege(%s, %s::oid, 'INSERT')",
+            (runtime_role, active_rel),
+        )
+        or _boolean_query(
+            connection,
+            "SELECT pg_catalog.has_any_column_privilege(%s, %s::oid, 'REFERENCES')",
+            (runtime_role, active_rel),
+        )
+        or _boolean_query(
+            connection,
+            "SELECT pg_catalog.has_column_privilege(%s, %s::oid, 'printer_profile', 'UPDATE')",
+            (runtime_role, active_rel),
+        )
+        or any(
+            _boolean_query(
+                connection,
+                "SELECT pg_catalog.has_table_privilege(%s, %s::oid, %s)",
+                (runtime_role, relation, privilege),
+            )
+            for relation in (versions_rel, active_rel)
+            for privilege in ("DELETE", "TRUNCATE", "TRIGGER", "MAINTAIN")
+        )
+        or any(
+            _boolean_query(
+                connection,
+                "SELECT pg_catalog.has_sequence_privilege(%s, %s::oid, %s)",
+                (runtime_role, versions_seq, privilege),
+            )
+            for privilege in ("SELECT", "UPDATE")
+        )
+    )
+    grant_options = (
+        any(
+            _boolean_query(
+                connection,
+                "SELECT pg_catalog.has_table_privilege(%s, %s::oid, 'SELECT WITH GRANT OPTION')",
+                (runtime_role, relation),
+            )
+            for relation in (versions_rel, active_rel)
+        )
+        or any(
+            _boolean_query(
+                connection,
+                "SELECT pg_catalog.has_any_column_privilege(%s, %s::oid, 'SELECT WITH GRANT OPTION')",
+                (runtime_role, relation),
+            )
+            for relation in (versions_rel, active_rel)
+        )
+        or any(
+            _boolean_query(
+                connection,
+                "SELECT pg_catalog.has_column_privilege(%s, %s::oid, %s, 'INSERT WITH GRANT OPTION')",
+                (runtime_role, versions_rel, column),
+            )
+            for column in _LABEL_VERSION_INSERT_COLUMNS
+        )
+        or any(
+            _boolean_query(
+                connection,
+                "SELECT pg_catalog.has_column_privilege(%s, %s::oid, %s, 'UPDATE WITH GRANT OPTION')",
+                (runtime_role, active_rel, column),
+            )
+            for column in _LABEL_ACTIVE_UPDATE_COLUMNS
+        )
+        or _boolean_query(
+            connection,
+            "SELECT pg_catalog.has_sequence_privilege(%s, %s::oid, 'USAGE WITH GRANT OPTION')",
+            (runtime_role, versions_seq),
+        )
+    )
+    if forbidden_access or grant_options:
+        raise RuntimeError(
+            "Warehouse runtime database role has broader label-layout access than allowed"
+        )
+
+
 def _validate_target(
     *,
     database_name: str,
@@ -126,7 +401,9 @@ def _validate_target(
 ) -> None:
     for value in (database_name, expected_database, confirmed_database):
         if not _DATABASE_PATTERN.fullmatch(value):
-            raise ValueError("Warehouse migration database names must be explicit identifiers")
+            raise ValueError(
+                "Warehouse migration database names must be explicit identifiers"
+            )
     if database_name != expected_database or database_name != confirmed_database:
         raise RuntimeError("Warehouse migration database confirmation does not match")
     if database_name in {"postgres", "template0", "template1"}:
@@ -246,9 +523,12 @@ def apply_pending_migrations(
     confirmed_database: str,
     target: MigrationTarget,
     candidate_commit: str,
+    runtime_role: str,
+    confirmed_runtime_role: str,
 ) -> MigrationResult:
     if not _COMMIT_PATTERN.fullmatch(candidate_commit):
         raise ValueError("Warehouse candidate commit must be one full lowercase SHA")
+    validate_runtime_role_confirmation(runtime_role, confirmed_runtime_role)
     url = _postgres_url(database_url)
     _validate_target(
         database_name=str(url.database),
@@ -265,6 +545,37 @@ def apply_pending_migrations(
         if actual is None or str(actual[0]) != expected_database:
             raise RuntimeError("Warehouse server-side database identity does not match")
         connection.execute("SELECT pg_advisory_xact_lock(%s)", (_MIGRATION_LOCK_KEY,))
+        runtime_role_record = connection.execute(
+            """
+            SELECT
+                rolcanlogin,
+                rolsuper,
+                rolcreaterole,
+                rolcreatedb,
+                rolreplication,
+                rolbypassrls
+            FROM pg_catalog.pg_roles
+            WHERE rolname = %s
+            """,
+            (runtime_role,),
+        ).fetchone()
+        if runtime_role_record is None:
+            raise RuntimeError("Warehouse runtime database role does not exist")
+        if not bool(runtime_role_record[0]) or any(
+            bool(value) for value in runtime_role_record[1:]
+        ):
+            raise RuntimeError(
+                "Warehouse runtime database role must be a restricted login role"
+            )
+        migration_role = connection.execute("SELECT current_user").fetchone()
+        if migration_role is None or str(migration_role[0]) == runtime_role:
+            raise RuntimeError(
+                "Warehouse migration and runtime database roles must be separate"
+            )
+        connection.execute(
+            "SELECT set_config('warehouse.runtime_role', %s, true)",
+            (runtime_role,),
+        )
 
         applied = _applied_migrations(connection)
         _validate_applied_catalog(applied=applied, catalog=catalog)
@@ -300,6 +611,8 @@ def apply_pending_migrations(
                 (migration.version, migration.checksum, candidate_commit),
             )
             applied_now.append(migration.version)
+
+        _validate_label_layout_runtime_privileges(connection, runtime_role)
 
         post_fingerprint = _schema_fingerprint(connection)
         connection.commit()
@@ -343,6 +656,8 @@ def _parser() -> argparse.ArgumentParser:
         child.add_argument("--confirm-database", required=True)
         if command == "apply":
             child.add_argument("--candidate-commit", required=True)
+            child.add_argument("--runtime-role", required=True)
+            child.add_argument("--confirm-runtime-role", required=True)
     return parser
 
 
@@ -360,6 +675,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = apply_pending_migrations(
             **common,
             candidate_commit=args.candidate_commit,
+            runtime_role=args.runtime_role,
+            confirmed_runtime_role=args.confirm_runtime_role,
         )
     print(json.dumps(asdict(result), sort_keys=True))
     return 0

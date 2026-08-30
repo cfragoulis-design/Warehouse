@@ -7,6 +7,7 @@ import pytest
 from app.schema_migrations import (
     BASELINE_SCHEMA_FINGERPRINT,
     _validate_target,
+    _ROLE_PATTERN,
     migration_catalog,
 )
 
@@ -23,11 +24,12 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20260829_001",
         "20260830_001",
         "20260830_002",
+        "20260830_003",
     ]
     migration = catalog[0]
-    assert migration.checksum == hashlib.sha256(
-        migration.sql.encode("utf-8")
-    ).hexdigest()
+    assert (
+        migration.checksum == hashlib.sha256(migration.sql.encode("utf-8")).hexdigest()
+    )
     assert "warehouse_schema_migrations" not in migration.sql
     upper_sql = migration.sql.upper()
     assert "DROP TABLE" not in upper_sql
@@ -83,10 +85,16 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DELETE FROM" not in plain_piece_sql.upper()
     plain_traceability = catalog[6]
     plain_traceability_sql = plain_traceability.sql
-    assert "DROP CONSTRAINT IF EXISTS ck_products_label_plain_piece_unit" in plain_traceability_sql
+    assert (
+        "DROP CONSTRAINT IF EXISTS ck_products_label_plain_piece_unit"
+        in plain_traceability_sql
+    )
     assert "lower(trim(unit)) IN ('pcs', 'box', 'tray')" in plain_traceability_sql
     assert "NOT VALID" in plain_traceability_sql
-    assert "VALIDATE CONSTRAINT ck_products_label_plain_piece_unit" in plain_traceability_sql
+    assert (
+        "VALIDATE CONSTRAINT ck_products_label_plain_piece_unit"
+        in plain_traceability_sql
+    )
     assert "UPDATE products" not in plain_traceability_sql
     assert "DROP TABLE" not in plain_traceability_sql.upper()
     assert "TRUNCATE" not in plain_traceability_sql.upper()
@@ -105,7 +113,63 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in label_layout_sql.upper()
     assert "TRUNCATE" not in label_layout_sql.upper()
     assert "DELETE FROM" not in label_layout_sql.upper()
+    label_layout_privileges = catalog[8]
+    label_layout_privileges_sql = label_layout_privileges.sql
+    normalized_privileges_sql = " ".join(label_layout_privileges_sql.split())
+    assert (
+        "current_setting('warehouse.runtime_role', TRUE)" in label_layout_privileges_sql
+    )
+    assert "rolcanlogin" in label_layout_privileges_sql
+    assert "rolsuper" in label_layout_privileges_sql
+    assert "rolcreaterole" in label_layout_privileges_sql
+    assert "rolcreatedb" in label_layout_privileges_sql
+    assert "rolreplication" in label_layout_privileges_sql
+    assert "rolbypassrls" in label_layout_privileges_sql
+    assert "pg_has_role" in label_layout_privileges_sql
+    assert "relowner" in label_layout_privileges_sql
+    assert "'MEMBER'" in label_layout_privileges_sql
+    assert "'SET'" in label_layout_privileges_sql
+    assert "current_user" in label_layout_privileges_sql
+    assert "pg_get_serial_sequence" in label_layout_privileges_sql
+    assert "'MAINTAIN'" in label_layout_privileges_sql
+    assert "has_any_column_privilege" in label_layout_privileges_sql
+    assert "'SELECT WITH GRANT OPTION'" in label_layout_privileges_sql
+    assert (
+        "GRANT SELECT ON TABLE public.label_layout_versions TO %I"
+        in normalized_privileges_sql
+    )
+    assert (
+        "GRANT INSERT ( printer_profile, version, contract_version, settings_json, "
+        "settings_sha256, based_on_version_id, created_by_user_id, change_reason ) "
+        "ON TABLE public.label_layout_versions TO %I" in normalized_privileges_sql
+    )
+    assert (
+        "GRANT SELECT ON TABLE public.label_layout_active TO %I"
+        in normalized_privileges_sql
+    )
+    assert (
+        "GRANT UPDATE ( active_version_id, lock_version, updated_by_user_id, "
+        "updated_at ) ON TABLE public.label_layout_active TO %I"
+        in normalized_privileges_sql
+    )
+    assert "GRANT USAGE ON SEQUENCE" in normalized_privileges_sql
+    assert "GRANT ALL" not in normalized_privileges_sql.upper()
+    assert "GRANT SELECT, INSERT ON TABLE" not in normalized_privileges_sql
+    assert "GRANT SELECT, UPDATE ON TABLE" not in normalized_privileges_sql
+    assert "TO PUBLIC" not in label_layout_privileges_sql.upper()
+    assert "DROP TABLE" not in label_layout_privileges_sql.upper()
+    assert "TRUNCATE TABLE" not in label_layout_privileges_sql.upper()
+    assert "DELETE FROM" not in label_layout_privileges_sql.upper()
     assert len(BASELINE_SCHEMA_FINGERPRINT) == 64
+
+
+def test_runtime_role_identifier_is_explicit_and_bounded() -> None:
+    assert _ROLE_PATTERN.fullmatch("warehouse_fullui_staging_app")
+    assert _ROLE_PATTERN.fullmatch("warehouse_app_2")
+    assert not _ROLE_PATTERN.fullmatch("")
+    assert not _ROLE_PATTERN.fullmatch("warehouse-app")
+    assert not _ROLE_PATTERN.fullmatch("warehouse app")
+    assert not _ROLE_PATTERN.fullmatch("x" * 64)
 
 
 def test_restore_target_must_be_exact_and_isolated() -> None:

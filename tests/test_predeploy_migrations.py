@@ -49,6 +49,8 @@ def _clear(monkeypatch: pytest.MonkeyPatch) -> None:
         "WAREHOUSE_MIGRATION_TARGET",
         "WAREHOUSE_MIGRATION_DATABASE",
         "WAREHOUSE_MIGRATION_CONFIRM_DATABASE",
+        "WAREHOUSE_MIGRATION_RUNTIME_ROLE",
+        "WAREHOUSE_MIGRATION_CONFIRM_RUNTIME_ROLE",
         "WAREHOUSE_CANDIDATE_COMMIT",
         "WAREHOUSE_PRODUCTION_MIGRATIONS_APPROVED",
         "WAREHOUSE_PRODUCTION_DATABASE_SERVICE_ID",
@@ -64,7 +66,9 @@ def _clear(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def _stub_runtime(monkeypatch: pytest.MonkeyPatch, settings: _Settings = _Settings()) -> None:
+def _stub_runtime(
+    monkeypatch: pytest.MonkeyPatch, settings: _Settings = _Settings()
+) -> None:
     monkeypatch.setattr(
         warehouse_predeploy,
         "validate_predeploy_environment",
@@ -118,6 +122,14 @@ def test_staging_migration_requires_exact_explicit_identity_and_commit(
     monkeypatch.setenv("DATABASE_URL", "postgresql://hidden/db")
     monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "c" * 40)
     monkeypatch.setenv("WAREHOUSE_CANDIDATE_COMMIT", "c" * 40)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_CANDIDATE_COMMIT", "c" * 40)
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_RUNTIME_ROLE", "warehouse_fullui_staging_app"
+    )
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_CONFIRM_RUNTIME_ROLE",
+        "warehouse_fullui_staging_app",
+    )
     calls: list[dict[str, object]] = []
 
     def _apply(**kwargs):
@@ -136,6 +148,8 @@ def test_staging_migration_requires_exact_explicit_identity_and_commit(
             "confirmed_database": "warehouse_fullui_staging",
             "target": "staging",
             "candidate_commit": "c" * 40,
+            "runtime_role": "warehouse_fullui_staging_app",
+            "confirmed_runtime_role": "warehouse_fullui_staging_app",
         }
     ]
 
@@ -152,10 +166,168 @@ def test_staging_rejects_railway_candidate_mismatch(
         "WAREHOUSE_MIGRATION_CONFIRM_DATABASE", "warehouse_fullui_staging"
     )
     monkeypatch.setenv("WAREHOUSE_CANDIDATE_COMMIT", "c" * 40)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_CANDIDATE_COMMIT", "c" * 40)
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_RUNTIME_ROLE", "warehouse_fullui_staging_app"
+    )
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_CONFIRM_RUNTIME_ROLE",
+        "warehouse_fullui_staging_app",
+    )
     monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "d" * 40)
     monkeypatch.setenv("DATABASE_URL", "postgresql://hidden/db")
 
     with pytest.raises(RuntimeError, match="Railway commit SHA"):
+        warehouse_predeploy.run_predeploy()
+
+
+def _staging_migration_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WAREHOUSE_MIGRATIONS_ENABLED", "true")
+    monkeypatch.setenv("WAREHOUSE_MIGRATION_TARGET", "staging")
+    monkeypatch.setenv("WAREHOUSE_MIGRATION_DATABASE", "warehouse_fullui_staging")
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_CONFIRM_DATABASE", "warehouse_fullui_staging"
+    )
+    monkeypatch.setenv("WAREHOUSE_CANDIDATE_COMMIT", "c" * 40)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_CANDIDATE_COMMIT", "c" * 40)
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "c" * 40)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://hidden/db")
+
+
+def test_staging_cli_release_requires_exact_manifested_tree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _staging_migration_environment(monkeypatch)
+    monkeypatch.delenv("RAILWAY_GIT_COMMIT_SHA", raising=False)
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_RUNTIME_ROLE",
+        "warehouse_fullui_staging_app",
+    )
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_CONFIRM_RUNTIME_ROLE",
+        "warehouse_fullui_staging_app",
+    )
+    (tmp_path / "app.py").write_text("print('exact')\n", encoding="utf-8")
+    tree_hash, manifest_hash = _write_release_manifest(tmp_path, "c" * 40)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_TREE_SHA256", tree_hash)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256", manifest_hash)
+    monkeypatch.setattr(warehouse_predeploy, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        warehouse_predeploy,
+        "apply_pending_migrations",
+        lambda **_kwargs: _MigrationResult(),
+    )
+
+    assert warehouse_predeploy.run_predeploy()["migrations"] == "applied"
+
+
+def test_staging_cli_release_rejects_missing_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _staging_migration_environment(monkeypatch)
+    monkeypatch.delenv("RAILWAY_GIT_COMMIT_SHA", raising=False)
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_RUNTIME_ROLE",
+        "warehouse_fullui_staging_app",
+    )
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_CONFIRM_RUNTIME_ROLE",
+        "warehouse_fullui_staging_app",
+    )
+    monkeypatch.setenv("WAREHOUSE_APPROVED_TREE_SHA256", "a" * 64)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256", "b" * 64)
+    monkeypatch.setattr(warehouse_predeploy, "PROJECT_ROOT", tmp_path)
+
+    with pytest.raises(RuntimeError, match="manifest is missing"):
+        warehouse_predeploy.run_predeploy()
+
+
+def test_migration_enabled_requires_explicit_runtime_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _staging_migration_environment(monkeypatch)
+    monkeypatch.setattr(
+        warehouse_predeploy,
+        "apply_pending_migrations",
+        lambda **_kwargs: pytest.fail("database must not be contacted"),
+    )
+
+    with pytest.raises(RuntimeError, match="WAREHOUSE_MIGRATION_RUNTIME_ROLE"):
+        warehouse_predeploy.run_predeploy()
+
+
+def test_migration_enabled_requires_runtime_role_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _staging_migration_environment(monkeypatch)
+    monkeypatch.setenv("WAREHOUSE_MIGRATION_RUNTIME_ROLE", "warehouse_staging_app")
+    monkeypatch.setattr(
+        warehouse_predeploy,
+        "apply_pending_migrations",
+        lambda **_kwargs: pytest.fail("database must not be contacted"),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="WAREHOUSE_MIGRATION_CONFIRM_RUNTIME_ROLE",
+    ):
+        warehouse_predeploy.run_predeploy()
+
+
+@pytest.mark.parametrize(
+    "runtime_role",
+    ["warehouse-app", "warehouse app", "x" * 64, "PUBLIC"],
+)
+def test_migration_rejects_invalid_or_unrestricted_runtime_role(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_role: str,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _staging_migration_environment(monkeypatch)
+    monkeypatch.setenv("WAREHOUSE_MIGRATION_RUNTIME_ROLE", runtime_role)
+    monkeypatch.setenv("WAREHOUSE_MIGRATION_CONFIRM_RUNTIME_ROLE", runtime_role)
+    monkeypatch.setattr(
+        warehouse_predeploy,
+        "apply_pending_migrations",
+        lambda **_kwargs: pytest.fail("database must not be contacted"),
+    )
+
+    with pytest.raises((RuntimeError, ValueError), match="runtime role|PostgreSQL"):
+        warehouse_predeploy.run_predeploy()
+
+
+def test_migration_rejects_runtime_role_confirmation_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _staging_migration_environment(monkeypatch)
+    monkeypatch.setenv("WAREHOUSE_MIGRATION_RUNTIME_ROLE", "warehouse_staging_app")
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATION_CONFIRM_RUNTIME_ROLE",
+        "warehouse_production_app",
+    )
+    monkeypatch.setattr(
+        warehouse_predeploy,
+        "apply_pending_migrations",
+        lambda **_kwargs: pytest.fail("database must not be contacted"),
+    )
+
+    with pytest.raises(
+        (RuntimeError, ValueError),
+        match="runtime .*role.*confirmation|confirmation.*role",
+    ):
         warehouse_predeploy.run_predeploy()
 
 
@@ -198,11 +370,15 @@ def _production_environment(
     monkeypatch.setenv("WAREHOUSE_MIGRATION_CONFIRM_DATABASE", "railway")
     monkeypatch.setenv("WAREHOUSE_CANDIDATE_COMMIT", candidate_commit)
     monkeypatch.setenv("WAREHOUSE_APPROVED_CANDIDATE_COMMIT", candidate_commit)
+    monkeypatch.setenv("WAREHOUSE_MIGRATION_RUNTIME_ROLE", "warehouse_app")
+    monkeypatch.setenv("WAREHOUSE_MIGRATION_CONFIRM_RUNTIME_ROLE", "warehouse_app")
     monkeypatch.setenv("RAILWAY_PROJECT_ID", warehouse_predeploy.PRODUCTION_PROJECT_ID)
     monkeypatch.setenv(
         "RAILWAY_ENVIRONMENT_ID", warehouse_predeploy.PRODUCTION_ENVIRONMENT_ID
     )
-    monkeypatch.setenv("RAILWAY_SERVICE_ID", warehouse_predeploy.PRODUCTION_WEB_SERVICE_ID)
+    monkeypatch.setenv(
+        "RAILWAY_SERVICE_ID", warehouse_predeploy.PRODUCTION_WEB_SERVICE_ID
+    )
     monkeypatch.setenv(
         "WAREHOUSE_PRODUCTION_DATABASE_SERVICE_ID",
         warehouse_predeploy.PRODUCTION_DATABASE_SERVICE_ID,
@@ -227,11 +403,14 @@ def test_production_git_release_accepts_only_exact_reviewed_target(
     monkeypatch.setattr(
         warehouse_predeploy,
         "apply_pending_migrations",
-        lambda **kwargs: calls.append(kwargs) or _MigrationResult(
-            database="railway",
-            target="production",
-            applied_versions=("20260829_001",),
-            current_version="20260829_001",
+        lambda **kwargs: (
+            calls.append(kwargs)
+            or _MigrationResult(
+                database="railway",
+                target="production",
+                applied_versions=("20260829_001",),
+                current_version="20260829_001",
+            )
         ),
     )
 

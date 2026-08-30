@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -8,6 +9,7 @@ from threading import Barrier
 
 import psycopg
 import pytest
+from psycopg import sql
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -83,11 +85,66 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
     postgres_engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     database_url = os.environ["WAREHOUSE_CRITICAL_FLOW_DATABASE_URL"].strip()
+    runtime_database_url = os.getenv(
+        "WAREHOUSE_CRITICAL_FLOW_RUNTIME_DATABASE_URL", ""
+    ).strip()
+    if not runtime_database_url:
+        pytest.skip(
+            "Requires a separately provisioned restricted Warehouse runtime role"
+        )
     database_name = str(make_url(database_url).database)
+    runtime_url = make_url(runtime_database_url)
+    runtime_database_name = str(runtime_url.database)
+    runtime_role = str(runtime_url.username or "")
+    confirmed_runtime_role = os.getenv(
+        "WAREHOUSE_CRITICAL_FLOW_CONFIRM_RUNTIME_ROLE", ""
+    ).strip()
+    if runtime_database_name != database_name:
+        raise RuntimeError(
+            "Runtime proof URL must target the exact disposable database"
+        )
+    if not runtime_role or confirmed_runtime_role != runtime_role:
+        raise RuntimeError("Runtime proof role requires exact explicit confirmation")
+    if runtime_role == str(make_url(database_url).username or ""):
+        raise RuntimeError("Migration and runtime proof roles must be separate")
+
     psycopg_url = schema_migrations._psycopg_url(make_url(database_url))
+    catalog = schema_migrations.migration_catalog()
+    assert catalog[-1].version == "20260830_003"
     with psycopg.connect(psycopg_url, autocommit=False) as connection:
+        connection.execute(
+            sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(
+                sql.Identifier(runtime_role)
+            )
+        )
+        connection.execute(
+            """
+            CREATE TABLE warehouse_schema_migrations (
+                version VARCHAR(64) PRIMARY KEY,
+                checksum CHAR(64) NOT NULL,
+                applied_by_commit CHAR(40) NOT NULL,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT ck_warehouse_schema_migrations_checksum
+                    CHECK (checksum ~ '^[0-9a-f]{64}$'),
+                CONSTRAINT ck_warehouse_schema_migrations_commit
+                    CHECK (applied_by_commit ~ '^[0-9a-f]{40}$')
+            )
+            """
+        )
+        # Base.metadata supplies the pre-002 table shape for this disposable proof.
+        # Re-run 002 so its canonical seed and immutability triggers are present,
+        # then prove the restricted-role grants from 003.
+        for migration in catalog[:-2]:
+            connection.execute(
+                """
+                INSERT INTO warehouse_schema_migrations
+                    (version, checksum, applied_by_commit)
+                VALUES (%s, %s, %s)
+                """,
+                (migration.version, migration.checksum, "b" * 40),
+            )
         current_fingerprint = schema_migrations._schema_fingerprint(connection)
-        connection.rollback()
+        connection.commit()
     monkeypatch.setattr(
         schema_migrations, "BASELINE_SCHEMA_FINGERPRINT", current_fingerprint
     )
@@ -104,15 +161,131 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
         "confirmed_database": database_name,
         "target": target,
         "candidate_commit": "a" * 40,
+        "runtime_role": runtime_role,
+        "confirmed_runtime_role": confirmed_runtime_role,
     }
     first = schema_migrations.apply_pending_migrations(**arguments)
     second = schema_migrations.apply_pending_migrations(**arguments)
 
-    expected = tuple(item.version for item in schema_migrations.migration_catalog())
-    assert first.applied_versions == expected
+    assert first.applied_versions == ("20260830_002", "20260830_003")
     assert second.applied_versions == ()
-    assert second.current_version == expected[-1]
+    assert second.current_version == "20260830_003"
     assert second.post_schema_fingerprint == first.post_schema_fingerprint
+
+    runtime_psycopg_url = schema_migrations._psycopg_url(runtime_url)
+    with psycopg.connect(runtime_psycopg_url, autocommit=False) as runtime_connection:
+        role_record = runtime_connection.execute(
+            """
+            SELECT
+                current_user,
+                rolsuper,
+                rolcreaterole,
+                rolcreatedb,
+                rolreplication,
+                rolbypassrls
+            FROM pg_catalog.pg_roles
+            WHERE rolname = current_user
+            """
+        ).fetchone()
+        assert role_record == (runtime_role, False, False, False, False, False)
+        assumable_roles = runtime_connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM pg_catalog.pg_roles AS assumable_role
+            WHERE assumable_role.rolname <> current_user
+              AND pg_catalog.pg_has_role(
+                  current_user,
+                  assumable_role.oid,
+                  'SET'
+              )
+            """
+        ).fetchone()[0]
+        assert assumable_roles == 0
+        runtime_connection.execute(
+            "SELECT COUNT(*) FROM public.label_layout_versions"
+        ).fetchone()
+        runtime_connection.execute(
+            "SELECT COUNT(*) FROM public.label_layout_active"
+        ).fetchone()
+
+        next_version = runtime_connection.execute(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM public.label_layout_versions"
+        ).fetchone()[0]
+        inserted_id = runtime_connection.execute(
+            """
+            INSERT INTO public.label_layout_versions (
+                printer_profile,
+                version,
+                contract_version,
+                settings_json,
+                settings_sha256,
+                based_on_version_id,
+                created_by_user_id,
+                change_reason
+            )
+            VALUES (%s, %s, 1, '{}', %s, NULL, NULL, %s)
+            RETURNING id
+            """,
+            (
+                "HPRT_LPQ80_BITMAP_50X70",
+                next_version,
+                hashlib.sha256(b"{}").hexdigest(),
+                "PostgreSQL restricted-role proof",
+            ),
+        ).fetchone()[0]
+        updated = runtime_connection.execute(
+            """
+            UPDATE public.label_layout_active
+            SET active_version_id = %s,
+                lock_version = lock_version + 1,
+                updated_by_user_id = NULL,
+                updated_at = NOW()
+            WHERE printer_profile = 'HPRT_LPQ80_BITMAP_50X70'
+            """,
+            (inserted_id,),
+        )
+        assert updated.rowcount == 1
+
+        forbidden_statements = (
+            "INSERT INTO public.label_layout_versions (id) VALUES (999999999)",
+            "UPDATE public.label_layout_versions SET change_reason = change_reason",
+            "DELETE FROM public.label_layout_versions WHERE FALSE",
+            "TRUNCATE TABLE public.label_layout_versions",
+            "INSERT INTO public.label_layout_active (printer_profile, active_version_id) "
+            "VALUES ('HPRT_LPQ80_BITMAP_50X70', 1)",
+            "UPDATE public.label_layout_active SET printer_profile = printer_profile",
+            "SELECT last_value FROM public.label_layout_versions_id_seq",
+            "SELECT setval('public.label_layout_versions_id_seq', 1, FALSE)",
+        )
+        for statement in forbidden_statements:
+            try:
+                with runtime_connection.transaction():
+                    runtime_connection.execute(statement)
+            except psycopg.errors.InsufficientPrivilege:
+                continue
+            raise AssertionError(
+                f"Forbidden runtime statement unexpectedly succeeded: {statement}"
+            )
+        assert not runtime_connection.execute(
+            "SELECT pg_catalog.has_table_privilege("
+            "current_user, 'public.label_layout_versions', 'MAINTAIN')"
+        ).fetchone()[0]
+        assert not runtime_connection.execute(
+            """
+            SELECT
+                pg_catalog.has_any_column_privilege(
+                    current_user,
+                    'public.label_layout_versions',
+                    'SELECT WITH GRANT OPTION'
+                )
+                OR pg_catalog.has_any_column_privilege(
+                    current_user,
+                    'public.label_layout_active',
+                    'SELECT WITH GRANT OPTION'
+                )
+            """
+        ).fetchone()[0]
+        runtime_connection.rollback()
 
 
 def test_two_workers_cannot_claim_the_same_print_job(
@@ -171,9 +344,7 @@ def test_expired_aware_lease_is_reclaimed_but_live_lease_is_not(
         claimed = _job(
             services.api_print_jobs_next(
                 station="WORKSHOP",
-                request=RequestStub(
-                    headers={"x-agent-token": "postgres-agent-token"}
-                ),
+                request=RequestStub(headers={"x-agent-token": "postgres-agent-token"}),
                 db=worker,
             )
         )
@@ -185,4 +356,6 @@ def test_expired_aware_lease_is_reclaimed_but_live_lease_is_not(
 
     with factory() as verify:
         assert verify.get(ProductLot, live_id).status == "CLAIMED"
-        assert verify.get(ProductLot, live_id).claim_expires_at > datetime.now(timezone.utc)
+        assert verify.get(ProductLot, live_id).claim_expires_at > datetime.now(
+            timezone.utc
+        )

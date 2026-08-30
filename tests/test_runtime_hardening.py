@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
@@ -17,7 +18,12 @@ from app.label_layout import (
     layout_settings_sha256,
 )
 from app.models import LabelLayoutActive, LabelLayoutVersion, Location
-from app.readiness import _REQUIRED_SCHEMA, ReadinessStatus, check_readiness
+from app.readiness import (
+    _REQUIRED_SCHEMA,
+    ReadinessStatus,
+    _label_trigger_contract_problem,
+    check_readiness,
+)
 
 
 def _engine_with_required_schema_except(
@@ -193,6 +199,165 @@ def test_ready_returns_503_when_product_approval_profile_column_is_missing(
         },
         "reason": "missing-required-columns",
     }
+
+
+def test_readiness_requires_label_layout_parent_version_column() -> None:
+    assert "based_on_version_id" in _REQUIRED_SCHEMA["label_layout_versions"]
+
+    engine = _engine_with_required_schema_except(
+        missing_column=("label_layout_versions", "based_on_version_id")
+    )
+    status = check_readiness(engine)
+
+    assert status.ready is False
+    assert status.schema == "failed"
+    assert status.reason == "missing-required-columns"
+
+
+def _valid_label_trigger_rows() -> list[dict[str, object]]:
+    return [
+        {
+            "trigger_name": "trg_label_layout_versions_append_only",
+            "table_schema": "public",
+            "table_name": "label_layout_versions",
+            "trigger_enabled": "O",
+            "trigger_type": 27,
+            "trigger_argument_count": 0,
+            "trigger_condition": None,
+            "constraint_oid": 0,
+            "update_columns": [],
+            "function_schema": "public",
+            "function_name": "warehouse_reject_label_layout_version_mutation",
+            "function_arguments": "",
+            "function_language": "plpgsql",
+            "function_return_type": "trigger",
+            "function_kind": "f",
+            "function_volatility": "v",
+            "function_security_definer": False,
+            "function_leakproof": False,
+            "function_config": None,
+            "function_source": """
+                BEGIN
+                    RAISE EXCEPTION 'label_layout_versions is append-only';
+                END
+            """,
+            "trigger_definition": (
+                "CREATE TRIGGER trg_label_layout_versions_append_only "
+                "BEFORE UPDATE OR DELETE ON public.label_layout_versions "
+                "FOR EACH ROW EXECUTE FUNCTION "
+                "public.warehouse_reject_label_layout_version_mutation()"
+            ),
+        },
+        {
+            "trigger_name": "trg_product_lots_label_payload_immutable",
+            "table_schema": "public",
+            "table_name": "product_lots",
+            "trigger_enabled": "A",
+            "trigger_type": 19,
+            "trigger_argument_count": 0,
+            "trigger_condition": None,
+            "constraint_oid": 0,
+            "update_columns": ["label_payload_json"],
+            "function_schema": "public",
+            "function_name": "warehouse_reject_label_payload_mutation",
+            "function_arguments": "",
+            "function_language": "plpgsql",
+            "function_return_type": "trigger",
+            "function_kind": "f",
+            "function_volatility": "v",
+            "function_security_definer": False,
+            "function_leakproof": False,
+            "function_config": None,
+            "function_source": """
+                BEGIN
+                    IF OLD.label_payload_json IS DISTINCT FROM
+                       NEW.label_payload_json THEN
+                        RAISE EXCEPTION 'queued label payload is immutable';
+                    END IF;
+                    RETURN NEW;
+                END
+            """,
+            "trigger_definition": (
+                "CREATE TRIGGER trg_product_lots_label_payload_immutable "
+                "BEFORE UPDATE OF label_payload_json ON public.product_lots "
+                "FOR EACH ROW EXECUTE FUNCTION "
+                "public.warehouse_reject_label_payload_mutation()"
+            ),
+        },
+    ]
+
+
+def test_label_trigger_contract_accepts_only_exact_enabled_public_triggers() -> None:
+    assert _label_trigger_contract_problem(_valid_label_trigger_rows()) is None
+
+
+@pytest.mark.parametrize(
+    ("row_index", "field", "invalid_value"),
+    [
+        (0, "trigger_enabled", "D"),
+        (0, "trigger_enabled", "R"),
+        (0, "table_schema", "shadow"),
+        (0, "table_name", "spoof_label_layout_versions"),
+        (0, "trigger_type", 19),
+        (0, "trigger_condition", "spoofed condition"),
+        (0, "function_schema", "shadow"),
+        (0, "function_name", "spoofed_function"),
+        (0, "function_security_definer", True),
+        (0, "function_config", ["search_path=shadow"]),
+        (0, "function_source", "BEGIN RETURN NEW; END"),
+        (1, "update_columns", []),
+        (1, "trigger_definition", "CREATE TRIGGER spoofed"),
+    ],
+)
+def test_label_trigger_contract_rejects_disabled_spoofed_or_wrong_schema(
+    row_index: int,
+    field: str,
+    invalid_value: object,
+) -> None:
+    rows = _valid_label_trigger_rows()
+    rows[row_index][field] = invalid_value
+
+    assert _label_trigger_contract_problem(rows) == (
+        "missing-label-layout-immutability-triggers"
+    )
+
+
+def test_label_trigger_contract_rejects_duplicate_shadow_trigger() -> None:
+    rows = _valid_label_trigger_rows()
+    shadow = dict(rows[0])
+    shadow["table_schema"] = "shadow"
+    rows.append(shadow)
+
+    assert _label_trigger_contract_problem(rows) == (
+        "missing-label-layout-immutability-triggers"
+    )
+
+
+def test_readiness_logs_only_invariant_exception_type(monkeypatch, caplog) -> None:
+    from app import readiness
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    secret = "postgresql://runtime:super-secret@warehouse.example/staging"
+
+    monkeypatch.setattr(readiness, "_schema_problem", lambda _bind: None)
+
+    def _raise_sensitive_error(_bind) -> None:
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(readiness, "_invariant_problem", _raise_sensitive_error)
+
+    with caplog.at_level("ERROR", logger="app.readiness"):
+        status = readiness.check_readiness(engine)
+
+    assert status.ready is False
+    assert status.reason == "invariant-check-failed"
+    assert (
+        "Warehouse readiness invariant check failed exception_type=RuntimeError"
+        in caplog.text
+    )
+    assert secret not in caplog.text
+    assert "super-secret" not in caplog.text
+    assert "postgresql://" not in caplog.text
 
 
 def test_ready_returns_503_when_audit_events_table_is_missing(

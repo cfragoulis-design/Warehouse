@@ -17,7 +17,10 @@ from app.runtime_config import (  # noqa: E402
     validate_predeploy_environment,
 )
 from app.release_manifest import verify_release_manifest  # noqa: E402
-from app.schema_migrations import apply_pending_migrations  # noqa: E402
+from app.schema_migrations import (  # noqa: E402
+    apply_pending_migrations,
+    validate_runtime_role_confirmation,
+)
 
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -83,6 +86,10 @@ def _validate_production_target(
             "DATABASE_URL database does not match the reviewed Production target"
         )
 
+    _validate_candidate_provenance(candidate_commit)
+
+
+def _validate_candidate_provenance(candidate_commit: str) -> None:
     railway_commit = (os.getenv("RAILWAY_GIT_COMMIT_SHA") or "").strip()
     approved_commit = _required_environment("WAREHOUSE_APPROVED_CANDIDATE_COMMIT")
     if (
@@ -139,7 +146,9 @@ def run_predeploy() -> dict[str, object]:
 
     target = _required_environment("WAREHOUSE_MIGRATION_TARGET").casefold()
     if target not in {"restore", "staging", "production"}:
-        raise RuntimeError("WAREHOUSE_MIGRATION_TARGET must be restore, staging, or production")
+        raise RuntimeError(
+            "WAREHOUSE_MIGRATION_TARGET must be restore, staging, or production"
+        )
     if target == "production" and not _boolean_environment(
         "WAREHOUSE_PRODUCTION_MIGRATIONS_APPROVED"
     ):
@@ -150,17 +159,19 @@ def run_predeploy() -> dict[str, object]:
     expected_database = _required_environment("WAREHOUSE_MIGRATION_DATABASE")
     confirmed_database = _required_environment("WAREHOUSE_MIGRATION_CONFIRM_DATABASE")
     candidate_commit = _required_environment("WAREHOUSE_CANDIDATE_COMMIT")
+    runtime_role = _required_environment("WAREHOUSE_MIGRATION_RUNTIME_ROLE")
+    confirmed_runtime_role = _required_environment(
+        "WAREHOUSE_MIGRATION_CONFIRM_RUNTIME_ROLE"
+    )
+    validate_runtime_role_confirmation(runtime_role, confirmed_runtime_role)
     database_url = _required_environment("DATABASE_URL")
-    railway_commit = (os.getenv("RAILWAY_GIT_COMMIT_SHA") or "").strip()
     if target == "production":
         _validate_production_target(
             database_url=database_url,
             candidate_commit=candidate_commit,
         )
-    elif railway_commit and railway_commit != candidate_commit:
-        raise RuntimeError(
-            "Railway commit SHA does not match the explicitly confirmed candidate"
-        )
+    else:
+        _validate_candidate_provenance(candidate_commit)
 
     result = apply_pending_migrations(
         database_url=database_url,
@@ -168,6 +179,8 @@ def run_predeploy() -> dict[str, object]:
         confirmed_database=confirmed_database,
         target=target,  # type: ignore[arg-type]
         candidate_commit=candidate_commit,
+        runtime_role=runtime_role,
+        confirmed_runtime_role=confirmed_runtime_role,
     )
     return {
         "ready": True,
