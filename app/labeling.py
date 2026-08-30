@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import os
+from collections.abc import Mapping
 
 from .approval_profiles import (
     POULTRY,
@@ -10,6 +11,7 @@ from .approval_profiles import (
     UNASSIGNED,
     normalize_approval_profile,
 )
+from .label_layout import LabelLayoutValidationError, validate_layout_snapshot
 
 
 INTERNAL_PROFILE = "INTERNAL"
@@ -132,7 +134,13 @@ def product_label_metadata(product) -> dict[str, object]:
     }
 
 
-def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
+def build_label_payload(
+    product,
+    lot,
+    *,
+    profile: str,
+    layout_snapshot: Mapping[str, object] | None = None,
+) -> dict[str, object]:
     profile = normalize_label_profile(profile)
     missing = product_readiness(product, profile)
     if missing:
@@ -144,7 +152,15 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
     if origin_override:
         metadata["origin"] = origin_override
     plain_traceability = bool(metadata.pop("plain_traceability", False))
-    if plain_traceability:
+    normalized_layout: dict[str, object] | None = None
+    if layout_snapshot is not None:
+        try:
+            normalized_layout = validate_layout_snapshot(layout_snapshot)
+        except LabelLayoutValidationError as exc:
+            raise LabelValidationError(str(exc)) from exc
+        schema_version = 6
+        metadata["plain_traceability"] = plain_traceability
+    elif plain_traceability:
         schema_version = 5
         metadata["plain_traceability"] = True
     else:
@@ -152,7 +168,7 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
         # been upgraded can continue printing the established full label.
         schema_version = 4
         metadata["plain_piece"] = False
-    return {
+    payload: dict[str, object] = {
         "schema_version": schema_version,
         "profile": profile,
         "approval_profile": business.approval_profile,
@@ -178,3 +194,6 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
             "approval_profile": business.approval_profile,
         },
     }
+    if normalized_layout is not None:
+        payload["layout"] = normalized_layout
+    return payload

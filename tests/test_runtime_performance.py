@@ -8,6 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import services
@@ -75,8 +76,8 @@ def test_lot_code_uses_highest_sequence_and_reservations_not_row_count(db: Sessi
     assert fifth.endswith("-05")
 
 
-def test_quick_print_retries_unique_collision_inside_savepoint(
-    db: Session, monkeypatch: pytest.MonkeyPatch
+def test_legacy_quick_print_is_retired_before_it_can_create_an_unsnapshotted_job(
+    db: Session,
 ) -> None:
     product = _product(db, "RETRY")
     user = User(username="lot-admin", role="admin", pin_hash="not-used")
@@ -95,32 +96,19 @@ def test_quick_print_retries_unique_collision_inside_savepoint(
         )
     )
     db.commit()
-    real_allocator = services._build_lot_code
-    calls = 0
+    with pytest.raises(HTTPException) as retired:
+        services.labels_quick_print(
+            request=type("Request", (), {"headers": {"accept": "application/json"}})(),
+            product_id=product.id,
+            station="CENTRAL",
+            quantity="1",
+            user=user,
+            db=db,
+        )
 
-    def colliding_once(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return existing_code
-        return real_allocator(*args, **kwargs)
-
-    monkeypatch.setattr(services, "_build_lot_code", colliding_once)
-
-    response = services.labels_quick_print(
-        request=type("Request", (), {"headers": {"accept": "application/json"}})(),
-        product_id=product.id,
-        station="CENTRAL",
-        quantity="1",
-        user=user,
-        db=db,
-    )
-    payload = response.body.decode("utf-8")
-    assert response.status_code == 200
-    assert calls == 2
-    assert existing_code not in payload
+    assert retired.value.status_code == 410
     codes = [code for (code,) in db.query(ProductLot.lot_code).order_by(ProductLot.id).all()]
-    assert len(codes) == len(set(codes)) == 2
+    assert codes == [existing_code]
 
 
 @pytest.mark.skipif(

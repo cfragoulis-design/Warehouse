@@ -136,6 +136,94 @@ class AuditEvent(Base):
     )
 
 
+class LabelLayoutVersion(Base):
+    """Immutable, audited typography/spacing contract for one printer profile."""
+
+    __tablename__ = "label_layout_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "printer_profile",
+            "version",
+            name="uq_label_layout_versions_profile_version",
+        ),
+        CheckConstraint(
+            "contract_version = 1",
+            name="ck_label_layout_versions_contract",
+        ),
+        CheckConstraint(
+            "version > 0",
+            name="ck_label_layout_versions_version_positive",
+        ),
+        CheckConstraint(
+            "printer_profile = 'HPRT_LPQ80_BITMAP_50X70'",
+            name="ck_label_layout_versions_printer_profile",
+        ),
+        CheckConstraint(
+            "length(settings_sha256) = 64",
+            name="ck_label_layout_versions_hash_length",
+        ),
+        CheckConstraint(
+            "length(trim(change_reason)) > 0",
+            name="ck_label_layout_versions_reason_required",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    printer_profile: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    contract_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    settings_json: Mapped[str] = mapped_column(Text, nullable=False)
+    settings_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    based_on_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("label_layout_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    change_reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class LabelLayoutActive(Base):
+    """Mutable singleton pointer; layout version rows themselves never change."""
+
+    __tablename__ = "label_layout_active"
+    __table_args__ = (
+        CheckConstraint(
+            "lock_version > 0",
+            name="ck_label_layout_active_lock_version_positive",
+        ),
+        CheckConstraint(
+            "printer_profile = 'HPRT_LPQ80_BITMAP_50X70'",
+            name="ck_label_layout_active_printer_profile",
+        ),
+    )
+
+    printer_profile: Mapped[str] = mapped_column(String(64), primary_key=True)
+    active_version_id: Mapped[int] = mapped_column(
+        ForeignKey("label_layout_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    lock_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 
 
 

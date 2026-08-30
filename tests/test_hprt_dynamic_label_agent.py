@@ -7,9 +7,13 @@ import os
 from pathlib import Path
 import subprocess
 import struct
+import sys
 import zipfile
+import zlib
 
 import pytest
+
+from scripts.build_hprt_agent_packages import COMMON_FILES, _package_bytes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,12 +29,48 @@ STOCK_PAGE = ROOT / "app" / "templates" / "stock.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15-STAGING.zip"
-PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16-STAGING.zip"
+PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16.zip"
 STAGING_RELEASE_MANIFEST = ROOT / "app" / "static" / "downloads" / "HPRT-AGENT-RELEASE-MANIFEST.json"
 PRODUCTION_RELEASE_MANIFEST = (
     ROOT / "app" / "static" / "downloads" / "HPRT-AGENT-PRODUCTION-RELEASE-MANIFEST.json"
 )
+PACKAGE_BUILDER = ROOT / "scripts" / "build_hprt_agent_packages.py"
+
+LAYOUT_SETTINGS = {
+    "title_font_px": 27,
+    "title_height_px": 42,
+    "legal_name_font_px": 14,
+    "legal_name_height_px": 29,
+    "ingredients_font_px": 13,
+    "ingredients_height_px": 52,
+    "allergens_font_px": 14,
+    "allergens_height_px": 31,
+    "allergens_gap_after_px": 3,
+    "nutrition_heading_font_px": 12,
+    "nutrition_heading_height_px": 19,
+    "nutrition_cell_font_px": 11,
+    "nutrition_row_height_px": 22,
+    "nutrition_gap_after_px": 4,
+    "dates_font_px": 13,
+    "dates_height_px": 24,
+    "lot_font_px": 12,
+    "lot_height_px": 23,
+    "source_lot_font_px": 11,
+    "source_lot_height_px": 20,
+    "storage_font_px": 13,
+    "storage_height_px": 28,
+    "origin_font_px": 11,
+    "origin_height_px": 21,
+    "usage_font_px": 11,
+    "usage_height_px": 33,
+    "footer_caption_font_px": 10,
+    "footer_name_font_px": 13,
+    "footer_address_font_px": 10,
+    "approval_country_font_px": 12,
+    "approval_number_font_px": 14,
+    "approval_suffix_font_px": 11,
+}
 
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
@@ -74,6 +114,129 @@ def _encoded(payload: dict[str, object]) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
+def _schema6_payload(settings: dict[str, int] | None = None) -> dict[str, object]:
+    payload = _payload()
+    payload["schema_version"] = 6
+    canonical_settings = dict(LAYOUT_SETTINGS if settings is None else settings)
+    settings_json = json.dumps(
+        canonical_settings,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    payload["layout"] = {
+        "contract_version": 1,
+        "version_id": 17,
+        "settings_sha256": hashlib.sha256(settings_json).hexdigest(),
+        "settings": canonical_settings,
+    }
+    return payload
+
+
+def _tspl_raster(path: Path, copies: int = 1) -> bytes:
+    raw = path.read_bytes()
+    marker = b"BITMAP 0,0,50,560,0,"
+    start = raw.index(marker) + len(marker)
+    end = raw.index(f"\r\nPRINT 1,{copies}\r\n".encode(), start)
+    raster = raw[start:end]
+    assert len(raster) == 50 * 560
+    return raster
+
+
+def _paeth(left: int, above: int, upper_left: int) -> int:
+    estimate = left + above - upper_left
+    left_distance = abs(estimate - left)
+    above_distance = abs(estimate - above)
+    upper_left_distance = abs(estimate - upper_left)
+    if left_distance <= above_distance and left_distance <= upper_left_distance:
+        return left
+    if above_distance <= upper_left_distance:
+        return above
+    return upper_left
+
+
+def _rgba_png_rows(path: Path) -> tuple[int, int, list[bytes]]:
+    raw = path.read_bytes()
+    assert raw.startswith(b"\x89PNG\r\n\x1a\n")
+    offset = 8
+    compressed = bytearray()
+    width = height = 0
+    while offset < len(raw):
+        length = struct.unpack(">I", raw[offset : offset + 4])[0]
+        chunk_type = raw[offset + 4 : offset + 8]
+        chunk_data = raw[offset + 8 : offset + 8 + length]
+        offset += 12 + length
+        if chunk_type == b"IHDR":
+            width, height, depth, color_type, compression, filtering, interlace = (
+                struct.unpack(">IIBBBBB", chunk_data)
+            )
+            assert (depth, color_type, compression, filtering, interlace) == (
+                8,
+                6,
+                0,
+                0,
+                0,
+            )
+        elif chunk_type == b"IDAT":
+            compressed.extend(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+
+    decoded = zlib.decompress(bytes(compressed))
+    bytes_per_pixel = 4
+    row_width = width * bytes_per_pixel
+    rows: list[bytes] = []
+    cursor = 0
+    previous = bytearray(row_width)
+    for _ in range(height):
+        filter_type = decoded[cursor]
+        cursor += 1
+        source = decoded[cursor : cursor + row_width]
+        cursor += row_width
+        row = bytearray(row_width)
+        for index, value in enumerate(source):
+            left = row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            above = previous[index]
+            upper_left = (
+                previous[index - bytes_per_pixel]
+                if index >= bytes_per_pixel
+                else 0
+            )
+            if filter_type == 0:
+                predictor = 0
+            elif filter_type == 1:
+                predictor = left
+            elif filter_type == 2:
+                predictor = above
+            elif filter_type == 3:
+                predictor = (left + above) // 2
+            elif filter_type == 4:
+                predictor = _paeth(left, above, upper_left)
+            else:
+                raise AssertionError(f"Unsupported PNG filter {filter_type}")
+            row[index] = (value + predictor) & 0xFF
+        rows.append(bytes(row))
+        previous = row
+    assert cursor == len(decoded)
+    return width, height, rows
+
+
+def _monochrome_raster_from_preview(path: Path) -> bytes:
+    width, height, rows = _rgba_png_rows(path)
+    assert (width, height) == (400, 560)
+    packed = bytearray()
+    for row in rows:
+        output_row = bytearray([0xFF] * 50)
+        for x in range(width):
+            red, green, blue, alpha = row[x * 4 : x * 4 + 4]
+            assert alpha == 255
+            assert red == green == blue
+            assert red in {0, 255}
+            if red == 0:
+                output_row[x // 8] &= 0xFF ^ (0x80 >> (x % 8))
+        packed.extend(output_row)
+    return bytes(packed)
+
+
 def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     for script in (RENDERER, AGENT, INSTALLER, STATUS_UI, PACKAGE / "Diagnose-WarehouseHprtAgent.ps1"):
         assert script.read_bytes().startswith(b"\xef\xbb\xbf")
@@ -114,9 +277,9 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert "https://sklavounoswh.up.railway.app" in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     assert "staging-characterization" not in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     production_manifest = json.loads(PRODUCTION_PACKAGE_MANIFEST.read_text(encoding="utf-8-sig"))
-    assert production_manifest["version"] == "1.0.15"
+    assert production_manifest["version"] == "1.0.16"
     assert production_manifest["environment"] == "production"
-    assert production_manifest["label_payload_schemas"] == [3, 4, 5]
+    assert production_manifest["label_payload_schemas"] == [3, 4, 5, 6]
     assert production_manifest["contains_agent_token"] is False
     readme = (PACKAGE / "README.txt").read_text(encoding="utf-8-sig")
     assert "RAW LOGIC. REAL SYSTEMS.\nCreated by Christos Fragoulis" in readme.replace("\r\n", "\n")
@@ -182,30 +345,56 @@ def test_status_ui_snapshot_mode_is_provider_free_and_does_not_open_a_window():
     assert snapshot["PrintHistory"] == []
 
 
+def test_package_builder_normalizes_text_line_endings_without_touching_binary(
+    tmp_path: Path,
+):
+    lf_source = tmp_path / "lf.ps1"
+    crlf_source = tmp_path / "crlf.ps1"
+    binary_source = tmp_path / "icon.png"
+    lf_source.write_bytes(b"\xef\xbb\xbfline-one\nline-two\n")
+    crlf_source.write_bytes(b"\xef\xbb\xbfline-one\r\nline-two\r\n")
+    binary_source.write_bytes(b"\x89PNG\r\n\x1a\n\x00\n")
+
+    assert _package_bytes(lf_source) == _package_bytes(crlf_source)
+    assert _package_bytes(lf_source) == b"\xef\xbb\xbfline-one\r\nline-two\r\n"
+    assert _package_bytes(binary_source) == binary_source.read_bytes()
+
+
+def test_package_builder_rejects_a_stale_or_fake_source_commit():
+    result = subprocess.run(
+        [sys.executable, str(PACKAGE_BUILDER), "--source-commit", "0" * 40],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "source_commit must equal the checked-out HEAD" in result.stderr
+
+
 def test_staging_download_is_exact_secret_free_package():
     assert STAGING_DOWNLOAD.stat().st_size == 25_353
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
         "378a645e0c027710e5f47ad38f895bd86f11d176c11529cd9232607157b0fb57"
     )
     with zipfile.ZipFile(STAGING_DOWNLOAD) as archive:
-        assert set(archive.namelist()) == {
-            "Diagnose-WarehouseHprtAgent.ps1",
-            "favicon-64.png",
-            "HprtLpq80Print.ps1",
-            "Install-WarehouseHprtAgent.ps1",
-            "PACKAGE-MANIFEST.json",
-            "README.txt",
-            "SETUP.cmd",
-            "WarehouseHprtAgent.ps1",
-            "WarehouseHprtAgent.Status.ps1",
+        expected_sources = {
+            **COMMON_FILES,
+            "PACKAGE-MANIFEST.json": "PACKAGE-MANIFEST.json",
+            "SETUP.cmd": "SETUP.cmd",
         }
+        assert set(archive.namelist()) == set(expected_sources)
+        for archive_name, source_name in expected_sources.items():
+            assert archive.read(archive_name) == _package_bytes(PACKAGE / source_name)
         setup = archive.read("SETUP.cmd").decode("utf-8-sig")
         assert "warehouse-full-ui-staging-characterization.up.railway.app" in setup
         assert "https://sklavounoswh.up.railway.app" not in setup
         manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
-        assert manifest["version"] == "1.0.15-staging"
+        assert manifest["version"] == "1.0.16-staging"
         assert manifest["environment"] == "staging"
-        assert manifest["label_payload_schemas"] == [3, 4, 5]
+        assert manifest["label_payload_schemas"] == [3, 4, 5, 6]
         assert manifest["contains_agent_token"] is False
         readme = archive.read("README.txt").decode("utf-8-sig").replace("\r\n", "\n")
         assert "RAW LOGIC. REAL SYSTEMS.\nCreated by Christos Fragoulis" in readme
@@ -215,7 +404,7 @@ def test_staging_download_is_exact_secret_free_package():
     release_manifest = json.loads(STAGING_RELEASE_MANIFEST.read_text(encoding="utf-8"))
     assert release_manifest == {
         "product": "Sklavounos Warehouse HPRT Agent",
-        "version": "1.0.15-staging",
+        "version": "1.0.16-staging",
         "creator": "Christos Fragoulis",
         "source_commit": "f2dee14567791c18dc5b2ef949b15675867c6f2a",
         "package": STAGING_DOWNLOAD.name,
@@ -231,25 +420,22 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
         "b094afef75c5c6563ab502533c2fbae052f8551035d5052999605b7e6b7747b2"
     )
     with zipfile.ZipFile(PRODUCTION_DOWNLOAD) as archive:
-        assert set(archive.namelist()) == {
-            "Diagnose-WarehouseHprtAgent.ps1",
-            "favicon-64.png",
-            "HprtLpq80Print.ps1",
-            "Install-WarehouseHprtAgent.ps1",
-            "PACKAGE-MANIFEST.json",
-            "README.txt",
-            "SETUP.cmd",
-            "WarehouseHprtAgent.ps1",
-            "WarehouseHprtAgent.Status.ps1",
+        expected_sources = {
+            **COMMON_FILES,
+            "PACKAGE-MANIFEST.json": "PACKAGE-MANIFEST-PRODUCTION.json",
+            "SETUP.cmd": "SETUP-PRODUCTION.cmd",
         }
+        assert set(archive.namelist()) == set(expected_sources)
+        for archive_name, source_name in expected_sources.items():
+            assert archive.read(archive_name) == _package_bytes(PACKAGE / source_name)
         setup = archive.read("SETUP.cmd").decode("utf-8-sig")
         assert "https://sklavounoswh.up.railway.app" in setup
         assert "staging-characterization" not in setup
         manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
         assert manifest["environment"] == "production"
         assert manifest["contains_agent_token"] is False
-        assert manifest["version"] == "1.0.15"
-        assert manifest["label_payload_schemas"] == [3, 4, 5]
+        assert manifest["version"] == "1.0.16"
+        assert manifest["label_payload_schemas"] == [3, 4, 5, 6]
         readme = archive.read("README.txt").decode("utf-8-sig").replace("\r\n", "\n")
         assert "RAW LOGIC. REAL SYSTEMS.\nCreated by Christos Fragoulis" in readme
         archived_renderer = archive.read("HprtLpq80Print.ps1").decode("utf-8-sig")
@@ -258,7 +444,7 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
     release_manifest = json.loads(PRODUCTION_RELEASE_MANIFEST.read_text(encoding="utf-8"))
     assert release_manifest == {
         "product": "Sklavounos Warehouse HPRT Agent",
-        "version": "1.0.15",
+        "version": "1.0.16",
         "creator": "Christos Fragoulis",
         "source_commit": "f2dee14567791c18dc5b2ef949b15675867c6f2a",
         "package": PRODUCTION_DOWNLOAD.name,
@@ -269,7 +455,24 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
-def test_agent_classifies_renderer_stderr_instead_of_collapsing_to_generic_failure(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("renderer_error", "expected_category"),
+    [
+        (
+            "Dynamic label content does not fit the 50x70 layout.",
+            "LABEL_CONTENT_TOO_LARGE",
+        ),
+        (
+            "Label layout setting title_font_px is outside the allowed range.",
+            "HPRT_PAYLOAD_INVALID",
+        ),
+    ],
+)
+def test_agent_classifies_renderer_stderr_instead_of_collapsing_to_generic_failure(
+    tmp_path: Path,
+    renderer_error: str,
+    expected_category: str,
+):
     agent_source = AGENT.read_text(encoding="utf-8-sig")
     functions_only = agent_source.split("function Invoke-OnePoll {", 1)[0]
     harness = tmp_path / "AgentHarness.ps1"
@@ -288,7 +491,7 @@ catch {
         encoding="utf-8-sig",
     )
     (tmp_path / "HprtLpq80Print.ps1").write_text(
-        "[Console]::Error.WriteLine('Dynamic label content does not fit the 50x70 layout.'); exit 91\n",
+        f"[Console]::Error.WriteLine('{renderer_error}'); exit 91\n",
         encoding="utf-8-sig",
     )
 
@@ -311,7 +514,7 @@ catch {
     )
 
     assert result.returncode == 0, result.stderr.decode(errors="replace")
-    assert result.stdout.decode("utf-8-sig").strip() == "LABEL_CONTENT_TOO_LARGE"
+    assert result.stdout.decode("utf-8-sig").strip() == expected_category
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
@@ -356,6 +559,159 @@ def test_renderer_builds_unified_greek_bitmap_label_and_chain_copies(tmp_path: P
     png = preview.read_bytes()
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     assert struct.unpack(">II", png[16:24]) == (400, 560)
+    assert _monochrome_raster_from_preview(preview) == raw[bitmap_start:bitmap_end]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+def test_schema_v6_canonical_layout_is_immutable_and_matches_legacy_default_raster(
+    tmp_path: Path,
+):
+    legacy_output = tmp_path / "schema-v5-default.tspl"
+    schema6_output = tmp_path / "schema-v6-default.tspl"
+    preview = tmp_path / "schema-v6-default.png"
+    for payload, output, preview_path in (
+        (_payload(), legacy_output, None),
+        (_schema6_payload(), schema6_output, preview),
+    ):
+        command = [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RENDERER),
+            "-PayloadBase64Url",
+            _encoded(payload),
+            "-Copies",
+            "1",
+            "-PrinterName",
+            "DRY-RUN",
+            "-DryRunOutputPath",
+            str(output),
+        ]
+        if preview_path is not None:
+            command.extend(["-PreviewOutputPath", str(preview_path)])
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr.decode(errors="replace")
+
+    legacy_raster = _tspl_raster(legacy_output)
+    schema6_raster = _tspl_raster(schema6_output)
+    assert schema6_raster == legacy_raster
+    assert _monochrome_raster_from_preview(preview) == schema6_raster
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+def test_schema_v6_valid_custom_layout_changes_the_immutable_raster(tmp_path: Path):
+    default_output = tmp_path / "schema-v6-default.tspl"
+    custom_output = tmp_path / "schema-v6-custom.tspl"
+    custom_settings = dict(LAYOUT_SETTINGS)
+    custom_settings["title_height_px"] = 56
+    for payload, output in (
+        (_schema6_payload(), default_output),
+        (_schema6_payload(custom_settings), custom_output),
+    ):
+        result = subprocess.run(
+            [
+                str(POWERSHELL),
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(RENDERER),
+                "-PayloadBase64Url",
+                _encoded(payload),
+                "-Copies",
+                "1",
+                "-PrinterName",
+                "DRY-RUN",
+                "-DryRunOutputPath",
+                str(output),
+            ],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr.decode(errors="replace")
+
+    assert _tspl_raster(custom_output) != _tspl_raster(default_output)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        ("missing_layout", b"Schema 6 label layout is missing or invalid"),
+        ("unknown_layout_field", b"Unknown schema 6 label layout field"),
+        ("missing_setting", b"Label layout setting is missing"),
+        ("unknown_setting", b"Unknown label layout setting"),
+        ("fractional_setting", b"must be an integer"),
+        ("out_of_range", b"outside the allowed range"),
+        ("hash_mismatch", b"hash does not match"),
+    ],
+)
+def test_schema_v6_rejects_untrusted_or_incomplete_layouts(
+    tmp_path: Path,
+    mutation: str,
+    expected_error: bytes,
+):
+    payload = _schema6_payload()
+    layout = payload["layout"]
+    assert isinstance(layout, dict)
+    settings = layout["settings"]
+    assert isinstance(settings, dict)
+    if mutation == "missing_layout":
+        payload.pop("layout")
+    elif mutation == "unknown_layout_field":
+        layout["renderer_command"] = "ignored-must-not-be-accepted"
+    elif mutation == "missing_setting":
+        settings.pop("title_font_px")
+    elif mutation == "unknown_setting":
+        settings["raw_tspl"] = 1
+    elif mutation == "fractional_setting":
+        settings["title_font_px"] = 27.5
+    elif mutation == "out_of_range":
+        settings["title_font_px"] = 200
+    elif mutation == "hash_mismatch":
+        layout["settings_sha256"] = "0" * 64
+    else:  # pragma: no cover - keeps the mutation table exhaustive
+        raise AssertionError(mutation)
+
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RENDERER),
+            "-PayloadBase64Url",
+            _encoded(payload),
+            "-Copies",
+            "1",
+            "-PrinterName",
+            "DRY-RUN",
+            "-DryRunOutputPath",
+            str(tmp_path / f"{mutation}-must-not-render.tspl"),
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+    assert not (tmp_path / f"{mutation}-must-not-render.tspl").exists()
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
@@ -660,7 +1016,13 @@ def test_renderer_source_contains_centered_greek_allergens_nutrition_and_approva
     assert "DrawEllipse" in renderer
     assert "BITMAP 0,0,50,560,0," in renderer
     assert "$output[$i] = 0xFF" in renderer
-    assert "-MaximumFontPixels 11 -MinimumFontPixels 8 -Alignment Center -NoWrap" in renderer
+    assert (
+        "-MaximumFontPixels $Layout.nutrition_cell_font_px "
+        "-MinimumFontPixels 8 -Alignment Center -NoWrap"
+    ) in renderer
+    assert "function Get-LabelLayoutSpecification" in renderer
+    assert "function Get-CanonicalSettingsSha256" in renderer
+    assert "function Save-MonochromePreviewPng" in renderer
     assert "-Alignment Near" not in renderer
     assert "$isUnpairedLastEntry" not in renderer
     assert "Add-FlowLabelText" not in renderer
@@ -694,8 +1056,8 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     services = (ROOT / "app" / "services.py").read_text(encoding="utf-8")
     assert 'request.url.hostname or ""' in services
     assert '== "sklavounoswh.up.railway.app"' in services
-    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15.zip" in services
-    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15-STAGING.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16-STAGING.zip" in services
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")

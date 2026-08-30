@@ -213,7 +213,7 @@ function Invoke-HprtRender {
         $category = 'HPRT_RENDER_FAILED'
         if ($rendererText -match 'does not fit|Nutrition declaration is too large') { $category = 'LABEL_CONTENT_TOO_LARGE' }
         elseif ($rendererText -match 'payload is too large') { $category = 'HPRT_PAYLOAD_TOO_LARGE' }
-        elseif ($rendererText -match 'payload is not valid JSON|Invalid dynamic label payload|field is invalid|Unsupported dynamic label schema|Wrong dynamic printer profile|Unsupported dynamic label profile|Approval number must contain') { $category = 'HPRT_PAYLOAD_INVALID' }
+        elseif ($rendererText -match 'payload is not valid JSON|Invalid dynamic label payload|field is invalid|Unsupported dynamic label schema|Wrong dynamic printer profile|Unsupported dynamic label profile|Approval number must contain|Schema 6 label layout|label layout setting|Unknown label layout setting') { $category = 'HPRT_PAYLOAD_INVALID' }
         elseif ($rendererText -match 'printer was not found|Configured HPRT printer was not found') { $category = 'HPRT_PRINTER_NOT_FOUND' }
         elseif ($rendererText -match 'print document could not start|print page could not start') { $category = 'HPRT_SPOOLER_FAILED' }
         elseif ($rendererText -match 'complete label payload') { $category = 'HPRT_WRITE_INCOMPLETE' }

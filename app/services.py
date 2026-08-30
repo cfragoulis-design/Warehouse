@@ -39,6 +39,10 @@ try:
         product_label_metadata,
         product_readiness,
     )
+    from app.label_layout import (
+        LabelLayoutUnavailableError,
+        active_layout_snapshot_for_print,
+    )
     from app.stock_domain import (
         get_missing_map,
         get_stock_for_product,
@@ -67,6 +71,10 @@ except ImportError:
         normalize_label_profile,
         product_label_metadata,
         product_readiness,
+    )
+    from label_layout import (
+        LabelLayoutUnavailableError,
+        active_layout_snapshot_for_print,
     )
     from stock_domain import (
         get_missing_map,
@@ -1118,14 +1126,14 @@ def labels_center(
     business = business_label_identity()
     production_host = (request.url.hostname or "").strip().casefold() == "sklavounoswh.up.railway.app"
     hprt_agent_download_url = (
-        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15.zip"
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16.zip"
         if production_host
-        else "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15-STAGING.zip"
+        else "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16-STAGING.zip"
     )
     hprt_agent_download_label = (
-        "↓ Λήψη HPRT Agent v1.0.15 · Production"
+        "↓ Λήψη HPRT Agent v1.0.16 · Production"
         if production_host
-        else "↓ Λήψη HPRT Agent v1.0.15 · Staging"
+        else "↓ Λήψη HPRT Agent v1.0.16 · Staging"
     )
     return templates.TemplateResponse(
         "labels_center.html",
@@ -1277,6 +1285,14 @@ def labels_create_batch(
             "label_profile": label_profile,
         })
 
+    try:
+        layout_snapshot = active_layout_snapshot_for_print(db)
+    except LabelLayoutUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="The active 50x70 label layout is unavailable.",
+        ) from exc
+
     pending_lots: list[tuple[ProductLot, Product, dict, bool]] = []
     validation_errors: list[dict] = []
     reserved_lot_codes: set[str] = set()
@@ -1343,7 +1359,12 @@ def labels_create_batch(
         )
         lot.batch_ref = batch_ref
         try:
-            render_payload = build_label_payload(product, lot, profile=label_profile)
+            render_payload = build_label_payload(
+                product,
+                lot,
+                profile=label_profile,
+                layout_snapshot=layout_snapshot,
+            )
         except LabelValidationError as exc:
             validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": str(exc)})
             continue
@@ -1385,7 +1406,12 @@ def labels_create_batch(
                 )
                 reserved_lot_codes.add(lot.lot_code)
                 try:
-                    render_payload = build_label_payload(product, lot, profile=label_profile)
+                    render_payload = build_label_payload(
+                        product,
+                        lot,
+                        profile=label_profile,
+                        layout_snapshot=layout_snapshot,
+                    )
                 except LabelValidationError as validation_exc:
                     raise HTTPException(status_code=422, detail=str(validation_exc)) from validation_exc
                 lot.label_payload_json = json.dumps(
@@ -1786,102 +1812,20 @@ def api_print_agent_labels(
 
 @router.post("/labels/quick-print")
 def labels_quick_print(
-    request: Request,
-    product_id: int = Form(...),
-    station: str = Form(...),
+    request: Request = None,
+    product_id: int = Form(0),
+    station: str = Form(""),
     quantity: str = Form("0"),
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    wants_json = (request.headers.get("x-requested-with", "").lower() == "fetch") or ("application/json" in (request.headers.get("accept", "").lower()))
-
-    def _json_error(message: str, status_code: int = 400):
-        if wants_json:
-            return JSONResponse({"ok": False, "error": message}, status_code=status_code)
-        if message == "label_product":
-            return RedirectResponse(url="/stock?err=label_product", status_code=303)
-        if message == "label_qty":
-            return RedirectResponse(url="/stock?err=label_qty", status_code=303)
-        if message == "label_shelf_life":
-            return RedirectResponse(url=f"/products/{product.id}/edit?err=label_shelf_life", status_code=303)
-        return RedirectResponse(url="/stock?err=label", status_code=303)
-
-    product = db.get(Product, product_id)
-    if not product:
-        return _json_error("Το προϊόν δεν βρέθηκε.", 404) if wants_json else RedirectResponse(url="/stock?err=label_product", status_code=303)
-
-    station_norm = _normalize_station(station)
-    if not _station_allowed_for_user(user, station_norm):
-        if wants_json:
-            return JSONResponse({"ok": False, "error": "Μη έγκυρος σταθμός για αυτόν τον χρήστη."}, status_code=403)
-        raise HTTPException(status_code=403, detail="Invalid station for this user")
-
-    qty_dec = parse_qty(quantity) or Decimal("0")
-    if qty_dec <= 0:
-        return JSONResponse({"ok": False, "error": "Δεν υπάρχει διαθέσιμη ποσότητα για εκτύπωση ετικέτας."}, status_code=400) if wants_json else RedirectResponse(url="/stock?err=label_qty", status_code=303)
-
-    if int(product.shelf_life_days or 0) <= 0:
-        return JSONResponse({"ok": False, "error": "Λείπει το shelf life του προϊόντος."}, status_code=400) if wants_json else RedirectResponse(url=f"/products/{product.id}/edit?err=label_shelf_life", status_code=303)
-
-    production_date = _today_athens()
-    expiry_date = production_date + timedelta(days=int(product.shelf_life_days or 0))
-    lot_code = _build_lot_code(product, station_norm, production_date, db)
-
-    lot = ProductLot(
-        product_id=product.id,
-        station=station_norm,
-        quantity_labels=float(qty_dec),
-        production_date=production_date,
-        expiry_date=expiry_date,
-        lot_code=lot_code,
-        status="CREATED",
-        created_by_user_id=user.id,
+    # This legacy path could create an Agent job without an immutable dynamic
+    # payload.  All current entry points use /admin/labels/create-batch, which
+    # validates and snapshots both regulated content and the active layout.
+    raise HTTPException(
+        status_code=410,
+        detail="Use the current Label Center or the Stock print action.",
     )
-    for attempt in range(3):
-        try:
-            with db.begin_nested():
-                db.add(lot)
-                db.flush()
-            break
-        except IntegrityError as exc:
-            if attempt == 2:
-                raise HTTPException(status_code=409, detail="Lot code collision; retry the request") from exc
-            lot.lot_code = _build_lot_code(product, station_norm, production_date, db)
-            lot_code = lot.lot_code
-
-    before = _print_audit_snapshot(lot)
-    try:
-        lot.status = _run_label_print_hook(product, lot)
-    except Exception:
-        lot.status = "QUEUED"
-
-    action = "print.job.printed" if lot.status == "PRINTED" else "print.job.queued"
-    _audit_print_transition(
-        db,
-        lot,
-        action=action,
-        before=before,
-        actor=user,
-        reason=(
-            "Quick print completed by local hook"
-            if lot.status == "PRINTED"
-            else "Quick print accepted for agent queue"
-        ),
-        correlation_id=correlation_id_for_request(request),
-    )
-
-    db.commit()
-
-    if wants_json:
-        return JSONResponse({
-            "ok": True,
-            "message": f"Το label στάλθηκε: {product.name}",
-            "product_id": product.id,
-            "lot_code": lot_code,
-            "status": lot.status,
-            "station": station_norm,
-        })
-    return RedirectResponse(url="/stock?ok=label", status_code=303)
 
 
 def _telegram_send(text: str) -> None:

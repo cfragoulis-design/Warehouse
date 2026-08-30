@@ -82,6 +82,7 @@
       <input id="sourceLotDefault" type="text" placeholder="Παρτίδα προμηθευτή (προαιρετικά)" />
       <button id="clearBatchBtn" class="ghost">Clear batch</button>
       <button id="printBatchBtn" class="primary">🖨 Queue Batch</button>
+      {% if user.role == 'admin' %}<a class="download" href="/admin/labels/designer">✎ Σχεδιαστής 50×70</a>{% endif %}
       <a class="download" href="{{ hprt_agent_download_url }}">{{ hprt_agent_download_label }}</a>
     </div>
 

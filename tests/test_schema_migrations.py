@@ -21,6 +21,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20260828_001",
         "20260829_001",
         "20260830_001",
+        "20260830_002",
     ]
     migration = catalog[0]
     assert migration.checksum == hashlib.sha256(
@@ -77,6 +78,20 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in plain_traceability_sql.upper()
     assert "TRUNCATE" not in plain_traceability_sql.upper()
     assert "DELETE FROM" not in plain_traceability_sql.upper()
+    label_layout = catalog[6]
+    label_layout_sql = label_layout.sql
+    assert "CREATE TABLE IF NOT EXISTS label_layout_versions" in label_layout_sql
+    assert "CREATE TABLE IF NOT EXISTS label_layout_active" in label_layout_sql
+    assert "trg_label_layout_versions_append_only" in label_layout_sql
+    assert "BEFORE UPDATE OR DELETE ON label_layout_versions" in label_layout_sql
+    assert "trg_product_lots_label_payload_immutable" in label_layout_sql
+    assert "BEFORE UPDATE OF label_payload_json ON product_lots" in label_layout_sql
+    assert "canonical HPRT 50x70 layout seed does not match" in label_layout_sql
+    assert "settings_sha256 ~ '^[0-9a-f]{64}$'" in label_layout_sql
+    assert "UPDATE product_lots" not in label_layout_sql
+    assert "DROP TABLE" not in label_layout_sql.upper()
+    assert "TRUNCATE" not in label_layout_sql.upper()
+    assert "DELETE FROM" not in label_layout_sql.upper()
     assert len(BASELINE_SCHEMA_FINGERPRINT) == 64
 
 

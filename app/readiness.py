@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass
 
 from sqlalchemy import Engine, inspect, text
@@ -59,7 +61,41 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
             "claim_expires_at",
         }
     ),
+    "label_layout_versions": frozenset(
+        {
+            "id",
+            "printer_profile",
+            "version",
+            "contract_version",
+            "settings_json",
+            "settings_sha256",
+            "created_by_user_id",
+            "change_reason",
+            "created_at",
+        }
+    ),
+    "label_layout_active": frozenset(
+        {
+            "printer_profile",
+            "active_version_id",
+            "lock_version",
+            "updated_by_user_id",
+            "updated_at",
+        }
+    ),
 }
+
+
+def _schema6_layout_enabled() -> bool:
+    raw = (os.getenv("WAREHOUSE_LABEL_LAYOUT_SCHEMA6_ENABLED") or "").strip()
+    if not raw:
+        return False
+    normalized = raw.casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError("invalid label-layout feature flag")
 
 
 @dataclass(frozen=True)
@@ -132,6 +168,56 @@ def _invariant_problem(bind: Engine) -> str | None:
         ).first()
         if invalid_plain_piece is not None:
             return "invalid-plain-piece-unit"
+
+        try:
+            _schema6_layout_enabled()
+        except ValueError:
+            return "invalid-label-layout-feature-flag"
+
+        active_layout = connection.execute(
+            text(
+                "SELECT v.id, v.contract_version, v.settings_json, "
+                "v.settings_sha256, a.lock_version "
+                "FROM label_layout_active AS a "
+                "JOIN label_layout_versions AS v ON v.id = a.active_version_id "
+                "WHERE a.printer_profile = 'HPRT_LPQ80_BITMAP_50X70' "
+                "AND v.printer_profile = a.printer_profile"
+            )
+        ).first()
+        if (
+            active_layout is None
+            or int(active_layout.id) <= 0
+            or int(active_layout.contract_version) != 1
+            or int(active_layout.lock_version) <= 0
+        ):
+            return "invalid-active-label-layout"
+        try:
+            from .label_layout import layout_settings_sha256, validate_layout_settings
+
+            settings = validate_layout_settings(json.loads(active_layout.settings_json))
+            if layout_settings_sha256(settings) != active_layout.settings_sha256:
+                return "invalid-active-label-layout"
+        except Exception:
+            return "invalid-active-label-layout"
+
+        # PostgreSQL immutability is part of the safety boundary, even while
+        # schema 6 is feature-gated off.  This also makes a create_all-only
+        # rollout fail readiness instead of exposing a half-installed designer.
+        if bind.dialect.name == "postgresql":
+            installed_triggers = connection.execute(
+                text(
+                    "SELECT COUNT(DISTINCT t.tgname) "
+                    "FROM pg_trigger AS t "
+                    "JOIN pg_class AS c ON c.oid = t.tgrelid "
+                    "WHERE NOT t.tgisinternal AND ("
+                    "(t.tgname = 'trg_label_layout_versions_append_only' "
+                    "AND c.relname = 'label_layout_versions') OR "
+                    "(t.tgname = 'trg_product_lots_label_payload_immutable' "
+                    "AND c.relname = 'product_lots'))"
+                )
+            ).scalar_one()
+            if int(installed_triggers or 0) != 2:
+                return "missing-label-layout-immutability-triggers"
 
         invalid_missing = connection.execute(
             text("SELECT 1 FROM stock_missing WHERE qty_missing < 0 LIMIT 1")

@@ -8,7 +8,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Location
+from app.label_layout import (
+    LAYOUT_CONTRACT_VERSION,
+    PRINTER_PROFILE,
+    canonical_layout_defaults,
+    canonical_layout_settings_json,
+    layout_settings_sha256,
+)
+from app.models import LabelLayoutActive, LabelLayoutVersion, Location
 from app.readiness import _REQUIRED_SCHEMA, ReadinessStatus, check_readiness
 
 
@@ -36,6 +43,28 @@ def _engine_with_required_schema_except(
     return engine
 
 
+def _seed_active_label_layout(connection) -> None:
+    settings = canonical_layout_defaults()
+    inserted = connection.execute(
+        LabelLayoutVersion.__table__.insert().values(
+            printer_profile=PRINTER_PROFILE,
+            version=1,
+            contract_version=LAYOUT_CONTRACT_VERSION,
+            settings_json=canonical_layout_settings_json(settings),
+            settings_sha256=layout_settings_sha256(settings),
+            change_reason="Canonical readiness layout",
+        )
+    )
+    version_id = inserted.inserted_primary_key[0]
+    connection.execute(
+        LabelLayoutActive.__table__.insert().values(
+            printer_profile=PRINTER_PROFILE,
+            active_version_id=version_id,
+            lock_version=1,
+        )
+    )
+
+
 def test_readiness_checks_database_schema_and_canonical_locations() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -52,6 +81,7 @@ def test_readiness_checks_database_schema_and_canonical_locations() -> None:
                 {"code": "WORKSHOP", "name": "Εργαστήριο"},
             ],
         )
+        _seed_active_label_layout(connection)
 
     status = check_readiness(engine)
     assert status.ready is True
@@ -72,6 +102,7 @@ def test_readiness_accepts_plain_traceability_for_all_discrete_units() -> None:
                 {"code": "WORKSHOP", "name": "Εργαστήριο"},
             ],
         )
+        _seed_active_label_layout(connection)
         for unit in ("pcs", "box", "tray"):
             connection.execute(
                 text(
@@ -100,6 +131,7 @@ def test_readiness_rejects_plain_traceability_for_kilograms() -> None:
                 {"code": "WORKSHOP", "name": "Εργαστήριο"},
             ],
         )
+        _seed_active_label_layout(connection)
         connection.execute(text("PRAGMA ignore_check_constraints = ON"))
         connection.execute(
             text(

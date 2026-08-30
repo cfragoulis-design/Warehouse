@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Σχεδιαστής ετικέτας 50×70</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+  <link rel="stylesheet" href="/static/label-designer.css" />
+  <script src="/static/js/datetime.js" defer></script>
+  <script id="label-designer-bootstrap" type="application/json">{{ {"products": product_samples} | tojson }}</script>
+  <script src="/static/label-designer.js" defer></script>
+</head>
+<body>
+  <header class="designer-header">
+    <div>
+      <p class="eyebrow">WAREHOUSE · ADMIN</p>
+      <h1>Σχεδιαστής ετικέτας 50×70</h1>
+      <p class="subtitle">Ρύθμιση γραμματοσειρών και διαθέσιμου χώρου με ασφαλή όρια, εκδόσεις και επαναφορά.</p>
+    </div>
+    <nav aria-label="Πλοήγηση σχεδιαστή">
+      <span id="app-datetime" class="app-datetime"></span>
+      <a href="/admin/labels">Κέντρο ετικετών</a>
+      <a href="/products">Προϊόντα</a>
+      <a href="/dashboard">Dashboard</a>
+    </nav>
+  </header>
+
+  <main class="designer-shell" aria-busy="true" id="designerShell">
+    <section class="designer-panel designer-controls" aria-labelledby="controlsTitle">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">ΡΥΘΜΙΣΕΙΣ</p>
+          <h2 id="controlsTitle">Τυπογραφία και ύψη</h2>
+        </div>
+        <button id="restoreWorkingBtn" class="button button-quiet" type="button" disabled>Ενεργή έκδοση</button>
+      </div>
+
+      <label class="field-label" for="sampleSelect">Δείγμα προεπισκόπησης</label>
+      <select id="sampleSelect" class="select-control">
+        <option value="worst_case">Δοκιμή μεγάλου περιεχομένου</option>
+        {% for sample in product_samples %}
+          <option value="product:{{ sample.id }}">{{ sample.name }}{% if sample.sku %} · {{ sample.sku }}{% endif %}</option>
+        {% endfor %}
+      </select>
+
+      <div id="runtimeBanner" class="runtime-banner" role="status" hidden></div>
+
+      <div class="fit-card" id="fitCard" data-fit="unknown" role="status" aria-live="polite">
+        <span class="fit-dot" aria-hidden="true"></span>
+        <div><strong id="fitTitle">Υπολογισμός εφαρμογής…</strong><span id="fitDetail">Η προεπισκόπηση φορτώνεται.</span></div>
+      </div>
+
+      <div id="controlGroups" class="control-groups"></div>
+
+      <div class="mutation-box">
+        <label class="field-label" for="changeReason">Αιτιολογία αλλαγής <span aria-hidden="true">*</span></label>
+        <textarea id="changeReason" rows="3" maxlength="255" placeholder="π.χ. Μεγαλύτερο LOT για ευκολότερη ανάγνωση"></textarea>
+        <p class="field-help">Απαιτείται για αποθήκευση, ενεργοποίηση και επαναφορά. Καταγράφεται στο ιστορικό.</p>
+        <div class="action-grid">
+          <button id="saveDraftBtn" class="button button-primary" type="button" disabled>Αποθήκευση νέας έκδοσης</button>
+          <button id="activateBtn" class="button button-success" type="button" disabled>Ενεργοποίηση επιλεγμένης</button>
+          <button id="resetBtn" class="button button-danger" type="button" disabled>Επαναφορά προεπιλογών</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="designer-panel preview-panel" aria-labelledby="previewTitle">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">LIVE PREVIEW</p>
+          <h2 id="previewTitle">400 × 560 pixels</h2>
+        </div>
+        <span id="dirtyBadge" class="badge badge-muted">Χωρίς αλλαγές</span>
+      </div>
+      <div class="preview-stage">
+        <canvas id="labelPreview" width="400" height="560" aria-label="Προεπισκόπηση ετικέτας 50 επί 70 χιλιοστά"></canvas>
+      </div>
+      <p class="preview-note">Η οθόνη προσομοιώνει τις ίδιες περιοχές και τα ίδια όρια. Ο HPRT Agent εκτελεί τον τελικό μονόχρωμο έλεγχο πριν από την εκτύπωση.</p>
+    </section>
+
+    <section class="designer-panel history-panel" aria-labelledby="historyTitle">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">ΙΣΤΟΡΙΚΟ</p>
+          <h2 id="historyTitle">Εκδόσεις διάταξης</h2>
+        </div>
+        <button id="refreshBtn" class="button button-quiet" type="button">Ανανέωση</button>
+      </div>
+      <p class="history-help">Επίλεξε μια έκδοση για προεπισκόπηση. Η ενεργοποίηση δεν αλλάζει παλιές εργασίες εκτύπωσης.</p>
+      <div id="versionList" class="version-list" role="radiogroup" aria-label="Εκδόσεις διάταξης"></div>
+      <div id="emptyVersions" class="empty-state" hidden>Δεν υπάρχουν ακόμη αποθηκευμένες εκδόσεις.</div>
+    </section>
+  </main>
+
+  <div id="designerToast" class="designer-toast" role="status" aria-live="polite"></div>
+
+  <footer class="creator-credit">
+    <a href="https://rawlogic.gr" target="_blank" rel="noopener" aria-label="RAW LOGIC. REAL SYSTEMS. — Created by Christos Fragoulis">
+      <span>RAW LOGIC. REAL SYSTEMS.</span>
+      <strong>Created by Christos Fragoulis</strong>
+    </a>
+  </footer>
+</body>
+</html>
