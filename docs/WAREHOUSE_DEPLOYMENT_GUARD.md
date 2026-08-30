@@ -1,33 +1,46 @@
-# Warehouse deployment guard
+# Warehouse Production deployment guard
 
-This checkpoint prevents a future configuration error from replacing a healthy
-Warehouse deployment. It is based on the unchanged Warehouse runtime at commit
-`57ef870448aad728817606377456e609986ce4e2` and does not change production.
+This guard is part of the EFET plain-piece-label release descended from
+`5fe9d1e76693e156b22a9ace7c5b874582f91d1c`. It does not deploy or change
+Production by itself. The schema catalog remains pinned through
+`20260829_001`.
 
-## Fail-closed sequence
+## Immutable Production boundary
 
-1. Railway builds the candidate image.
-2. `python scripts/verify_runtime_predeploy.py` validates configuration without
-   connecting to PostgreSQL, reading business data or invoking a provider.
-3. A non-zero result stops the deployment before the candidate can serve traffic.
-4. Railway starts the candidate only after the pre-deploy check passes.
-5. Railway requests `/health` for up to 120 seconds and retains the previous
-   deployment until the candidate is healthy.
+Production migrations are accepted only for this exact target:
 
-The pre-deploy check validates:
+- Railway project: `4cd318f3-41f9-43c5-8664-44ff7e581a6a`
+- Railway environment: `99388a85-6dd8-4658-9841-8c41232aef49`
+- Warehouse web service: `3e4da5fe-12f5-4c38-8274-efe6c241c7a9`
+- PostgreSQL service: `7a31254a-67e9-48ee-8cd4-77c64e087ad5`
+- PostgreSQL private host: `postgres-4p5a.railway.internal`
+- PostgreSQL database: `railway`
 
-- a non-empty `DATABASE_URL` and PostgreSQL backend in a managed environment;
-- a strong non-placeholder session secret for the normal Warehouse web runtime;
-- source-mode mutation and scheduler boundaries;
-- explicit Operations read switches and a minimum-length read token;
-- the dependency between detailed inventory reads and the base read API.
+The pre-deploy command is `python -B scripts/warehouse_predeploy.py`; Railway
+then probes `/ready` for up to 120 seconds. Migrations remain disabled unless
+explicitly enabled. With the flag off, the guard does not resolve a target or
+contact PostgreSQL.
 
-Output is limited to booleans and the database backend name. It never prints a
-secret, token, database URL, hostname, credential or business value.
+## Candidate attestation
 
-## Release boundary
+`WAREHOUSE_CANDIDATE_COMMIT` and
+`WAREHOUSE_APPROVED_CANDIDATE_COMMIT` must be the same full lowercase SHA.
+Git-backed Railway builds must also provide an identical
+`RAILWAY_GIT_COMMIT_SHA`.
 
-This is local implementation only. A staging deployment must prove both the
-successful path and a deliberately invalid configuration that stops before
-traffic cutover. Any production merge or deployment remains a separate explicit
-approval with an exact rollback commit.
+For an exact CLI artifact, `RAILWAY_GIT_COMMIT_SHA` must be absent. Build the
+artifact from a fresh `git archive` of the approved commit, then run inside the
+extracted tree:
+
+```text
+python -B scripts/generate_warehouse_release_manifest.py --root . --candidate-commit <full-sha>
+```
+
+Approve the reported `tree_sha256` as `WAREHOUSE_APPROVED_TREE_SHA256` and the
+reported `manifest_sha256` as
+`WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256`. The verifier rejects a missing or
+non-canonical manifest, any wrong approval hash, every missing/extra file,
+modified bytes, unsafe path, duplicate path, or symlink.
+
+No target variable or candidate label can independently authorize a Production
+migration. A Production rollout and rollback remain separately approved actions.

@@ -162,7 +162,7 @@ def test_railway_config_keeps_previous_release_until_healthcheck() -> None:
 
     assert payload["$schema"] == "https://railway.com/railway.schema.json"
     assert payload["deploy"] == {
-        "preDeployCommand": "python scripts/warehouse_predeploy.py",
+        "preDeployCommand": "python -B scripts/warehouse_predeploy.py",
         "healthcheckPath": "/ready",
         "healthcheckTimeout": 120,
     }
