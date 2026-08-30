@@ -3,7 +3,7 @@
 This guard is part of the EFET plain-piece-label release descended from
 `5fe9d1e76693e156b22a9ace7c5b874582f91d1c`. It does not deploy or change
 Production by itself. The schema catalog remains pinned through
-`20260829_001`.
+`20260830_001`.
 
 ## Immutable Production boundary
 

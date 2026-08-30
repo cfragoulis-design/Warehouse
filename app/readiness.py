@@ -126,7 +126,7 @@ def _invariant_problem(bind: Engine) -> str | None:
             text(
                 "SELECT 1 FROM products "
                 "WHERE label_plain_piece = TRUE "
-                "AND (unit IS NULL OR lower(trim(unit)) <> 'pcs') "
+                "AND (unit IS NULL OR lower(trim(unit)) NOT IN ('pcs', 'box', 'tray')) "
                 "LIMIT 1"
             )
         ).first()

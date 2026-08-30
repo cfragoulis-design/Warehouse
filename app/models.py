@@ -155,7 +155,7 @@ class Product(Base):
             name="ck_products_approval_profile",
         ),
         CheckConstraint(
-            "NOT label_plain_piece OR lower(trim(unit)) = 'pcs'",
+            "NOT label_plain_piece OR lower(trim(unit)) IN ('pcs', 'box', 'tray')",
             name="ck_products_label_plain_piece_unit",
         ),
     )
@@ -164,7 +164,7 @@ class Product(Base):
     sku: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    unit: Mapped[str] = mapped_column(String(8), nullable=False, default="pcs")  # pcs / kg / box
+    unit: Mapped[str] = mapped_column(String(8), nullable=False, default="pcs")  # pcs / kg / box / tray
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Minimum total stock (CENTRAL + WORKSHOP). If >0 and total falls below it, UI shows LOW.
     min_stock: Mapped[Decimal] = mapped_column(

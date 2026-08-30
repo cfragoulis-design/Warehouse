@@ -15,6 +15,7 @@ from .approval_profiles import (
 INTERNAL_PROFILE = "INTERNAL"
 DISTRIBUTION_PROFILE = "DISTRIBUTION"
 VALID_LABEL_PROFILES = frozenset({INTERNAL_PROFILE, DISTRIBUTION_PROFILE})
+PLAIN_TRACEABILITY_UNITS = frozenset({"pcs", "box", "tray"})
 
 
 class LabelValidationError(ValueError):
@@ -84,8 +85,12 @@ def product_readiness(product, profile: str) -> tuple[str, ...]:
         missing.append("συνθήκες συντήρησης")
 
     plain_piece = bool(getattr(product, "label_plain_piece", False))
-    if plain_piece and str(getattr(product, "unit", "") or "").strip().casefold() != "pcs":
-        missing.append("μονάδα «Τεμάχια» για απλό τεμαχιακό προϊόν")
+    unit = str(getattr(product, "unit", "") or "").strip().casefold()
+    if plain_piece and unit not in PLAIN_TRACEABILITY_UNITS:
+        missing.append(
+            "μονάδα «Τεμάχια», «Κιβώτια» ή «Δίσκος» "
+            "για απλό προϊόν εσωτερικής ιχνηλασιμότητας"
+        )
     if not plain_piece:
         single_ingredient = bool(getattr(product, "label_single_ingredient", False))
         if not single_ingredient and not _clean(getattr(product, "label_ingredients", None)):
@@ -110,7 +115,7 @@ def product_readiness(product, profile: str) -> tuple[str, ...]:
 
 
 def product_label_metadata(product) -> dict[str, object]:
-    plain_piece = bool(getattr(product, "label_plain_piece", False))
+    plain_traceability = bool(getattr(product, "label_plain_piece", False))
     return {
         "display_name": _clean(getattr(product, "name", None)),
         "legal_name": _clean(getattr(product, "label_legal_name", None) or getattr(product, "name", None)),
@@ -120,7 +125,9 @@ def product_label_metadata(product) -> dict[str, object]:
         "usage_instructions": _clean(getattr(product, "label_usage_instructions", None)),
         "nutrition": _clean(getattr(product, "label_nutrition", None)),
         "single_ingredient": bool(getattr(product, "label_single_ingredient", False)),
-        "plain_piece": plain_piece,
+        # The database column keeps its legacy name for a small, reversible
+        # migration. New print jobs use the schema-5 wire name below.
+        "plain_traceability": plain_traceability,
         "nutrition_exempt": bool(getattr(product, "label_nutrition_exempt", False)),
     }
 
@@ -137,7 +144,7 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
     if origin_override:
         metadata["origin"] = origin_override
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "profile": profile,
         "approval_profile": business.approval_profile,
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",

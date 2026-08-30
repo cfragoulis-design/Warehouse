@@ -174,17 +174,20 @@ def test_product_create_rejects_unknown_approval_profile(db: Session) -> None:
     assert db.query(AuditEvent).count() == 0
 
 
-def test_plain_piece_classification_is_persisted_and_audited_for_pcs(db: Session) -> None:
-    admin = _user(db, "plain-piece-admin")
+@pytest.mark.parametrize("unit", ["pcs", "box", "tray"])
+def test_plain_traceability_classification_is_persisted_for_discrete_units(
+    db: Session, unit: str
+) -> None:
+    admin = _user(db, f"plain-traceability-{unit}")
 
     response = catalog_service.product_create(
         _request("/products/new"),
         user=admin,
         db=db,
         name="Κοπανάκι κοτόπουλο",
-        sku="CH-PIECE-1",
+        sku=f"CH-TRACE-{unit}",
         category="Πουλερικά",
-        unit="pcs",
+        unit=unit,
         min_stock="0",
         only_in_freezer=None,
         is_production_item=None,
@@ -196,25 +199,25 @@ def test_plain_piece_classification_is_persisted_and_audited_for_pcs(db: Session
     )
 
     assert response.status_code == 303
-    product = db.query(Product).filter(Product.sku == "CH-PIECE-1").one()
+    product = db.query(Product).filter(Product.sku == f"CH-TRACE-{unit}").one()
+    assert product.unit == unit
     assert product.label_plain_piece is True
     event = db.query(AuditEvent).one()
     assert json.loads(event.after_json)["label_plain_piece"] is True
 
 
-@pytest.mark.parametrize("unit", ["kg", "box", "tray"])
-def test_plain_piece_classification_rejects_non_piece_units(db: Session, unit: str) -> None:
-    admin = _user(db, f"plain-piece-{unit}")
+def test_plain_traceability_classification_rejects_kilograms(db: Session) -> None:
+    admin = _user(db, "plain-traceability-kg")
 
     with pytest.raises(HTTPException) as invalid:
         catalog_service.product_create(
             _request("/products/new"),
             user=admin,
             db=db,
-            name=f"Invalid {unit}",
-            sku=f"INVALID-{unit}",
+            name="Invalid kg",
+            sku="INVALID-kg",
             category=None,
-            unit=unit,
+            unit="kg",
             min_stock="0",
             only_in_freezer=None,
             is_production_item=None,
@@ -230,7 +233,7 @@ def test_plain_piece_classification_rejects_non_piece_units(db: Session, unit: s
     assert db.query(AuditEvent).count() == 0
 
 
-def test_plain_piece_update_normalizes_unit_and_fails_before_mutation(db: Session) -> None:
+def test_plain_traceability_update_normalizes_unit_and_fails_before_mutation(db: Session) -> None:
     admin = _user(db, "plain-piece-update-admin")
     product = Product(name="Κοπανάκι", sku="PIECE-UP", unit="pcs")
     db.add(product)
@@ -244,7 +247,7 @@ def test_plain_piece_update_normalizes_unit_and_fails_before_mutation(db: Sessio
         name=product.name,
         sku=product.sku,
         category=None,
-        unit=" PCS ",
+        unit=" TRAY ",
         min_stock="0",
         only_in_freezer=None,
         is_production_item=None,
@@ -265,7 +268,7 @@ def test_plain_piece_update_normalizes_unit_and_fails_before_mutation(db: Sessio
 
     assert response.status_code == 303
     db.refresh(product)
-    assert product.unit == "pcs"
+    assert product.unit == "tray"
     assert product.label_plain_piece is True
     first_event = db.query(AuditEvent).one()
     assert json.loads(first_event.before_json)["label_plain_piece"] is False
@@ -301,6 +304,6 @@ def test_plain_piece_update_normalizes_unit_and_fails_before_mutation(db: Sessio
 
     assert invalid.value.status_code == 422
     db.refresh(product)
-    assert product.unit == "pcs"
+    assert product.unit == "tray"
     assert product.label_plain_piece is True
     assert db.query(AuditEvent).count() == 1

@@ -25,8 +25,8 @@ STOCK_PAGE = ROOT / "app" / "templates" / "stock.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.14-STAGING.zip"
-PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.14.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15-STAGING.zip"
+PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15.zip"
 STAGING_RELEASE_MANIFEST = ROOT / "app" / "static" / "downloads" / "HPRT-AGENT-RELEASE-MANIFEST.json"
 PRODUCTION_RELEASE_MANIFEST = (
     ROOT / "app" / "static" / "downloads" / "HPRT-AGENT-PRODUCTION-RELEASE-MANIFEST.json"
@@ -35,7 +35,7 @@ PRODUCTION_RELEASE_MANIFEST = (
 
 def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "profile": profile,
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
         "product": {
@@ -50,7 +50,7 @@ def _payload(profile: str = "DISTRIBUTION") -> dict[str, object]:
             "usage_instructions": "Πλήρης θερμική επεξεργασία",
             "nutrition": "Ανά 100 g: ενέργεια 873,23 kJ / 210 kcal, λιπαρά 14 g, κορεσμένα 6 g, υδατάνθρακες 3 g, σάκχαρα 1,5 g, πρωτεΐνες 18 g, αλάτι 1,5 g",
             "single_ingredient": False,
-            "plain_piece": False,
+            "plain_traceability": False,
             "nutrition_exempt": False,
         },
         "traceability": {
@@ -114,9 +114,9 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert "https://sklavounoswh.up.railway.app" in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     assert "staging-characterization" not in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     production_manifest = json.loads(PRODUCTION_PACKAGE_MANIFEST.read_text(encoding="utf-8-sig"))
-    assert production_manifest["version"] == "1.0.14"
+    assert production_manifest["version"] == "1.0.15"
     assert production_manifest["environment"] == "production"
-    assert production_manifest["label_payload_schemas"] == [3, 4]
+    assert production_manifest["label_payload_schemas"] == [3, 4, 5]
     assert production_manifest["contains_agent_token"] is False
 
 
@@ -201,9 +201,9 @@ def test_staging_download_is_exact_secret_free_package():
         assert "warehouse-full-ui-staging-characterization.up.railway.app" in setup
         assert "https://sklavounoswh.up.railway.app" not in setup
         manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
-        assert manifest["version"] == "1.0.14-staging"
+        assert manifest["version"] == "1.0.15-staging"
         assert manifest["environment"] == "staging"
-        assert manifest["label_payload_schemas"] == [3, 4]
+        assert manifest["label_payload_schemas"] == [3, 4, 5]
         assert manifest["contains_agent_token"] is False
         archived_renderer = archive.read("HprtLpq80Print.ps1").decode("utf-8-sig")
         source_renderer = RENDERER.read_text(encoding="utf-8-sig")
@@ -211,7 +211,7 @@ def test_staging_download_is_exact_secret_free_package():
     release_manifest = json.loads(STAGING_RELEASE_MANIFEST.read_text(encoding="utf-8"))
     assert release_manifest == {
         "product": "Sklavounos Warehouse HPRT Agent",
-        "version": "1.0.14-staging",
+        "version": "1.0.15-staging",
         "creator": "Christos Fragoulis",
         "source_commit": "de940185a39ea3be25f16bbf400e5cfd3189b8e3",
         "package": STAGING_DOWNLOAD.name,
@@ -244,15 +244,15 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
         manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
         assert manifest["environment"] == "production"
         assert manifest["contains_agent_token"] is False
-        assert manifest["version"] == "1.0.14"
-        assert manifest["label_payload_schemas"] == [3, 4]
+        assert manifest["version"] == "1.0.15"
+        assert manifest["label_payload_schemas"] == [3, 4, 5]
         archived_renderer = archive.read("HprtLpq80Print.ps1").decode("utf-8-sig")
         source_renderer = RENDERER.read_text(encoding="utf-8-sig")
         assert archived_renderer.replace("\r\n", "\n") == source_renderer.replace("\r\n", "\n")
     release_manifest = json.loads(PRODUCTION_RELEASE_MANIFEST.read_text(encoding="utf-8"))
     assert release_manifest == {
         "product": "Sklavounos Warehouse HPRT Agent",
-        "version": "1.0.14",
+        "version": "1.0.15",
         "creator": "Christos Fragoulis",
         "source_commit": "5fe9d1e76693e156b22a9ace7c5b874582f91d1c",
         "package": PRODUCTION_DOWNLOAD.name,
@@ -353,9 +353,12 @@ def test_renderer_builds_unified_greek_bitmap_label_and_chain_copies(tmp_path: P
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
-def test_renderer_builds_plain_piece_label_without_composition_blocks(tmp_path: Path):
-    output = tmp_path / "plain-piece.tspl"
-    preview = tmp_path / "plain-piece.png"
+@pytest.mark.parametrize("unit", ["pcs", "box", "tray"])
+def test_renderer_builds_schema_v5_plain_traceability_for_discrete_units(
+    tmp_path: Path, unit: str
+):
+    output = tmp_path / f"plain-traceability-{unit}.tspl"
+    preview = tmp_path / f"plain-traceability-{unit}.png"
     payload = _payload()
     product = payload["product"]
     assert isinstance(product, dict)
@@ -363,10 +366,10 @@ def test_renderer_builds_plain_piece_label_without_composition_blocks(tmp_path: 
         {
             "display_name": "Κοπανάκι κοτόπουλο",
             "legal_name": "Νωπό κοτόπουλο",
-            "unit": "pcs",
+            "unit": unit,
             "ingredients": "",
             "allergens": "",
-            "plain_piece": True,
+            "plain_traceability": True,
         }
     )
     result = subprocess.run(
@@ -401,8 +404,10 @@ def test_renderer_builds_plain_piece_label_without_composition_blocks(tmp_path: 
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
-def test_renderer_accepts_plain_piece_with_documented_nutrition_exemption(tmp_path: Path):
-    output = tmp_path / "plain-piece-exempt.tspl"
+def test_renderer_accepts_plain_traceability_with_documented_nutrition_exemption(
+    tmp_path: Path,
+):
+    output = tmp_path / "plain-traceability-exempt.tspl"
     payload = _payload()
     product = payload["product"]
     assert isinstance(product, dict)
@@ -412,7 +417,7 @@ def test_renderer_accepts_plain_piece_with_documented_nutrition_exemption(tmp_pa
             "ingredients": "",
             "allergens": "",
             "nutrition": "",
-            "plain_piece": True,
+            "plain_traceability": True,
             "nutrition_exempt": True,
         }
     )
@@ -446,6 +451,119 @@ def test_renderer_accepts_plain_piece_with_documented_nutrition_exemption(tmp_pa
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+def test_renderer_keeps_schema_v4_plain_piece_contract_pcs_only(tmp_path: Path):
+    allowed_output = tmp_path / "schema-v4-pcs.tspl"
+    allowed = _payload()
+    allowed["schema_version"] = 4
+    allowed_product = allowed["product"]
+    assert isinstance(allowed_product, dict)
+    allowed_product.pop("plain_traceability")
+    allowed_product.update(
+        {"unit": "pcs", "ingredients": "", "allergens": "", "plain_piece": True}
+    )
+
+    allowed_result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RENDERER),
+            "-PayloadBase64Url",
+            _encoded(allowed),
+            "-Copies",
+            "1",
+            "-PrinterName",
+            "DRY-RUN",
+            "-DryRunOutputPath",
+            str(allowed_output),
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert allowed_result.returncode == 0, allowed_result.stderr.decode(errors="replace")
+
+    rejected = json.loads(json.dumps(allowed, ensure_ascii=False))
+    rejected["product"]["unit"] = "box"
+    rejected_result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RENDERER),
+            "-PayloadBase64Url",
+            _encoded(rejected),
+            "-Copies",
+            "1",
+            "-PrinterName",
+            "DRY-RUN",
+            "-DryRunOutputPath",
+            str(tmp_path / "schema-v4-box-must-not-print.tspl"),
+        ],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert rejected_result.returncode != 0
+    assert b"Schema 4 plain piece labels require unit pcs." in rejected_result.stderr
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
+def test_renderer_rejects_schema_v5_plain_traceability_for_kilograms(tmp_path: Path):
+    payload = _payload()
+    product = payload["product"]
+    assert isinstance(product, dict)
+    product.update(
+        {
+            "unit": "kg",
+            "ingredients": "",
+            "allergens": "",
+            "plain_traceability": True,
+        }
+    )
+
+    stderr_path = tmp_path / "schema-v5-kg.stderr"
+    with stderr_path.open("wb") as stderr:
+        result = subprocess.run(
+            [
+                str(POWERSHELL),
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(RENDERER),
+                "-PayloadBase64Url",
+                _encoded(payload),
+                "-Copies",
+                "1",
+                "-PrinterName",
+                "DRY-RUN",
+                "-DryRunOutputPath",
+                str(tmp_path / "schema-v5-kg-must-not-print.tspl"),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=stderr,
+            timeout=30,
+            check=False,
+        )
+
+    assert result.returncode != 0
+    assert b"Plain traceability labels require unit pcs, box, or tray." in stderr_path.read_bytes()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")
 def test_renderer_remains_compatible_with_queued_schema_v3_labels(tmp_path: Path):
     output = tmp_path / "schema-v3.tspl"
     payload = _payload()
@@ -453,7 +571,7 @@ def test_renderer_remains_compatible_with_queued_schema_v3_labels(tmp_path: Path
     product = payload["product"]
     assert isinstance(product, dict)
     product.pop("unit")
-    product.pop("plain_piece")
+    product.pop("plain_traceability")
 
     result = subprocess.run(
         [
@@ -491,7 +609,7 @@ def test_schema_v3_single_ingredient_keeps_legacy_ingredient_omission(tmp_path: 
     product = payload["product"]
     assert isinstance(product, dict)
     product.pop("unit")
-    product.pop("plain_piece")
+    product.pop("plain_traceability")
     product["single_ingredient"] = True
     product["ingredients"] = "X" * 3500
 
@@ -528,8 +646,10 @@ def test_renderer_source_contains_centered_greek_allergens_nutrition_and_approva
     assert "SingleBitPerPixelGridFit" in renderer
     assert "ΑΛΛΕΡΓΙΟΓΟΝΑ:" in renderer
     assert "if ($allergenText)" in renderer
-    assert "if ($ingredientText -and (-not $singleIngredient -or $plainPiece))" in renderer
-    assert "Plain piece labels require unit pcs." in renderer
+    assert "$Payload.product.plain_piece" in renderer
+    assert "$Payload.product.plain_traceability" in renderer
+    assert "Schema 4 plain piece labels require unit pcs." in renderer
+    assert "Plain traceability labels require unit pcs, box, or tray." in renderer
     assert "ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ ΑΝΑ 100 g" in renderer
     assert "DrawEllipse" in renderer
     assert "BITMAP 0,0,50,560,0," in renderer
@@ -559,14 +679,17 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     assert "Extra code" not in html
     product_form = (ROOT / "app" / "templates" / "product_form.html").read_text(encoding="utf-8")
     assert 'name="label_plain_piece"' in product_form
-    assert "Απλό τεμαχιακό προϊόν" in product_form
+    assert "Απλό προϊόν εσωτερικής ιχνηλασιμότητας" in product_form
+    for unit in ("kg", "pcs", "box", "tray"):
+        assert f'<option value="{unit}"' in product_form
+    assert 'const allowedUnits = ["pcs", "box", "tray"]' in product_form
     assert 'href="{{ hprt_agent_download_url }}"' in html
     assert "{{ hprt_agent_download_label }}" in html
     services = (ROOT / "app" / "services.py").read_text(encoding="utf-8")
     assert 'request.url.hostname or ""' in services
     assert '== "sklavounoswh.up.railway.app"' in services
-    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.14.zip" in services
-    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.14-STAGING.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15-STAGING.zip" in services
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")

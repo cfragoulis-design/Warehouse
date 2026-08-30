@@ -61,7 +61,35 @@ def test_readiness_checks_database_schema_and_canonical_locations() -> None:
     }
 
 
-def test_readiness_rejects_plain_piece_classification_outside_pieces() -> None:
+def test_readiness_accepts_plain_traceability_for_all_discrete_units() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            Location.__table__.insert(),
+            [
+                {"code": "CENTRAL", "name": "Κεντρικό"},
+                {"code": "WORKSHOP", "name": "Εργαστήριο"},
+            ],
+        )
+        for unit in ("pcs", "box", "tray"):
+            connection.execute(
+                text(
+                    "INSERT INTO products "
+                    "(name, unit, is_active, min_stock, target_central, only_in_freezer, "
+                    "is_production_item, shelf_life_days, label_single_ingredient, "
+                    "label_plain_piece, label_nutrition_exempt, approval_profile) "
+                    "VALUES (:name, :unit, 1, 0, 0, 0, 0, 0, 0, 1, 0, 'POULTRY')"
+                ),
+                {"name": f"Valid {unit}", "unit": unit},
+            )
+
+    status = check_readiness(engine)
+
+    assert status.ready is True
+
+
+def test_readiness_rejects_plain_traceability_for_kilograms() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
@@ -79,7 +107,7 @@ def test_readiness_rejects_plain_piece_classification_outside_pieces() -> None:
                 "(name, unit, is_active, min_stock, target_central, only_in_freezer, "
                 "is_production_item, shelf_life_days, label_single_ingredient, "
                 "label_plain_piece, label_nutrition_exempt, approval_profile) "
-                "VALUES ('Invalid plain piece', 'kg', 1, 0, 0, 0, 0, 0, 0, 1, 0, 'POULTRY')"
+                "VALUES ('Invalid plain traceability', 'kg', 1, 0, 0, 0, 0, 0, 0, 1, 0, 'POULTRY')"
             )
         )
 

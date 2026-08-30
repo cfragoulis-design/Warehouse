@@ -110,12 +110,12 @@ def test_batch_validation_is_atomic_and_request_id_prevents_duplicates(db: Sessi
     assert db.scalar(select(func.count(ProductLot.id))) == 1
 
 
-def test_plain_piece_mode_is_server_owned_and_snapshotted_in_queue(db: Session) -> None:
-    user = User(username="plain-piece-print-admin", role="admin", pin_hash="not-used")
+def test_plain_traceability_mode_is_server_owned_and_snapshotted_in_queue(db: Session) -> None:
+    user = User(username="plain-trace-print-admin", role="admin", pin_hash="not-used")
     allowed = Product(
         sku="PIECE-QUEUE-1",
         name="Κοπανάκι κοτόπουλο",
-        unit="pcs",
+        unit="box",
         is_active=True,
         only_in_freezer=False,
         shelf_life_days=4,
@@ -156,16 +156,17 @@ def test_plain_piece_mode_is_server_owned_and_snapshotted_in_queue(db: Session) 
     )
     queued = db.get(ProductLot, created["items"][0]["id"])
     snapshot = json.loads(queued.label_payload_json)
-    assert snapshot["schema_version"] == 4
-    assert snapshot["product"]["plain_piece"] is True
-    assert snapshot["product"]["unit"] == "pcs"
+    assert snapshot["schema_version"] == 5
+    assert snapshot["product"]["plain_traceability"] is True
+    assert "plain_piece" not in snapshot["product"]
+    assert snapshot["product"]["unit"] == "box"
     assert snapshot["product"]["ingredients"] == ""
     assert snapshot["product"]["allergens"] == ""
     assert snapshot["product"]["origin"] == "Ελλάδα"
     assert snapshot["traceability"]["internal_lot"] == queued.lot_code
 
     spoofed = _create_payload(blocked.id, "plain-piece-spoof")
-    spoofed["items"][0]["plain_piece"] = True
+    spoofed["items"][0]["plain_traceability"] = True
     with pytest.raises(HTTPException) as rejected:
         services.labels_create_batch(RequestStub(payload=spoofed), user=user, db=db)
 

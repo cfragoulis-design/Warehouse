@@ -169,7 +169,10 @@ def init_db() -> None:
                         ) THEN
                             ALTER TABLE products
                                 ADD CONSTRAINT ck_products_label_plain_piece_unit
-                                CHECK (NOT label_plain_piece OR lower(trim(unit)) = 'pcs')
+                                CHECK (
+                                    NOT label_plain_piece
+                                    OR lower(trim(unit)) IN ('pcs', 'box', 'tray')
+                                )
                                 NOT VALID;
                         END IF;
                     END

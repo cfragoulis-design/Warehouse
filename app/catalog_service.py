@@ -28,6 +28,7 @@ except ImportError:
 
 router = APIRouter()
 templates = WarehouseJinja2Templates(directory="app/templates")
+_PLAIN_TRACEABILITY_UNITS = frozenset({"pcs", "box", "tray"})
 
 
 def _optional_label_text(value: object) -> str | None:
@@ -47,10 +48,13 @@ def _normalized_unit(value: object) -> str:
 
 def _validated_plain_piece_flag(*, unit: str, value: object) -> bool:
     enabled = _optional_label_flag(value)
-    if enabled and unit != "pcs":
+    if enabled and unit not in _PLAIN_TRACEABILITY_UNITS:
         raise HTTPException(
             status_code=422,
-            detail="Η επιλογή απλού τεμαχιακού προϊόντος επιτρέπεται μόνο με μονάδα Τεμάχια.",
+            detail=(
+                "Η επιλογή απλού προϊόντος εσωτερικής ιχνηλασιμότητας "
+                "επιτρέπεται μόνο με μονάδα Τεμάχια, Κιβώτια ή Δίσκος."
+            ),
         )
     return enabled
 

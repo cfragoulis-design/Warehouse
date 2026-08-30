@@ -156,22 +156,35 @@ function Convert-BitmapToMonochromeBytes {
 function New-UnifiedLabelBitmap {
     param([Parameter(Mandatory)][object]$Payload)
     $schemaVersion = [int]$Payload.schema_version
-    if ($schemaVersion -ne 3 -and $schemaVersion -ne 4) { throw 'Unsupported dynamic label schema.' }
+    if ($schemaVersion -ne 3 -and $schemaVersion -ne 4 -and $schemaVersion -ne 5) { throw 'Unsupported dynamic label schema.' }
     if ([string]$Payload.printer_profile -cne 'HPRT_LPQ80_BITMAP_50X70') { throw 'Wrong dynamic printer profile.' }
     if (([string]$Payload.profile).Trim().ToUpperInvariant() -cne 'DISTRIBUTION') { throw 'Unsupported dynamic label profile.' }
 
     $displayName = Get-LabelText -Value $Payload.product.display_name -Maximum 255
     $legalName = Get-LabelText -Value $Payload.product.legal_name -Maximum 500
     $unit = if ($schemaVersion -ge 4) { (Get-LabelText -Value $Payload.product.unit -Maximum 8).Trim().ToLowerInvariant() } else { '' }
-    $plainPiece = $schemaVersion -ge 4 -and [bool]$Payload.product.plain_piece
+    $plainTraceability = if ($schemaVersion -eq 4) {
+        [bool]$Payload.product.plain_piece
+    }
+    elseif ($schemaVersion -ge 5) {
+        [bool]$Payload.product.plain_traceability
+    }
+    else {
+        $false
+    }
     $singleIngredient = [bool]$Payload.product.single_ingredient
     $ingredientText = Get-LabelText -Value $Payload.product.ingredients
     $allergenText = Get-LabelText -Value $Payload.product.allergens
     $nutritionText = Get-LabelText -Value $Payload.product.nutrition
     $nutritionExempt = [bool]$Payload.product.nutrition_exempt
-    if ($plainPiece -and $unit -cne 'pcs') { throw 'Plain piece labels require unit pcs.' }
-    if (-not $plainPiece -and -not $singleIngredient -and -not $ingredientText) { throw 'Ingredients are required.' }
-    if (-not $plainPiece -and -not $allergenText) { throw 'Allergen declaration is required.' }
+    if ($schemaVersion -eq 4 -and $plainTraceability -and $unit -cne 'pcs') {
+        throw 'Schema 4 plain piece labels require unit pcs.'
+    }
+    if ($schemaVersion -ge 5 -and $plainTraceability -and $unit -cne 'pcs' -and $unit -cne 'box' -and $unit -cne 'tray') {
+        throw 'Plain traceability labels require unit pcs, box, or tray.'
+    }
+    if (-not $plainTraceability -and -not $singleIngredient -and -not $ingredientText) { throw 'Ingredients are required.' }
+    if (-not $plainTraceability -and -not $allergenText) { throw 'Allergen declaration is required.' }
     if (-not $nutritionText -and -not $nutritionExempt) { throw 'Nutrition declaration or documented exemption is required.' }
     if (-not $displayName) { $displayName = $legalName }
     $bitmap = New-Object Drawing.Bitmap(400, 560, [Drawing.Imaging.PixelFormat]::Format24bppRgb)
@@ -189,7 +202,7 @@ function New-UnifiedLabelBitmap {
         Add-LabelText -Graphics $graphics -Text $legalName -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 29)) -MaximumFontPixels 14 -MinimumFontPixels 9
         $y += 29
 
-        if ($ingredientText -and (-not $singleIngredient -or $plainPiece)) {
+        if ($ingredientText -and (-not $singleIngredient -or $plainTraceability)) {
             $ingredients = 'Συστατικά: ' + $ingredientText
             Add-LabelText -Graphics $graphics -Text $ingredients -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, 52)) -MaximumFontPixels 13 -MinimumFontPixels 9
             $y += 52

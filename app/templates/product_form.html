@@ -56,6 +56,7 @@
           <label for="product_unit">Μονάδα</label>
           <select id="product_unit" name="unit">
             <option value="box" {% if product and product.unit=='box' %}selected{% endif %}>Κιβώτια</option>
+            <option value="kg" {% if product and product.unit=='kg' %}selected{% endif %}>Κιλά</option>
             <option value="pcs" {% if product and product.unit=='pcs' %}selected{% endif %}>Τεμάχια</option>
             <option value="tray" {% if product and product.unit=='tray' %}selected{% endif %}>Δίσκος</option>
           </select>
@@ -145,9 +146,9 @@
 
       <div class="checkrow">
         <input id="label_plain_piece" name="label_plain_piece" type="checkbox" value="1" aria-describedby="label_plain_piece_help" {% if product and product.label_plain_piece %}checked{% endif %}>
-        <label class="label" for="label_plain_piece">Απλό τεμαχιακό προϊόν — χωρίς πρόσθετα και δηλωτέα αλλεργιογόνα</label>
+        <label class="label" for="label_plain_piece">Απλό προϊόν εσωτερικής ιχνηλασιμότητας — χωρίς πρόσθετα και δηλωτέα αλλεργιογόνα</label>
       </div>
-      <div id="label_plain_piece_help" class="muted">Μόνο για μονάδα «Τεμάχια», π.χ. κοπανάκι κοτόπουλο. Παραλείπει μόνο τα κενά συστατικά και αλλεργιογόνα. Προέλευση, LOT, ημερομηνίες, συντήρηση, κωδικός έγκρισης και διατροφική δήλωση ή ξεχωριστή τεκμηριωμένη εξαίρεση παραμένουν υποχρεωτικά.</div>
+      <div id="label_plain_piece_help" class="muted">Για μονάδα «Τεμάχια», «Κιβώτια» ή «Δίσκος», π.χ. κοπανάκι κοτόπουλο. Παραλείπει μόνο τα κενά συστατικά και αλλεργιογόνα. Προέλευση, LOT, ημερομηνίες, συντήρηση, κωδικός έγκρισης και διατροφική δήλωση ή ξεχωριστή τεκμηριωμένη εξαίρεση παραμένουν υποχρεωτικά.</div>
 
       <label>Συστατικά</label>
       <textarea name="label_ingredients" placeholder="Κατά φθίνουσα σειρά περιεκτικότητας">{{ product.label_ingredients if product and product.label_ingredients else '' }}</textarea>
@@ -222,8 +223,9 @@
 
   function syncPlainPiece(){
     if(!unit || !plainPiece) return;
-    const invalid = plainPiece.checked && unit.value !== "pcs";
-    plainPiece.setCustomValidity(invalid ? "Η επιλογή ισχύει μόνο με μονάδα Τεμάχια." : "");
+    const allowedUnits = ["pcs", "box", "tray"];
+    const invalid = plainPiece.checked && !allowedUnits.includes(unit.value);
+    plainPiece.setCustomValidity(invalid ? "Η επιλογή ισχύει μόνο με μονάδα Τεμάχια, Κιβώτια ή Δίσκος." : "");
   }
 
   sel.addEventListener("change", sync);

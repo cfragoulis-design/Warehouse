@@ -78,7 +78,7 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
     payload = build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
 
     assert payload == {
-        "schema_version": 4,
+        "schema_version": 5,
         "profile": "DISTRIBUTION",
         "approval_profile": "RED_MEAT",
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
@@ -94,7 +94,7 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
             "usage_instructions": "Να καταναλωθεί κατόπιν πλήρους θερμικής επεξεργασίας",
             "nutrition": "Ανά 100 g: ενέργεια 800 kJ / 190 kcal, λιπαρά 12 g, κορεσμένα 5 g, υδατάνθρακες 2 g, σάκχαρα 1 g, πρωτεΐνες 18 g, αλάτι 1,2 g",
             "single_ingredient": False,
-            "plain_piece": False,
+            "plain_traceability": False,
             "nutrition_exempt": False,
         },
         "traceability": {
@@ -200,11 +200,14 @@ def test_distribution_profile_accepts_documented_nutrition_exemption_and_lot_ori
     assert payload["product"]["origin"] == "Ιρλανδία"
 
 
-def test_plain_piece_product_may_omit_only_ingredients_and_allergens(monkeypatch):
+@pytest.mark.parametrize("unit", ["pcs", "box", "tray"])
+def test_plain_traceability_product_may_omit_only_composition_fields(
+    monkeypatch, unit: str
+):
     _set_business_identity(monkeypatch)
     product = _product(
         name="Κοπανάκι κοτόπουλο",
-        unit="pcs",
+        unit=unit,
         approval_profile="POULTRY",
         label_ingredients="",
         label_allergens="",
@@ -214,9 +217,10 @@ def test_plain_piece_product_may_omit_only_ingredients_and_allergens(monkeypatch
     assert product_readiness(product, DISTRIBUTION_PROFILE) == ()
     payload = build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
 
-    assert payload["schema_version"] == 4
-    assert payload["product"]["unit"] == "pcs"
-    assert payload["product"]["plain_piece"] is True
+    assert payload["schema_version"] == 5
+    assert payload["product"]["unit"] == unit
+    assert payload["product"]["plain_traceability"] is True
+    assert "plain_piece" not in payload["product"]
     assert payload["product"]["ingredients"] == ""
     assert payload["product"]["allergens"] == ""
     assert payload["product"]["origin"] == "Ελλάδα"
@@ -225,7 +229,7 @@ def test_plain_piece_product_may_omit_only_ingredients_and_allergens(monkeypatch
     assert payload["business"]["approval_number"] == "GR PE 620 CE"
 
 
-def test_plain_piece_flag_is_fail_closed_outside_piece_unit(monkeypatch):
+def test_plain_traceability_flag_is_fail_closed_for_kilograms(monkeypatch):
     _set_business_identity(monkeypatch)
     product = _product(
         unit="kg",
@@ -235,12 +239,12 @@ def test_plain_piece_flag_is_fail_closed_outside_piece_unit(monkeypatch):
     )
 
     missing = product_readiness(product, DISTRIBUTION_PROFILE)
-    assert "μονάδα «Τεμάχια» για απλό τεμαχιακό προϊόν" in missing
-    with pytest.raises(LabelValidationError, match="μονάδα «Τεμάχια»"):
+    assert any("Τεμάχια" in item and "Κιβώτια" in item and "Δίσκος" in item for item in missing)
+    with pytest.raises(LabelValidationError, match="Τεμάχια.*Κιβώτια.*Δίσκος"):
         build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
 
 
-def test_plain_piece_does_not_waive_nutrition_or_origin(monkeypatch):
+def test_plain_traceability_does_not_waive_nutrition_or_origin(monkeypatch):
     _set_business_identity(monkeypatch)
     product = _product(
         unit="pcs",
