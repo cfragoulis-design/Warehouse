@@ -1,6 +1,6 @@
 {
   "product": "Sklavounos Warehouse HPRT Agent",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "environment": "production",
   "base_url": "https://sklavounoswh.up.railway.app",
   "creator": "Christos Fragoulis",
@@ -8,6 +8,10 @@
   "protocol": "TSPL BITMAP",
   "profiles": [
     "UNIFIED_50X70"
+  ],
+  "label_payload_schemas": [
+    3,
+    4
   ],
   "creator_asset": "favicon-64.png",
   "contains_agent_token": false,

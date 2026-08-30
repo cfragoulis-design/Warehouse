@@ -1118,12 +1118,12 @@ def labels_center(
     business = business_label_identity()
     production_host = (request.url.hostname or "").strip().casefold() == "sklavounoswh.up.railway.app"
     hprt_agent_download_url = (
-        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.13.zip"
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.14.zip"
         if production_host
         else "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.14-STAGING.zip"
     )
     hprt_agent_download_label = (
-        "↓ Λήψη HPRT Agent v1.0.13 · Production"
+        "↓ Λήψη HPRT Agent v1.0.14 · Production"
         if production_host
         else "↓ Λήψη HPRT Agent v1.0.14 · Staging"
     )

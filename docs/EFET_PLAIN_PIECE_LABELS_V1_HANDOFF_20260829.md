@@ -30,9 +30,10 @@ HPRT Agent `1.0.14-staging` accepts both immutable schema 3 jobs already in the 
 4. Deploy the Warehouse application and migration `20260829_001` to Staging.
 5. Configure one test `pcs` product, print a physical label and verify all retained fields.
 
-Do not deploy this application change before the compatible Staging agent is installed. Production is
-out of scope and requires a separately versioned Production agent, physical evidence and explicit
-approval.
+Do not deploy the application change before the matching agent is installed. The separately packaged
+Production agent `1.0.14` targets only `https://sklavounoswh.up.railway.app`, accepts both schema 3
+and schema 4, and is published by the Production release manifest. Install and verify it before the
+Production application/migration rollout; keep `1.0.13` available as a renderer rollback artifact.
 
 ## Automated evidence
 
