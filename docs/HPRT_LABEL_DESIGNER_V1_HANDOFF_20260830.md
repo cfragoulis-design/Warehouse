@@ -56,8 +56,8 @@ migrations disabled and follow with a forward-fix release.
 
 ## Verification completed before handoff
 
-- Full application suite excluding the not-yet-built package artefact checks:
-  `259 passed, 6 skipped`.
+- Full application suite, including both real Agent package artefact checks:
+  `263 passed, 6 skipped`.
 - Python compile and Ruff checks passed.
 - JavaScript syntax and Windows PowerShell 5.1 parser checks passed.
 - Desktop, 1024×768 tablet and 390×844 compact browser layouts passed without
@@ -66,6 +66,12 @@ migrations disabled and follow with a forward-fix release.
   activation.
 - Final preview PNG pixels are reconstructed from the exact monochrome TSPL
   raster sent to the HPRT printer.
+- Agent packages were built twice from source commit
+  `2d19158d60f9ca65855b343108e800f3873a14cc` with identical bytes:
+  - Staging `1.0.16`: SHA-256
+    `94e019d480f46f9c3aa097297a45cbcc05b94a1b1ccec15661620e5cb3bd970f`.
+  - Production `1.0.16`: SHA-256
+    `315442ee8553785aed891cab6351d283249e2f98f3dea4a67823721fe8f97811`.
 
 RAW LOGIC. REAL SYSTEMS.
 
