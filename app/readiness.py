@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 
@@ -10,6 +11,9 @@ try:
     from .runtime_config import load_one_sso_settings
 except ImportError:
     from runtime_config import load_one_sso_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
@@ -342,6 +346,7 @@ def check_readiness(bind: Engine) -> ReadinessStatus:
     try:
         invariant_problem = _invariant_problem(bind)
     except Exception:
+        logger.exception("Warehouse invariant readiness check raised unexpectedly")
         invariant_problem = "invariant-check-failed"
     if invariant_problem:
         return ReadinessStatus(
