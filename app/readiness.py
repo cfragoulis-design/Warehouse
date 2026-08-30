@@ -6,9 +6,17 @@ from dataclasses import dataclass
 
 from sqlalchemy import Engine, inspect, text
 
+try:
+    from .runtime_config import load_one_sso_settings
+except ImportError:
+    from runtime_config import load_one_sso_settings
+
 
 _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
-    "users": frozenset({"id", "username", "role", "pin_hash"}),
+    # Authentication always reads is_active, even when One SSO is disabled.
+    # Requiring it here prevents a partially migrated release from reporting ready
+    # while every local sign-in would fail at query time.
+    "users": frozenset({"id", "username", "role", "pin_hash", "is_active"}),
     "products": frozenset(
         {
             "id",
@@ -121,13 +129,32 @@ class ReadinessStatus:
 
 
 def _schema_problem(bind: Engine) -> str | None:
+    required_schema = dict(_REQUIRED_SCHEMA)
+    if load_one_sso_settings().enabled:
+        required_schema["one_sso_mappings"] = frozenset(
+            {
+                "id",
+                "one_subject",
+                "one_employee_id",
+                "one_location_id",
+                "one_department_id",
+                "local_user_id",
+                "local_role",
+                "local_location_code",
+                "expected_email",
+                "is_active",
+            }
+        )
+        required_schema["one_sso_redemptions"] = frozenset(
+            {"id", "code_digest", "mapping_id", "issued_at", "expires_at"}
+        )
     schema = inspect(bind)
     available_tables = set(schema.get_table_names())
-    missing_tables = sorted(set(_REQUIRED_SCHEMA) - available_tables)
+    missing_tables = sorted(set(required_schema) - available_tables)
     if missing_tables:
         return "missing-required-tables"
 
-    for table_name, required_columns in _REQUIRED_SCHEMA.items():
+    for table_name, required_columns in required_schema.items():
         available_columns = {
             column["name"] for column in schema.get_columns(table_name)
         }
@@ -218,6 +245,49 @@ def _invariant_problem(bind: Engine) -> str | None:
             ).scalar_one()
             if int(installed_triggers or 0) != 2:
                 return "missing-label-layout-immutability-triggers"
+
+            if load_one_sso_settings().enabled:
+                sso_trigger_count = connection.execute(
+                    text(
+                        "SELECT COUNT(DISTINCT t.tgname) "
+                        "FROM pg_trigger AS t "
+                        "JOIN pg_class AS c ON c.oid = t.tgrelid "
+                        "WHERE NOT t.tgisinternal "
+                        "AND t.tgname = 'trg_one_sso_mappings_protect' "
+                        "AND c.relname = 'one_sso_mappings'"
+                    )
+                ).scalar_one()
+                if int(sso_trigger_count or 0) != 1:
+                    return "missing-one-sso-immutability-trigger"
+
+                required_sso_constraints = {
+                    "uq_one_sso_mappings_subject",
+                    "uq_one_sso_mappings_employee",
+                    "uq_one_sso_mappings_local_user",
+                    "ck_one_sso_mappings_subject_uuid",
+                    "ck_one_sso_mappings_employee_uuid",
+                    "ck_one_sso_mappings_location_uuid",
+                    "ck_one_sso_mappings_department_uuid",
+                    "ck_one_sso_mappings_local_role",
+                    "ck_one_sso_mappings_local_location",
+                    "ck_one_sso_mappings_role_location",
+                    "uq_one_sso_redemptions_digest",
+                    "ck_one_sso_redemptions_digest",
+                    "ck_one_sso_redemptions_lifetime",
+                }
+                installed_sso_constraints = set(
+                    connection.execute(
+                        text(
+                            "SELECT con.conname "
+                            "FROM pg_constraint AS con "
+                            "JOIN pg_class AS c ON c.oid = con.conrelid "
+                            "WHERE c.relname IN "
+                            "('one_sso_mappings', 'one_sso_redemptions')"
+                        )
+                    ).scalars()
+                )
+                if required_sso_constraints - installed_sso_constraints:
+                    return "missing-one-sso-database-constraints"
 
         invalid_missing = connection.execute(
             text("SELECT 1 FROM stock_missing WHERE qty_missing < 0 LIMIT 1")

@@ -70,6 +70,10 @@ def migration_catalog() -> tuple[MigrationDefinition, ...]:
             "20260828_001_approval_profile_locale_safe_backfill.sql",
         ),
         (
+            "20260828_002",
+            "20260828_002_one_sso_mapping.sql",
+        ),
+        (
             "20260829_001",
             "20260829_001_plain_piece_labels.sql",
         ),

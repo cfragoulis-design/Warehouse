@@ -19,6 +19,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20260823_001",
         "20260827_001",
         "20260828_001",
+        "20260828_002",
         "20260829_001",
         "20260830_001",
         "20260830_002",
@@ -60,7 +61,19 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in locale_safe_sql.upper()
     assert "TRUNCATE" not in locale_safe_sql.upper()
     assert "DELETE FROM" not in locale_safe_sql.upper()
-    plain_piece = catalog[4]
+    one_sso_mapping = catalog[4]
+    one_sso_sql = one_sso_mapping.sql
+    assert "one_sso_mappings" in one_sso_sql
+    assert "one_sso_redemptions" in one_sso_sql
+    assert "local_role IN ('admin', 'workshop', 'warehouse')" in one_sso_sql
+    assert "code_digest" in one_sso_sql
+    assert "warehouse_protect_one_sso_mapping" in one_sso_sql
+    assert "BEFORE UPDATE OR DELETE" in one_sso_sql
+    assert "cannot be reactivated" in one_sso_sql
+    assert "DROP TABLE" not in one_sso_sql.upper()
+    assert "TRUNCATE" not in one_sso_sql.upper()
+    assert "DELETE FROM" not in one_sso_sql.upper()
+    plain_piece = catalog[5]
     plain_piece_sql = plain_piece.sql
     assert "label_plain_piece BOOLEAN NOT NULL DEFAULT FALSE" in plain_piece_sql
     assert "NOT label_plain_piece OR lower(trim(unit)) = 'pcs'" in plain_piece_sql
@@ -68,7 +81,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in plain_piece_sql.upper()
     assert "TRUNCATE" not in plain_piece_sql.upper()
     assert "DELETE FROM" not in plain_piece_sql.upper()
-    plain_traceability = catalog[5]
+    plain_traceability = catalog[6]
     plain_traceability_sql = plain_traceability.sql
     assert "DROP CONSTRAINT IF EXISTS ck_products_label_plain_piece_unit" in plain_traceability_sql
     assert "lower(trim(unit)) IN ('pcs', 'box', 'tray')" in plain_traceability_sql
@@ -78,7 +91,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in plain_traceability_sql.upper()
     assert "TRUNCATE" not in plain_traceability_sql.upper()
     assert "DELETE FROM" not in plain_traceability_sql.upper()
-    label_layout = catalog[6]
+    label_layout = catalog[7]
     label_layout_sql = label_layout.sql
     assert "CREATE TABLE IF NOT EXISTS label_layout_versions" in label_layout_sql
     assert "CREATE TABLE IF NOT EXISTS label_layout_active" in label_layout_sql

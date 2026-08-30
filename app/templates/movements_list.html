@@ -53,7 +53,7 @@
         <td data-label="Ποσότητα">{{ event.qty|fmtqty(event.unit) }} {% if event.unit == 'pcs' %}Τεμ{% elif event.unit == 'box' %}Κιβ{% elif event.unit == 'kg' %}Kg{% else %}{{ event.unit }}{% endif %}</td><td data-label="Χρήστης" class="muted">{{ event.username }}</td><td data-label="Σημείωση" class="muted noteCell">{{ event.note }}</td>
       </tr>{% else %}<tr><td colspan="7" class="empty">Δεν βρέθηκαν κινήσεις με αυτά τα φίλτρα.</td></tr>{% endfor %}
     </tbody></table></div>
-    <nav class="pagination" aria-label="Σελίδες κινήσεων">{% if has_previous %}<a class="btn secondary" href="{{ request.url.include_query_params(page=page-1) }}">← Προηγούμενη</a>{% endif %}<span class="muted">Σελίδα {{ page }} από {{ total_pages }}</span>{% if has_next %}<a class="btn secondary" href="{{ request.url.include_query_params(page=page+1) }}">Επόμενη →</a>{% endif %}</nav>
+    <nav class="pagination" aria-label="Σελίδες κινήσεων">{% if previous_page_url %}<a class="btn secondary" href="{{ previous_page_url }}">← Προηγούμενη</a>{% endif %}<span class="muted">Σελίδα {{ page }} από {{ total_pages }}</span>{% if next_page_url %}<a class="btn secondary" href="{{ next_page_url }}">Επόμενη →</a>{% endif %}</nav>
   </main>
 </body>
 </html>

@@ -36,6 +36,7 @@ if not runtime_settings.operations_source_mode:
         from app.digest_service import router as digest_router
         from app.freezer_service import router as freezer_router
         from app.label_designer_surface import router as label_designer_router
+        from app.one_sso import router as one_sso_router
         from app.production_report_service import router as production_report_router
         from app.seed import seed_categories, seed_locations
         from app.services import router as services_router
@@ -48,6 +49,7 @@ if not runtime_settings.operations_source_mode:
         from digest_service import router as digest_router
         from freezer_service import router as freezer_router
         from label_designer_surface import router as label_designer_router
+        from one_sso import router as one_sso_router
         from production_report_service import router as production_report_router
         from seed import seed_categories, seed_locations
         from services import router as services_router
@@ -172,6 +174,7 @@ if not runtime_settings.operations_source_mode:
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     app.include_router(auth_router)
+    app.include_router(one_sso_router)
     app.include_router(catalog_router)
     app.include_router(label_designer_router)
     app.include_router(services_router)

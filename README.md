@@ -34,6 +34,16 @@ nutrition data (or its separate documented exemption) remain fail-closed require
 
 Creator branding follows [`docs/PERSONAL_BRAND_ASSET_POLICY.md`](docs/PERSONAL_BRAND_ASSET_POLICY.md).
 
+### One SSO receiver (default off)
+
+Warehouse can accept a short-lived, one-time launch code from Sklavounos One
+without exposing One identity data or credentials to the browser. It never
+creates accounts during sign-in and continues to enforce the local Warehouse
+role/action/location policy. The integration is disabled unless its complete
+HTTPS origin, exchange credential and pre-approved local mapping are configured.
+See [`docs/ONE_SSO_WAREHOUSE_RECEIVER_V1.md`](docs/ONE_SSO_WAREHOUSE_RECEIVER_V1.md)
+for the exact contract, migration and guarded provisioning procedure.
+
 ### Disabled Operations read contract
 
 The aggregate-only Operations endpoint stays hidden unless both variables are explicitly set:

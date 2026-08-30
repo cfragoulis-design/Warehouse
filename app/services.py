@@ -56,6 +56,7 @@ try:
     )
     from app.templating import WarehouseJinja2Templates
     from app.stock_policy import enforce_stock_action
+    from app.runtime_config import load_hprt_agent_release_settings
 except ImportError:
     from audit import correlation_id_for_request, record_audit_event
     from auth import require_user, get_current_user, is_warehouse_only, home_for_user
@@ -89,6 +90,7 @@ except ImportError:
     )
     from templating import WarehouseJinja2Templates
     from stock_policy import enforce_stock_action
+    from runtime_config import load_hprt_agent_release_settings
 
 router = APIRouter()
 
@@ -498,6 +500,32 @@ def _movement_athens_date(value: datetime | None) -> date | None:
     return value.astimezone(ZoneInfo("Europe/Athens")).date()
 
 
+def _movement_page_url(
+    *,
+    page: int,
+    q: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    product_id: int | None = None,
+    location_id: int | None = None,
+    movement_type: str = "",
+) -> str:
+    """Return a host-independent pagination target for the movement browser."""
+    values = (
+        ("q", (q or "").strip()),
+        ("date_from", date_from),
+        ("date_to", date_to),
+        ("product_id", product_id),
+        ("location_id", location_id),
+        ("movement_type", movement_type),
+        ("page", max(int(page), 1)),
+    )
+    query = urllib.parse.urlencode(
+        [(name, value) for name, value in values if value not in (None, "")]
+    )
+    return f"/movements?{query}"
+
+
 def build_movement_history(
     db: Session,
     *,
@@ -660,6 +688,15 @@ def movements_list(
     products = db.execute(select(Product).order_by(Product.name.asc())).scalars().all()
     locations = db.execute(select(Location).order_by(Location.id.asc())).scalars().all()
 
+    pagination_filters = {
+        "q": q,
+        "date_from": history["date_from"],
+        "date_to": history["date_to"],
+        "product_id": product_id,
+        "location_id": location_id,
+        "movement_type": history["movement_type"],
+    }
+
     return templates.TemplateResponse(
         "movements_list.html",
         {
@@ -671,6 +708,16 @@ def movements_list(
             "q": q,
             "product_id": product_id,
             "location_id": location_id,
+            "previous_page_url": (
+                _movement_page_url(page=history["page"] - 1, **pagination_filters)
+                if history["has_previous"]
+                else None
+            ),
+            "next_page_url": (
+                _movement_page_url(page=history["page"] + 1, **pagination_filters)
+                if history["has_next"]
+                else None
+            ),
             **history,
         },
     )
@@ -1113,6 +1160,21 @@ def _eligible_label_products(db: Session):
     return out
 
 
+def _hprt_agent_download() -> tuple[str | None, str]:
+    release = load_hprt_agent_release_settings()
+    if release.channel == "production":
+        return (
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16.zip",
+            "↓ Λήψη HPRT Agent v1.0.16 · Production",
+        )
+    if release.channel == "staging":
+        return (
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16-STAGING.zip",
+            "↓ Λήψη HPRT Agent v1.0.16 · Staging",
+        )
+    return None, "Η λήψη HPRT Agent είναι απενεργοποιημένη"
+
+
 @router.get("/admin/labels", response_class=HTMLResponse)
 def labels_center(
     request: Request,
@@ -1124,17 +1186,7 @@ def labels_center(
         return admin_only_dialog(request, user, next_url="/dashboard")
     default_station = "CENTRAL" if (user.role or "").lower() == "admin" else "WORKSHOP"
     business = business_label_identity()
-    production_host = (request.url.hostname or "").strip().casefold() == "sklavounoswh.up.railway.app"
-    hprt_agent_download_url = (
-        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16.zip"
-        if production_host
-        else "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16-STAGING.zip"
-    )
-    hprt_agent_download_label = (
-        "↓ Λήψη HPRT Agent v1.0.16 · Production"
-        if production_host
-        else "↓ Λήψη HPRT Agent v1.0.16 · Staging"
-    )
+    hprt_agent_download_url, hprt_agent_download_label = _hprt_agent_download()
     return templates.TemplateResponse(
         "labels_center.html",
         {

@@ -13,6 +13,7 @@ import zlib
 
 import pytest
 
+from app import services
 from scripts.build_hprt_agent_packages import COMMON_FILES, _package_bytes
 
 
@@ -305,8 +306,11 @@ def test_status_ui_exposes_live_printer_queue_history_and_safe_actions():
 
 
 def test_creator_assets_are_exact_approved_canonical_copies():
-    assert CREATOR_WEB_LOGO.stat().st_size == 2_013
-    assert hashlib.sha256(CREATOR_WEB_LOGO.read_bytes()).hexdigest() == (
+    # Git may materialize text assets with CRLF on Windows.  Verify the exact
+    # approved SVG content after normalizing only that transport-level detail.
+    canonical_web_logo = CREATOR_WEB_LOGO.read_bytes().replace(b"\r\n", b"\n")
+    assert len(canonical_web_logo) == 2_013
+    assert hashlib.sha256(canonical_web_logo).hexdigest() == (
         "22f3bebc8e2e6202274db8f19a6338fad1419e998f83d966822ece4e5297439a"
     )
     assert CREATOR_APP_ICON.stat().st_size == 2_499
@@ -1051,13 +1055,44 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     for unit in ("kg", "pcs", "box", "tray"):
         assert f'<option value="{unit}"' in product_form
     assert 'const allowedUnits = ["pcs", "box", "tray"]' in product_form
+    assert "{% if hprt_agent_download_url %}" in html
+    assert 'href="/admin/labels/designer"' in html
     assert 'href="{{ hprt_agent_download_url }}"' in html
+    assert 'class="download disabled"' in html
     assert "{{ hprt_agent_download_label }}" in html
     services = (ROOT / "app" / "services.py").read_text(encoding="utf-8")
-    assert 'request.url.hostname or ""' in services
-    assert '== "sklavounoswh.up.railway.app"' in services
+    assert 'request.url.hostname or ""' not in services
+    assert "load_hprt_agent_release_settings" in services
     assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16.zip" in services
     assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16-STAGING.zip" in services
+
+
+def test_label_center_agent_download_does_not_depend_on_request_hostname(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", raising=False)
+    missing_url, missing_label = services._hprt_agent_download()
+    assert missing_url is None
+    assert "απενεργοποιημένη" in missing_label
+
+    monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "production")
+    production_url, production_label = services._hprt_agent_download()
+    assert production_url == (
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16.zip"
+    )
+    assert "Production" in production_label
+
+    monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "staging")
+    staging_url, staging_label = services._hprt_agent_download()
+    assert staging_url == (
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16-STAGING.zip"
+    )
+    assert "Staging" in staging_label
+
+    monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "invalid")
+    disabled_url, disabled_label = services._hprt_agent_download()
+    assert disabled_url is None
+    assert "απενεργοποιημένη" in disabled_label
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Requires Windows PowerShell 5.1")

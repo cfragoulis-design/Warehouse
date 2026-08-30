@@ -7,7 +7,99 @@ from pathlib import Path
 
 import pytest
 
-from app.runtime_config import load_runtime_settings, resolve_session_secret
+from app.runtime_config import (
+    load_hprt_agent_release_settings,
+    load_one_sso_settings,
+    load_runtime_settings,
+    resolve_session_secret,
+)
+
+
+def test_hprt_agent_release_channel_is_explicit_and_fails_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", raising=False)
+    default = load_hprt_agent_release_settings()
+    assert default.channel == "disabled"
+    assert default.explicit is False
+    assert default.valid is False
+
+    monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", " production ")
+    production = load_hprt_agent_release_settings()
+    assert production.channel == "production"
+    assert production.explicit is True
+    assert production.valid is True
+
+    monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "preview-ish")
+    invalid = load_hprt_agent_release_settings()
+    assert invalid.channel == "disabled"
+    assert invalid.explicit is True
+    assert invalid.valid is False
+    assert "preview-ish" not in repr(invalid)
+
+
+def test_one_sso_is_default_off_and_requires_an_exact_https_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in (
+        "ONE_SSO_ENABLED",
+        "ONE_SSO_ORIGIN",
+        "ONE_SSO_EXCHANGE_URL",
+        "ONE_SSO_CLIENT_ID",
+        "ONE_SSO_CLIENT_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    assert load_one_sso_settings().enabled is False
+
+    monkeypatch.setenv("ONE_SSO_ENABLED", "true")
+    monkeypatch.setenv("ONE_SSO_ORIGIN", "https://one.example.test")
+    monkeypatch.setenv(
+        "ONE_SSO_EXCHANGE_URL",
+        "https://one.example.test/api/v1/external-access/exchange",
+    )
+    monkeypatch.setenv("ONE_SSO_CLIENT_ID", "warehouse-staging")
+    client_secret = "warehouse-client-secret-must-never-appear"
+    monkeypatch.setenv("ONE_SSO_CLIENT_SECRET", client_secret)
+    settings = load_one_sso_settings()
+    assert settings.enabled is True
+    assert settings.required_assurance_level == 2
+    assert settings.required_permission == "external.warehouse.launch"
+    assert client_secret not in repr(settings)
+
+    monkeypatch.setenv("ONE_SSO_EXCHANGE_URL", "https://attacker.test/exchange")
+    with pytest.raises(RuntimeError, match="ONE_SSO_ORIGIN"):
+        load_one_sso_settings()
+
+    monkeypatch.setenv("ONE_SSO_EXCHANGE_URL", "http://one.example.test/exchange")
+    with pytest.raises(RuntimeError, match="canonical external-access"):
+        load_one_sso_settings()
+
+    monkeypatch.setenv(
+        "ONE_SSO_EXCHANGE_URL",
+        "https://one.example.test/api/v1/sso/exchange",
+    )
+    with pytest.raises(RuntimeError, match="canonical external-access"):
+        load_one_sso_settings()
+
+
+def test_one_sso_timeout_and_assurance_are_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ONE_SSO_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_SSO_TIMEOUT_SECONDS", "20")
+    with pytest.raises(RuntimeError, match="between"):
+        load_one_sso_settings()
+
+    monkeypatch.setenv("ONE_SSO_TIMEOUT_SECONDS", "3")
+    monkeypatch.setenv("ONE_SSO_REQUIRED_ASSURANCE_LEVEL", "0")
+    with pytest.raises(RuntimeError, match="between"):
+        load_one_sso_settings()
+
+    monkeypatch.setenv("ONE_SSO_REQUIRED_ASSURANCE_LEVEL", "2")
+    monkeypatch.setenv("ONE_SSO_SESSION_TTL_SECONDS", "57601")
+    with pytest.raises(RuntimeError, match="between"):
+        load_one_sso_settings()
 
 
 def test_runtime_defaults_preserve_existing_warehouse_behavior(
