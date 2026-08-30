@@ -194,6 +194,14 @@ def health():
 @app.get("/ready")
 def ready():
     status = check_readiness(engine)
+    if not status.ready:
+        logger.warning(
+            "Warehouse readiness failed reason=%s database=%s schema=%s invariants=%s",
+            status.reason or "unknown",
+            status.database,
+            status.schema,
+            status.invariants,
+        )
     return JSONResponse(
         status_code=200 if status.ready else 503,
         content=status.as_dict(),

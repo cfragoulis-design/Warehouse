@@ -252,6 +252,7 @@ def test_readiness_always_requires_user_active_state() -> None:
 
 def test_health_is_lightweight_and_ready_returns_safe_503(
     monkeypatch,
+    caplog,
 ) -> None:
     import importlib
 
@@ -276,6 +277,11 @@ def test_health_is_lightweight_and_ready_returns_safe_503(
     assert health.json() == {"ok": True}
     assert ready.status_code == 503
     assert ready.json()["reason"] == "database-unavailable"
+    assert (
+        "Warehouse readiness failed reason=database-unavailable "
+        "database=failed schema=not-checked invariants=not-checked"
+        in caplog.text
+    )
 
 
 def test_security_headers_are_added_without_blocking_existing_inline_ui() -> None:
