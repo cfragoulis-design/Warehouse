@@ -78,7 +78,7 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
     payload = build_label_payload(product, _lot(), profile=DISTRIBUTION_PROFILE)
 
     assert payload == {
-        "schema_version": 5,
+        "schema_version": 4,
         "profile": "DISTRIBUTION",
         "approval_profile": "RED_MEAT",
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
@@ -94,7 +94,7 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
             "usage_instructions": "Να καταναλωθεί κατόπιν πλήρους θερμικής επεξεργασίας",
             "nutrition": "Ανά 100 g: ενέργεια 800 kJ / 190 kcal, λιπαρά 12 g, κορεσμένα 5 g, υδατάνθρακες 2 g, σάκχαρα 1 g, πρωτεΐνες 18 g, αλάτι 1,2 g",
             "single_ingredient": False,
-            "plain_traceability": False,
+            "plain_piece": False,
             "nutrition_exempt": False,
         },
         "traceability": {

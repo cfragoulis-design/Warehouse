@@ -24,8 +24,9 @@ independently rejects invalid rows.
 ## Agent compatibility and release order
 
 HPRT Agent `1.0.15` accepts immutable schema 3 and schema 4 jobs already in the queue, plus new
-schema 5 jobs. Schema 4 keeps its original `plain_piece => pcs` contract. Schema 5 uses the canonical
-`plain_traceability` key for `pcs`, `box` and `tray`. The rollout order is strict:
+schema 5 jobs. Ordinary full labels remain schema 4 so Agent 1.0.14 can continue printing during the
+upgrade window. Schema 4 keeps its original `plain_piece => pcs` contract. Schema 5 uses the canonical
+`plain_traceability` key only for the classified `pcs`, `box` and `tray` labels. The rollout order is strict:
 
 1. Back up and verify the database.
 2. Publish and install HPRT Agent `1.0.15` on the Production print PC.

@@ -143,8 +143,17 @@ def build_label_payload(product, lot, *, profile: str) -> dict[str, object]:
     origin_override = _clean(getattr(lot, "label_origin_override", None), maximum=255)
     if origin_override:
         metadata["origin"] = origin_override
+    plain_traceability = bool(metadata.pop("plain_traceability", False))
+    if plain_traceability:
+        schema_version = 5
+        metadata["plain_traceability"] = True
+    else:
+        # Keep ordinary labels on schema 4 so an Agent 1.0.14 that has not yet
+        # been upgraded can continue printing the established full label.
+        schema_version = 4
+        metadata["plain_piece"] = False
     return {
-        "schema_version": 5,
+        "schema_version": schema_version,
         "profile": profile,
         "approval_profile": business.approval_profile,
         "printer_profile": "HPRT_LPQ80_BITMAP_50X70",
