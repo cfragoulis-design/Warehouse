@@ -42,5 +42,11 @@ reported `manifest_sha256` as
 non-canonical manifest, any wrong approval hash, every missing/extra file,
 modified bytes, unsafe path, duplicate path, or symlink.
 
+Railpack's build-owned root `.venv` is outside the approved release tree and is
+pruned only during container verification. Manifest generation rejects an
+artifact that already contains `.venv`; verification requires the generated
+root `.venv` to be a real directory. Nested virtual environments and every
+symlink anywhere else in the application release tree still fail closed.
+
 No target variable or candidate label can independently authorize a Production
 migration. A Production rollout and rollback remain separately approved actions.

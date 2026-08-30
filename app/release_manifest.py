@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,7 +11,6 @@ from pathlib import Path
 RELEASE_MANIFEST_FILENAME = "warehouse_release_manifest.json"
 _SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
-_IGNORED_DIRECTORIES = frozenset({".git"})
 
 
 @dataclass(frozen=True)
@@ -21,19 +21,55 @@ class VerifiedReleaseManifest:
     file_count: int
 
 
-def _release_files(root: Path) -> tuple[Path, ...]:
+def _release_files(
+    root: Path,
+    *,
+    allow_generated_runtime_venv: bool = False,
+) -> tuple[Path, ...]:
     files: list[Path] = []
-    for path in root.rglob("*"):
-        if path.is_symlink():
-            raise RuntimeError("Warehouse release tree cannot contain symbolic links")
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root)
-        if relative.as_posix() == RELEASE_MANIFEST_FILENAME:
-            continue
-        if any(part in _IGNORED_DIRECTORIES for part in relative.parts):
-            continue
-        files.append(relative)
+
+    def _visit(directory: Path, relative_directory: Path) -> None:
+        try:
+            with os.scandir(directory) as iterator:
+                entries = sorted(iterator, key=lambda item: item.name)
+        except OSError as exc:
+            raise RuntimeError("Warehouse release tree is unreadable") from exc
+        for entry in entries:
+            relative = relative_directory / entry.name
+            path = Path(entry.path)
+            if entry.is_symlink():
+                raise RuntimeError("Warehouse release tree cannot contain symbolic links")
+            if relative == Path(".git"):
+                continue
+            if entry.name == ".venv":
+                if relative != Path(".venv"):
+                    raise RuntimeError(
+                        "Warehouse release tree cannot contain a nested virtual environment"
+                    )
+                if not allow_generated_runtime_venv:
+                    raise RuntimeError(
+                        "Warehouse release artifact cannot contain a virtual environment"
+                    )
+                if not entry.is_dir(follow_symlinks=False):
+                    raise RuntimeError(
+                        "Warehouse generated runtime .venv must be a real directory"
+                    )
+                # Railpack creates this dependency tree after the attested CLI
+                # artifact is uploaded. Prune it before visiting interpreter
+                # symlinks; every other path remains fully fail-closed.
+                continue
+            if entry.is_dir(follow_symlinks=False):
+                _visit(path, relative)
+                continue
+            if not entry.is_file(follow_symlinks=False):
+                raise RuntimeError(
+                    "Warehouse release tree can contain regular files and directories only"
+                )
+            if relative.as_posix() == RELEASE_MANIFEST_FILENAME:
+                continue
+            files.append(relative)
+
+    _visit(root, Path())
     return tuple(sorted(files, key=lambda item: item.as_posix()))
 
 
@@ -150,7 +186,10 @@ def verify_release_manifest(
             raise RuntimeError("Warehouse release manifest contains a duplicate path")
         declared[relative_path] = file_sha256
 
-    actual_paths = {path.as_posix() for path in _release_files(root)}
+    actual_paths = {
+        path.as_posix()
+        for path in _release_files(root, allow_generated_runtime_venv=True)
+    }
     if actual_paths != set(declared):
         raise RuntimeError("Deployed Warehouse file set does not match the release manifest")
     actual_hashes = {

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-from app.release_manifest import build_release_manifest, canonical_manifest_bytes
+from app.release_manifest import (
+    build_release_manifest,
+    canonical_manifest_bytes,
+    verify_release_manifest,
+)
 from scripts import warehouse_predeploy
 
 
@@ -321,6 +326,115 @@ def test_production_cli_release_accepts_exact_manifested_tree(
     )
 
     assert warehouse_predeploy.run_predeploy()["migrations"] == "applied"
+
+
+def test_production_cli_release_ignores_railpack_virtualenv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _production_environment(monkeypatch, railway_commit=None)
+    source = tmp_path / "app.py"
+    source.write_text("print('exact')\n", encoding="utf-8")
+    tree_hash, manifest_hash = _write_release_manifest(tmp_path, "d" * 40)
+
+    virtualenv = tmp_path / ".venv" / "bin"
+    virtualenv.mkdir(parents=True)
+    (virtualenv / "python").write_text("railpack runtime", encoding="utf-8")
+    original_scandir = os.scandir
+
+    def _scandir_without_entering_virtualenv(path):
+        if Path(path) == virtualenv.parent:
+            pytest.fail("the generated root .venv must be pruned before traversal")
+        return original_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", _scandir_without_entering_virtualenv)
+
+    monkeypatch.setenv("WAREHOUSE_APPROVED_TREE_SHA256", tree_hash)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256", manifest_hash)
+    monkeypatch.setattr(warehouse_predeploy, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        warehouse_predeploy,
+        "apply_pending_migrations",
+        lambda **_kwargs: _MigrationResult(
+            database="railway",
+            target="production",
+            applied_versions=("20260829_001",),
+            current_version="20260829_001",
+        ),
+    )
+
+    assert warehouse_predeploy.run_predeploy()["migrations"] == "applied"
+
+
+def test_release_manifest_rejects_application_symlink(tmp_path: Path) -> None:
+    source = tmp_path / "app.py"
+    source.write_text("print('exact')\n", encoding="utf-8")
+    try:
+        (tmp_path / "alias.py").symlink_to(source)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"symbolic links are unavailable: {exc}")
+
+    with pytest.raises(RuntimeError, match="symbolic links"):
+        build_release_manifest(tmp_path, candidate_commit="d" * 40)
+
+
+def test_release_manifest_generator_rejects_existing_virtualenv(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "app.py").write_text("print('exact')\n", encoding="utf-8")
+    virtualenv = tmp_path / ".venv"
+    virtualenv.mkdir()
+    (virtualenv / "python").write_text("bundled runtime", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="artifact cannot contain a virtual"):
+        build_release_manifest(tmp_path, candidate_commit="d" * 40)
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_release_manifest_verifier_rejects_invalid_root_virtualenv(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    (tmp_path / "app.py").write_text("print('exact')\n", encoding="utf-8")
+    tree_hash, manifest_hash = _write_release_manifest(tmp_path, "d" * 40)
+    virtualenv = tmp_path / ".venv"
+    if kind == "file":
+        virtualenv.write_text("not a directory", encoding="utf-8")
+    else:
+        target = tmp_path.parent / f"{tmp_path.name}-external-runtime"
+        target.mkdir()
+        try:
+            virtualenv.symlink_to(target, target_is_directory=True)
+        except (NotImplementedError, OSError) as exc:
+            pytest.skip(f"symbolic links are unavailable: {exc}")
+
+    with pytest.raises(RuntimeError, match="symlink|real directory"):
+        verify_release_manifest(
+            tmp_path,
+            expected_commit="d" * 40,
+            expected_tree_sha256=tree_hash,
+            expected_manifest_sha256=manifest_hash,
+        )
+
+
+def test_release_manifest_verifier_rejects_nested_virtualenv(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+    tree_hash, manifest_hash = _write_release_manifest(tmp_path, "d" * 40)
+    (package / ".venv").mkdir()
+
+    with pytest.raises(RuntimeError, match="nested virtual environment"):
+        verify_release_manifest(
+            tmp_path,
+            expected_commit="d" * 40,
+            expected_tree_sha256=tree_hash,
+            expected_manifest_sha256=manifest_hash,
+        )
 
 
 def test_production_cli_release_rejects_missing_manifest(
