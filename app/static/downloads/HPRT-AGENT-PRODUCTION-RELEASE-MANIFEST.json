@@ -2,9 +2,9 @@
   "product": "Sklavounos Warehouse HPRT Agent",
   "version": "1.0.15",
   "creator": "Christos Fragoulis",
-  "source_commit": "f69eb96f123f0074aecb688c34d1b679ae9a141b",
+  "source_commit": "f2dee14567791c18dc5b2ef949b15675867c6f2a",
   "package": "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.15.zip",
-  "package_sha256": "82d9a303fbabda379bac8e7ead46b71ba687c490c5857bbcd9b572f4c767d8fb",
+  "package_sha256": "b094afef75c5c6563ab502533c2fbae052f8551035d5052999605b7e6b7747b2",
   "contains_agent_token": false,
   "production_release": true
 }

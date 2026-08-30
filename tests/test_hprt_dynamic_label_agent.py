@@ -118,6 +118,8 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert production_manifest["environment"] == "production"
     assert production_manifest["label_payload_schemas"] == [3, 4, 5]
     assert production_manifest["contains_agent_token"] is False
+    readme = (PACKAGE / "README.txt").read_text(encoding="utf-8-sig")
+    assert "RAW LOGIC. REAL SYSTEMS.\nCreated by Christos Fragoulis" in readme.replace("\r\n", "\n")
 
 
 def test_status_ui_exposes_live_printer_queue_history_and_safe_actions():
@@ -181,9 +183,9 @@ def test_status_ui_snapshot_mode_is_provider_free_and_does_not_open_a_window():
 
 
 def test_staging_download_is_exact_secret_free_package():
-    assert STAGING_DOWNLOAD.stat().st_size == 25_328
+    assert STAGING_DOWNLOAD.stat().st_size == 25_353
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
-        "b049a289a44c6ba603a8104bccf2dcc09aa72b434261479863c4beec6351bf81"
+        "378a645e0c027710e5f47ad38f895bd86f11d176c11529cd9232607157b0fb57"
     )
     with zipfile.ZipFile(STAGING_DOWNLOAD) as archive:
         assert set(archive.namelist()) == {
@@ -205,6 +207,8 @@ def test_staging_download_is_exact_secret_free_package():
         assert manifest["environment"] == "staging"
         assert manifest["label_payload_schemas"] == [3, 4, 5]
         assert manifest["contains_agent_token"] is False
+        readme = archive.read("README.txt").decode("utf-8-sig").replace("\r\n", "\n")
+        assert "RAW LOGIC. REAL SYSTEMS.\nCreated by Christos Fragoulis" in readme
         archived_renderer = archive.read("HprtLpq80Print.ps1").decode("utf-8-sig")
         source_renderer = RENDERER.read_text(encoding="utf-8-sig")
         assert archived_renderer.replace("\r\n", "\n") == source_renderer.replace("\r\n", "\n")
@@ -213,7 +217,7 @@ def test_staging_download_is_exact_secret_free_package():
         "product": "Sklavounos Warehouse HPRT Agent",
         "version": "1.0.15-staging",
         "creator": "Christos Fragoulis",
-        "source_commit": "f69eb96f123f0074aecb688c34d1b679ae9a141b",
+        "source_commit": "f2dee14567791c18dc5b2ef949b15675867c6f2a",
         "package": STAGING_DOWNLOAD.name,
         "package_sha256": hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest(),
         "contains_agent_token": False,
@@ -222,9 +226,9 @@ def test_staging_download_is_exact_secret_free_package():
 
 
 def test_production_download_is_exact_secret_free_and_targets_only_production():
-    assert PRODUCTION_DOWNLOAD.stat().st_size == 25_334
+    assert PRODUCTION_DOWNLOAD.stat().st_size == 25_359
     assert hashlib.sha256(PRODUCTION_DOWNLOAD.read_bytes()).hexdigest() == (
-        "82d9a303fbabda379bac8e7ead46b71ba687c490c5857bbcd9b572f4c767d8fb"
+        "b094afef75c5c6563ab502533c2fbae052f8551035d5052999605b7e6b7747b2"
     )
     with zipfile.ZipFile(PRODUCTION_DOWNLOAD) as archive:
         assert set(archive.namelist()) == {
@@ -246,6 +250,8 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
         assert manifest["contains_agent_token"] is False
         assert manifest["version"] == "1.0.15"
         assert manifest["label_payload_schemas"] == [3, 4, 5]
+        readme = archive.read("README.txt").decode("utf-8-sig").replace("\r\n", "\n")
+        assert "RAW LOGIC. REAL SYSTEMS.\nCreated by Christos Fragoulis" in readme
         archived_renderer = archive.read("HprtLpq80Print.ps1").decode("utf-8-sig")
         source_renderer = RENDERER.read_text(encoding="utf-8-sig")
         assert archived_renderer.replace("\r\n", "\n") == source_renderer.replace("\r\n", "\n")
@@ -254,7 +260,7 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
         "product": "Sklavounos Warehouse HPRT Agent",
         "version": "1.0.15",
         "creator": "Christos Fragoulis",
-        "source_commit": "f69eb96f123f0074aecb688c34d1b679ae9a141b",
+        "source_commit": "f2dee14567791c18dc5b2ef949b15675867c6f2a",
         "package": PRODUCTION_DOWNLOAD.name,
         "package_sha256": hashlib.sha256(PRODUCTION_DOWNLOAD.read_bytes()).hexdigest(),
         "contains_agent_token": False,
