@@ -1097,6 +1097,76 @@ def test_schema_inventory_covers_integrity_and_acl_objects() -> None:
     }.issubset(categories)
 
 
+def test_constraint_inventory_canonicalizes_pg17_varchar_array_round_trip() -> None:
+    source = (
+        "public",
+        "products",
+        "ck_products_approval_profile",
+        "c",
+        False,
+        False,
+        True,
+        "CHECK (approval_profile::text = ANY "
+        "(ARRAY['POULTRY'::character varying, "
+        "'RED_MEAT'::character varying]::text[]))",
+    )
+    restored = (
+        "public",
+        "products",
+        "ck_products_approval_profile",
+        "c",
+        False,
+        False,
+        True,
+        "CHECK (approval_profile::text = ANY "
+        "(ARRAY['POULTRY'::character varying::text, "
+        "'RED_MEAT'::character varying::text]))",
+    )
+    assert backup_job._canonical_schema_row(
+        "constraint", source
+    ) == backup_job._canonical_schema_row("constraint", restored)
+
+
+def test_constraint_inventory_keeps_meaningful_check_changes_distinct() -> None:
+    source = ("public", "products", "ck", "c", False, False, True, "CHECK (x > 0)")
+    changed = ("public", "products", "ck", "c", False, False, True, "CHECK (x >= 0)")
+    assert backup_job._canonical_schema_row(
+        "constraint", source
+    ) != backup_job._canonical_schema_row("constraint", changed)
+
+
+def test_constraint_inventory_does_not_globally_rewrite_varchar_casts() -> None:
+    varchar_definition = (
+        "public",
+        "products",
+        "ck",
+        "c",
+        False,
+        False,
+        True,
+        "CHECK (x::character varying = 'a'::character varying)",
+    )
+    text_definition = (
+        "public",
+        "products",
+        "ck",
+        "c",
+        False,
+        False,
+        True,
+        "CHECK (x::text = 'a'::text)",
+    )
+    assert backup_job._canonical_schema_row(
+        "constraint", varchar_definition
+    ) != backup_job._canonical_schema_row("constraint", text_definition)
+
+
+def test_relation_inventory_compares_effective_sorted_acl() -> None:
+    relation_query = dict(backup_job._SCHEMA_INVENTORY_QUERIES)["relation"]
+    assert "pg_catalog.acldefault" in relation_query
+    assert "ORDER BY acl_entry::text" in relation_query
+
+
 def test_repository_output_and_unreviewed_database_names_are_rejected() -> None:
     with pytest.raises(RuntimeError, match="outside the repository"):
         backup_job._validated_output_directory(backup_job.PROJECT_ROOT / "backups")

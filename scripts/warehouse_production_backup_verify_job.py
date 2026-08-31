@@ -352,6 +352,53 @@ def _normalized_row(row: Sequence[object]) -> tuple[object, ...]:
     return tuple(normalized)
 
 
+_VARCHAR_LITERAL = r"'(?:''|[^'])*'::character varying"
+_VARCHAR_TEXT_ARRAY_CAST = re.compile(
+    rf"ARRAY\[(?P<items>{_VARCHAR_LITERAL}(?:,\s*{_VARCHAR_LITERAL})*)\]"
+    r"::text\[\]"
+)
+_VARCHAR_TEXT_ARRAY_ELEMENTS = re.compile(
+    rf"ARRAY\[(?P<items>{_VARCHAR_LITERAL}::text"
+    rf"(?:,\s*{_VARCHAR_LITERAL}::text)*)\]"
+)
+
+
+def _canonical_varchar_text_array(match: re.Match[str]) -> str:
+    items = match.group("items").replace("::character varying::text", "::text")
+    items = items.replace("::character varying", "::text")
+    return f"ARRAY[{items}]"
+
+
+def _canonical_schema_row(
+    category: str,
+    row: Sequence[object],
+) -> tuple[object, ...]:
+    """Remove only known PostgreSQL dump/restore representation noise.
+
+    PostgreSQL 17 can deparse a varchar literal array either as varchar
+    elements followed by one text[] cast, or as individually text-cast
+    elements.  Those trees are binary-coercible and have identical CHECK
+    semantics.  Normalising this exact, narrow form keeps the schema gate
+    strict for every other constraint change.
+    """
+
+    normalized = list(_normalized_row(row))
+    if category != "constraint" or not normalized:
+        return tuple(normalized)
+    definition = normalized[-1]
+    if not isinstance(definition, str):
+        return tuple(normalized)
+    canonical = _VARCHAR_TEXT_ARRAY_CAST.sub(
+        _canonical_varchar_text_array,
+        definition,
+    )
+    normalized[-1] = _VARCHAR_TEXT_ARRAY_ELEMENTS.sub(
+        _canonical_varchar_text_array,
+        canonical,
+    )
+    return tuple(normalized)
+
+
 _SCHEMA_INVENTORY_QUERIES: tuple[tuple[str, str], ...] = (
     (
         "database",
@@ -394,7 +441,25 @@ _SCHEMA_INVENTORY_QUERIES: tuple[tuple[str, str], ...] = (
                relation.relkind,
                relation.relpersistence,
                owner_role.rolname,
-               COALESCE(relation.relacl::text, ''),
+               COALESCE(
+                   (
+                       SELECT string_agg(acl_entry::text, E'\x1f'
+                                         ORDER BY acl_entry::text)
+                       FROM unnest(
+                           COALESCE(
+                               relation.relacl,
+                               pg_catalog.acldefault(
+                                   CASE
+                                       WHEN relation.relkind = 'S' THEN 's'
+                                       ELSE 'r'
+                                   END::"char",
+                                   relation.relowner
+                               )
+                           )
+                       ) AS acl_entry
+                   ),
+                   ''
+               ),
                relation.relrowsecurity,
                relation.relforcerowsecurity,
                COALESCE(relation.reloptions::text, '')
@@ -752,7 +817,7 @@ def _inspection_from_connection(connection: ConnectionLike) -> DatabaseInspectio
     entry_hashes: list[tuple[str, str, str]] = []
     for category, query in _SCHEMA_INVENTORY_QUERIES:
         rows = connection.execute(query).fetchall()
-        normalized_rows = tuple(_normalized_row(row) for row in rows)
+        normalized_rows = tuple(_canonical_schema_row(category, row) for row in rows)
         entry_counts.append((category, len(normalized_rows)))
         category_hashes.append((category, _sha256_payload(normalized_rows)))
         entry_hashes.extend(
