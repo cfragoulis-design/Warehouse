@@ -121,7 +121,9 @@ Before running the tool:
 1. Record the active deployment and its restricted-role rollback baseline.
 2. Pause Warehouse writes.
 3. Take a fresh Production backup.
-4. Verify the backup checksum and restore it into isolated PostgreSQL 17.
+4. Verify the backup checksum and complete the two-cycle, rollback-only offline
+   proof in `docs/WAREHOUSE_VERIFIED_RESTORE_EXERCISE.md`. Retain its
+   deterministic POST and cleanup evidence.
 5. Use a clean, approved candidate artifact and its full lowercase commit SHA.
 6. Confirm the runtime password has at least 32 characters and is available
    only through the non-display secret environment.

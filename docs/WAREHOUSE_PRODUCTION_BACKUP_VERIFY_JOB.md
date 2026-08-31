@@ -254,6 +254,12 @@ before declaring the backup usable. Do not publish, deploy, copy, restore
 elsewhere or delete the Production backup without separate approval for that
 specific action.
 
+Before using this backup as release evidence, run the offline-only two-cycle
+role/migration rollback proof in
+`docs/WAREHOUSE_VERIFIED_RESTORE_EXERCISE.md`. That bridge accepts only this
+four-file verified artifact set and a canonical release, starts its own
+loopback-only PostgreSQL 17 clusters, and never connects back to Production.
+
 ---
 
 RAW LOGIC. REAL SYSTEMS.
