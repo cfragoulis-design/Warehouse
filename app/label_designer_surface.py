@@ -165,11 +165,15 @@ def label_layouts_save_draft(
     db: Session = Depends(get_db),
 ):
     body = _require_json_request(request, payload)
-    _require_exact_fields(body, {"settings", "reason", "expected_version"})
+    _require_exact_fields(
+        body,
+        {"settings", "content", "reason", "expected_version"},
+    )
     try:
         version = save_layout_draft(
             db,
             settings=body["settings"],
+            content=body["content"],
             actor=user,
             reason=body["reason"],
             expected_version=body["expected_version"],

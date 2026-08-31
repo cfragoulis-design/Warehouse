@@ -16,6 +16,7 @@ CREATOR = "Christos Fragoulis"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 COMMON_FILES = {
+    "company-logo-sklavounos.png": "company-logo-sklavounos.png",
     "Diagnose-WarehouseHprtAgent.ps1": "Diagnose-WarehouseHprtAgent.ps1",
     "favicon-64.png": "favicon-64.png",
     "HprtLpq80Print.ps1": "HprtLpq80Print.ps1",
@@ -131,9 +132,16 @@ def build(source_commit: str) -> tuple[Path, Path]:
     production_manifest = json.loads(
         (SOURCE / "PACKAGE-MANIFEST-PRODUCTION.json").read_text(encoding="utf-8-sig")
     )
-    if staging_manifest.get("version") != "1.0.16-staging":
+    company_logo = SOURCE / "company-logo-sklavounos.png"
+    canonical_company_logo = ROOT / "app" / "static" / "logo-icon.png"
+    if _sha256(company_logo) != _sha256(canonical_company_logo):
+        raise RuntimeError("Packaged company logo must match the approved Warehouse asset")
+    if _sha256(company_logo) != "41633fd9bf9fc15c885c1c6b39ddfb9211c85a330bf07bc4465c1de3d357eeff":
+        raise RuntimeError("Approved company logo hash is unexpected")
+
+    if staging_manifest.get("version") != "1.0.17-staging":
         raise RuntimeError("Unexpected staging Agent version")
-    if production_manifest.get("version") != "1.0.16":
+    if production_manifest.get("version") != "1.0.17":
         raise RuntimeError("Unexpected production Agent version")
     if staging_manifest.get("environment") != "staging":
         raise RuntimeError("Staging package manifest must target staging")
@@ -142,8 +150,12 @@ def build(source_commit: str) -> tuple[Path, Path]:
     if production_manifest.get("base_url") != "https://sklavounoswh.up.railway.app":
         raise RuntimeError("Production package manifest has an unexpected base URL")
     for manifest in (staging_manifest, production_manifest):
-        if manifest.get("label_payload_schemas") != [3, 4, 5, 6]:
-            raise RuntimeError("Agent package must explicitly support schemas 3, 4, 5 and 6")
+        if manifest.get("label_payload_schemas") != [3, 4, 5, 6, 7]:
+            raise RuntimeError("Agent package must explicitly support schemas 3 through 7")
+        if manifest.get("company_label_asset") != "company-logo-sklavounos.png":
+            raise RuntimeError("Agent package must declare the approved company label asset")
+        if manifest.get("company_label_asset_sha256") != _sha256(company_logo):
+            raise RuntimeError("Agent package company label asset hash does not match")
         if manifest.get("contains_agent_token") is not False:
             raise RuntimeError("Agent packages must never contain a token")
 
@@ -158,8 +170,8 @@ def build(source_commit: str) -> tuple[Path, Path]:
     if production_origin not in production_setup or staging_origin in production_setup:
         raise RuntimeError("Production setup does not target only the production Warehouse")
 
-    staging = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16-STAGING.zip"
-    production = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16.zip"
+    staging = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.17-STAGING.zip"
+    production = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.17.zip"
     _build_zip(
         staging,
         {
@@ -178,14 +190,14 @@ def build(source_commit: str) -> tuple[Path, Path]:
     )
     _write_release_manifest(
         DOWNLOADS / "HPRT-AGENT-RELEASE-MANIFEST.json",
-        version="1.0.16-staging",
+        version="1.0.17-staging",
         source_commit=source_commit,
         package=staging,
         production=False,
     )
     _write_release_manifest(
         DOWNLOADS / "HPRT-AGENT-PRODUCTION-RELEASE-MANIFEST.json",
-        version="1.0.16",
+        version="1.0.17",
         source_commit=source_commit,
         package=production,
         production=True,

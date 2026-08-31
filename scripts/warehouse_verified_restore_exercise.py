@@ -38,6 +38,10 @@ EXPECTED_PENDING_VERSIONS = (
     "20260828_002",
     "20260830_002",
     "20260830_003",
+    "20260831_001",
+    "20260831_002",
+    "20260831_003",
+    "20260831_004",
 )
 EXPECTED_LEDGER_RECONCILIATION = "deferred_20260828_002"
 EXERCISE_TOKEN = "EXERCISE-WAREHOUSE-VERIFIED-RESTORE"
@@ -53,7 +57,7 @@ PREREQUISITE_CONTRACT_VERSION = "warehouse-verified-restore-prerequisites-v1"
 # Binds the exact Production constants consumed by _prerequisite_contract_payload().
 # A change requires review of this offline bridge before it may run again.
 PREREQUISITE_CONTRACT_SHA256 = (
-    "3467d79c0de41cbfecb84ae326f9930d5ce3e79a845611b7573a94e55fc79bf4"
+    "60df0df69952ecc0c408a23a822b11affcf3a0021bc355a906b2b968452cc997"
 )
 
 PRODUCTION_RAILWAY_PROJECT_ID = "4cd318f3-41f9-43c5-8664-44ff7e581a6a"

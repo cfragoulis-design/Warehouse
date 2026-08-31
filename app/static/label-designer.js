@@ -4,6 +4,11 @@ const DESIGNER_API = "/admin/labels/layouts";
 const bootstrapElement = document.getElementById("label-designer-bootstrap");
 const bootstrap = bootstrapElement ? JSON.parse(bootstrapElement.textContent || "{}") : {};
 const products = Array.isArray(bootstrap.products) ? bootstrap.products : [];
+const companyLogo = new Image();
+let companyLogoReady = false;
+companyLogo.addEventListener("load", () => { companyLogoReady = true; schedulePreview(); });
+companyLogo.addEventListener("error", () => { companyLogoReady = false; schedulePreview(); });
+companyLogo.src = String(bootstrap.company_logo_url || "/static/logo-icon.png");
 
 const shell = document.getElementById("designerShell");
 const sampleSelect = document.getElementById("sampleSelect");
@@ -93,6 +98,7 @@ const FIXED_MINIMUMS = {
 
 let state = null;
 let workingSettings = {};
+let workingContent = {};
 let selectedVersionId = null;
 let renderPending = false;
 
@@ -104,8 +110,24 @@ function canonicalSettings(settings) {
   return JSON.stringify(Object.keys(settings || {}).sort().map((key) => [key, Number(settings[key])]));
 }
 
+function cloneContent(content) {
+  return Object.fromEntries(Object.entries(content || {}).map(([key, value]) => [key, String(value ?? "")]));
+}
+
+function canonicalContent(content) {
+  return JSON.stringify(Object.keys(content || {}).sort().map((key) => [key, String(content[key] ?? "")]));
+}
+
+function canonicalWorkspace(settings, content) {
+  return `${canonicalSettings(settings)}|${canonicalContent(content)}`;
+}
+
 function activeSettings() {
   return cloneSettings((state && state.active && state.active.settings) || (state && state.defaults) || {});
+}
+
+function activeContent() {
+  return cloneContent((state && state.active && state.active.content) || (state && state.content_defaults) || {});
 }
 
 function getVersions() {
@@ -118,6 +140,10 @@ function versionId(version) {
 
 function versionSettings(version) {
   return cloneSettings((version && version.settings) || {});
+}
+
+function versionContent(version) {
+  return cloneContent((version && version.content) || (state && state.content_defaults) || {});
 }
 
 function activeVersionId() {
@@ -255,19 +281,86 @@ function buildControls() {
     details.append(summary, grid);
     controlGroups.appendChild(details);
   });
+
+  const contentDetails = document.createElement("details");
+  contentDetails.className = "control-group";
+  contentDetails.open = true;
+  const contentSummary = document.createElement("summary");
+  contentSummary.textContent = "Νόμιμα στοιχεία παραγωγού και εταιρικό σήμα";
+  const contentGrid = document.createElement("div");
+  contentGrid.className = "control-group-grid";
+  const textFields = [
+    ["footer_caption", "Λεζάντα παραγωγού"],
+    ["company_name", "Επωνυμία εταιρείας"],
+    ["company_address", "Διεύθυνση εταιρείας"],
+  ];
+  textFields.forEach(([field, title]) => {
+    const wrapper = document.createElement("div");
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.htmlFor = `label-content-${field}`;
+    label.textContent = title;
+    const input = document.createElement("input");
+    input.id = `label-content-${field}`;
+    input.className = "select-control";
+    input.type = "text";
+    input.maxLength = Number((state.content_limits || {})[field] || 255);
+    input.value = String(workingContent[field] || "");
+    input.dataset.contentField = field;
+    input.autocomplete = "off";
+    input.addEventListener("input", () => {
+      workingContent[field] = input.value;
+      updateDirtyState();
+      schedulePreview();
+    });
+    wrapper.append(label, input);
+    contentGrid.appendChild(wrapper);
+  });
+
+  const logoWrapper = document.createElement("div");
+  const logoLabel = document.createElement("label");
+  logoLabel.className = "field-label";
+  logoLabel.htmlFor = "label-content-logo_asset_id";
+  logoLabel.textContent = "Εταιρικό λογότυπο στην ετικέτα";
+  const logoSelect = document.createElement("select");
+  logoSelect.id = "label-content-logo_asset_id";
+  logoSelect.className = "select-control";
+  logoSelect.dataset.contentField = "logo_asset_id";
+  [["NONE", "Χωρίς λογότυπο"], ["SKLAVOUNOS_MARK", "Σήμα εταιρείας Sklavounos"]].forEach(([value, title]) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = title;
+    logoSelect.appendChild(option);
+  });
+  logoSelect.value = String(workingContent.logo_asset_id || "NONE");
+  logoSelect.addEventListener("change", () => {
+    workingContent.logo_asset_id = logoSelect.value;
+    updateDirtyState();
+    schedulePreview();
+  });
+  const logoHelp = document.createElement("p");
+  logoHelp.className = "field-help";
+  logoHelp.textContent = "Επιτρέπεται μόνο το εγκεκριμένο εταιρικό σήμα. Δεν γίνεται μεταφόρτωση αυθαίρετου αρχείου.";
+  logoWrapper.append(logoLabel, logoSelect, logoHelp);
+  contentGrid.appendChild(logoWrapper);
+  contentDetails.append(contentSummary, contentGrid);
+  controlGroups.appendChild(contentDetails);
 }
 
 function syncControlValues() {
   controlGroups.querySelectorAll("input[data-field]").forEach((input) => {
     input.value = String(workingSettings[input.dataset.field]);
   });
+  controlGroups.querySelectorAll("[data-content-field]").forEach((input) => {
+    input.value = String(workingContent[input.dataset.contentField] || "");
+  });
 }
 
 function updateDirtyState() {
-  const canonicalWorking = canonicalSettings(workingSettings);
-  const matchingVersion = getVersions().find((version) => canonicalSettings(versionSettings(version)) === canonicalWorking) || null;
+  const canonicalWorking = canonicalWorkspace(workingSettings, workingContent);
+  const matchingVersion = getVersions().find((version) => canonicalWorkspace(versionSettings(version), versionContent(version)) === canonicalWorking) || null;
   selectedVersionId = matchingVersion ? versionId(matchingVersion) : null;
-  const matchesActive = canonicalWorking === canonicalSettings(activeSettings());
+  const matchesActive = canonicalWorking === canonicalWorkspace(activeSettings(), activeContent());
   if (!matchingVersion) {
     dirtyBadge.textContent = "Μη αποθηκευμένες αλλαγές";
     dirtyBadge.className = "badge badge-dirty";
@@ -287,14 +380,19 @@ function updateDirtyState() {
   activateBtn.disabled = !matchingVersion || String(versionId(matchingVersion)) === String(activeVersionId());
 }
 
-function setWorkingSettings(settings) {
+function setWorkingVersion(settings, content) {
   workingSettings = cloneSettings(settings);
+  workingContent = cloneContent(content);
   syncControlValues();
   updateDirtyState();
   schedulePreview();
 }
 
 function sampleData() {
+  const footerCaption = workingContent.footer_caption || "Παρασκευάζεται και συσκευάζεται από:";
+  const selectedCompanyName = workingContent.company_name || "ΣΚΛΑΒΟΥΝΟΣ ΑΝΔΡΕΑΣ & ΣΚΛΑΒΟΥΝΟΣ ΧΡΗΣΤΟΣ Ο.Ε.";
+  const selectedCompanyAddress = workingContent.company_address || "Πλατεία Γεωργίου Θεοτόκη 25, 49100 Κέρκυρα";
+  const logoAssetId = workingContent.logo_asset_id || "NONE";
   if (sampleSelect.value.startsWith("product:")) {
     const id = sampleSelect.value.slice("product:".length);
     const item = products.find((product) => String(product.id) === id);
@@ -312,8 +410,10 @@ function sampleData() {
         useByDate: "06/09/2026",
         lot: `${item.sku || item.id}-300826-W-01`,
         sourceLot: "ΠΡΟΜ-20260830-001",
-        businessName: item.business.name || "ΣΚΛΑΒΟΥΝΟΣ ΑΝΔΡΕΑΣ & ΣΚΛΑΒΟΥΝΟΣ ΧΡΗΣΤΟΣ Ο.Ε.",
-        businessAddress: item.business.address || "Πλατεία Γεωργίου Θεοτόκη 25, 49100 Κέρκυρα",
+        footerCaption,
+        businessName: selectedCompanyName,
+        businessAddress: selectedCompanyAddress,
+        logoAssetId,
         approval: item.business.approval_number || "GR PE 620 CE",
       };
     }
@@ -331,8 +431,10 @@ function sampleData() {
     useByDate: "06/09/2026",
     lot: "1075-300826-W-123456",
     sourceLot: "ΠΡΟΜΗΘΕΥΤΗΣ-20260830-987654",
-    businessName: "ΣΚΛΑΒΟΥΝΟΣ ΑΝΔΡΕΑΣ & ΣΚΛΑΒΟΥΝΟΣ ΧΡΗΣΤΟΣ Ο.Ε.",
-    businessAddress: "Πλατεία Γεωργίου Θεοτόκη 25, 49100 Κέρκυρα",
+    footerCaption,
+    businessName: selectedCompanyName,
+    businessAddress: selectedCompanyAddress,
+    logoAssetId,
     approval: "GR PE 620 CE",
   };
 }
@@ -413,6 +515,30 @@ function approvalParts(value) {
   const suffix = tokens.length > 1 && /^[A-ZΑ-Ω]{1,3}$/u.test(tokens[tokens.length - 1]) ? tokens.pop() : "CE";
   tokens.shift();
   return [country, tokens.join(" ") || "—", suffix];
+}
+
+function drawCompanyLogo(assetId, failures) {
+  if (assetId === "NONE") return false;
+  if (assetId !== "SKLAVOUNOS_MARK") {
+    failures.push("Μη εγκεκριμένο εταιρικό λογότυπο");
+    return false;
+  }
+  if (!companyLogoReady || !companyLogo.naturalWidth || !companyLogo.naturalHeight) {
+    failures.push("Το εταιρικό λογότυπο δεν φορτώθηκε");
+    return false;
+  }
+  const box = { x: 17, y: 478, width: 50, height: 64 };
+  const scale = Math.min(box.width / companyLogo.naturalWidth, box.height / companyLogo.naturalHeight);
+  const width = companyLogo.naturalWidth * scale;
+  const height = companyLogo.naturalHeight * scale;
+  ctx.drawImage(
+    companyLogo,
+    box.x + ((box.width - width) / 2),
+    box.y + ((box.height - height) / 2),
+    width,
+    height,
+  );
+  return true;
 }
 
 function thresholdCanvas() {
@@ -510,13 +636,16 @@ function renderPreview() {
   ctx.lineTo(386, 452);
   ctx.stroke();
 
-  drawFittedText("Παρασκευάζεται και συσκευάζεται από:", { x: 14, y: 456, width: 278, height: 18 }, {
+  drawFittedText(sample.footerCaption, { x: 14, y: 456, width: 278, height: 18 }, {
     maximum: setting("footer_caption_font_px", 10), minimum: minimumFor("footer_caption_font_px"), noWrap: true, label: "Λεζάντα παραγωγού",
   }, failures);
-  drawFittedText(sample.businessName, { x: 14, y: 473, width: 278, height: 31 }, {
+  const hasCompanyLogo = drawCompanyLogo(sample.logoAssetId, failures);
+  const footerTextX = hasCompanyLogo ? 72 : 14;
+  const footerTextWidth = hasCompanyLogo ? 220 : 278;
+  drawFittedText(sample.businessName, { x: footerTextX, y: 473, width: footerTextWidth, height: 31 }, {
     maximum: setting("footer_name_font_px", 13), minimum: minimumFor("footer_name_font_px"), bold: true, label: "Επωνυμία",
   }, failures);
-  drawFittedText(sample.businessAddress, { x: 14, y: 503, width: 278, height: 43 }, {
+  drawFittedText(sample.businessAddress, { x: footerTextX, y: 503, width: footerTextWidth, height: 43 }, {
     maximum: setting("footer_address_font_px", 10), minimum: minimumFor("footer_address_font_px"), label: "Διεύθυνση",
   }, failures);
 
@@ -588,7 +717,7 @@ function renderVersions() {
     label.append(radio, content);
     radio.addEventListener("change", () => {
       selectedVersionId = id;
-      setWorkingSettings(versionSettings(version));
+      setWorkingVersion(versionSettings(version), versionContent(version));
       renderVersions();
     });
     versionList.appendChild(label);
@@ -607,15 +736,19 @@ async function loadState({ keepSelection = false } = {}) {
     const payload = await api();
     state = payload.state && typeof payload.state === "object" ? payload.state : payload;
     state.defaults = cloneSettings(state.defaults || (state.active && state.active.settings) || {});
+    state.content_defaults = cloneContent(state.content_defaults || (state.active && state.active.content) || {});
     state.bounds = normalizeBounds(state.bounds || {}, state.defaults);
     if (!Object.keys(state.defaults).length) throw new Error("Το backend δεν επέστρεψε το canonical layout contract.");
     runtimeBanner.hidden = false;
-    runtimeBanner.className = `runtime-banner${state.schema6_enabled ? " is-live" : ""}`;
-    runtimeBanner.textContent = state.schema6_enabled
-      ? "Η ενεργή έκδοση εφαρμόζεται στις νέες εργασίες εκτύπωσης. Οι ήδη queued εργασίες κρατούν το δικό τους snapshot."
-      : "Η έκδοση μπορεί να ρυθμιστεί με ασφάλεια, αλλά η εφαρμογή της στις νέες εκτυπώσεις παραμένει κλειστή από το feature gate.";
+    runtimeBanner.className = `runtime-banner${state.schema6_enabled || state.schema7_enabled ? " is-live" : ""}`;
+    runtimeBanner.textContent = state.schema7_enabled
+      ? "Η ενεργή έκδοση διάταξης και νόμιμων στοιχείων εφαρμόζεται στις νέες εργασίες ως immutable schema 7 snapshot. Οι queued εργασίες δεν αλλάζουν."
+      : (state.schema6_enabled
+        ? "Η ενεργή διάταξη εφαρμόζεται στις νέες εργασίες. Τα νόμιμα στοιχεία και το εταιρικό σήμα παραμένουν κλειστά από το schema 7 feature gate."
+        : "Η έκδοση μπορεί να ρυθμιστεί με ασφάλεια, αλλά η εφαρμογή της στις νέες εκτυπώσεις παραμένει κλειστή από τα feature gates.");
     if (!keepSelection || !selectedVersion()) selectedVersionId = activeVersionId();
     workingSettings = selectedVersion() ? versionSettings(selectedVersion()) : activeSettings();
+    workingContent = selectedVersion() ? versionContent(selectedVersion()) : activeContent();
     buildControls();
     renderVersions();
     updateDirtyState();
@@ -648,7 +781,7 @@ async function mutate(path, body, successMessage, { selectCreated = false } = {}
 saveDraftBtn.addEventListener("click", async () => {
   const reason = requireReason();
   if (!reason) return;
-  await mutate("", { settings: workingSettings, reason, expected_version: versionToken() }, "Η νέα έκδοση αποθηκεύτηκε ως draft.", { selectCreated: true });
+  await mutate("", { settings: workingSettings, content: workingContent, reason, expected_version: versionToken() }, "Η νέα έκδοση αποθηκεύτηκε ως draft.", { selectCreated: true });
 });
 
 activateBtn.addEventListener("click", async () => {
@@ -667,7 +800,7 @@ resetBtn.addEventListener("click", async () => {
 
 restoreWorkingBtn.addEventListener("click", () => {
   selectedVersionId = activeVersionId();
-  setWorkingSettings(activeSettings());
+  setWorkingVersion(activeSettings(), activeContent());
   renderVersions();
 });
 

@@ -35,13 +35,13 @@
     .prod{font-weight:800}
     .muted{color:var(--muted);font-size:12px}
     .qtyBox{display:flex;gap:8px;align-items:center}
-    .qtyBox input{width:84px;background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:8px 10px;border-radius:10px}
+    .qtyBox input,.preservationSelect{width:100%;background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:8px 10px;border-radius:10px}
     .tag{display:inline-flex;padding:4px 10px;border-radius:999px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.55);font-size:12px}
     .btnMini{padding:8px 10px;border-radius:10px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.45);color:var(--text);font-weight:800;cursor:pointer}
     .btnMini.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45);color:#8ab4ff}
     .btnMini.danger{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.45);color:#ffb2b2}
     .panel{padding:14px 16px}
-    .row{display:grid;grid-template-columns:1.2fr 72px 130px 120px 115px 104px 104px 54px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(36,48,85,.45)}
+    .row{display:grid;grid-template-columns:1.2fr 124px 72px 130px 120px 115px 104px 104px 54px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(36,48,85,.45)}
     .row.header{font-size:12px;color:#c9d1ea;font-weight:800}
     .row input,.row select{width:100%;background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:8px 10px;border-radius:10px}
     .empty{padding:18px;color:var(--muted)}
@@ -54,7 +54,7 @@
     .creator{padding:18px 4px 0;display:flex;justify-content:flex-end}
     .creator img{width:108px;height:108px;object-fit:contain;border-radius:12px}
     .queueCard{margin-top:16px}.queueTable{max-height:360px;overflow:auto}.status{font-weight:900}.status.QUEUED{color:#f1d694}.status.CLAIMED{color:#8ab4ff}.status.PRINTED{color:#79e6ae}.status.ERROR,.status.CANCELLED{color:#ffb2b2}.jobActions{display:flex;gap:6px;flex-wrap:wrap}.errorReason{color:#ffb2b2;font-size:12px;max-width:340px;overflow-wrap:anywhere}
-    @media (max-width: 1200px){.layout{grid-template-columns:1fr}.tableWrap{max-height:none}.panel{overflow:auto}.row{min-width:1180px}}
+    @media (max-width: 1200px){.layout{grid-template-columns:1fr}.tableWrap{max-height:none}.panel{overflow:auto}.row{min-width:1320px}}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
@@ -103,6 +103,7 @@
                 <th>Ετοιμότητα</th>
                 <th>Shelf Life</th>
                 <th>Storage</th>
+                <th>Συσκευασία</th>
                 <th style="width:150px">Qty labels</th>
                 <th style="width:110px"></th>
               </tr>
@@ -117,6 +118,7 @@
         <div class="panel">
           <div class="row header">
             <div>Προϊόν</div>
+            <div>Συσκευασία</div>
             <div>Copies</div>
             <div>Παρτίδα πηγής</div>
             <div>Προέλευση</div>
@@ -189,6 +191,36 @@ function appendInputCell(row, value, key, options={}){
   row.appendChild(cell);
 }
 
+function preservationOptions(product){
+  const options = [{value:'STANDARD', label:`Κανονική · ${Number(product.shelf_life_days || 0)}η`}];
+  if (Number(product.vacuum_shelf_life_days || 0) > 0){
+    options.push({value:'VACUUM', label:`Vacuum · ${Number(product.vacuum_shelf_life_days)}η`});
+  }
+  return options;
+}
+
+function preservationDays(product, profile){
+  return profile === 'VACUUM'
+    ? Number(product.vacuum_shelf_life_days || 0)
+    : Number(product.shelf_life_days || 0);
+}
+
+function appendPreservationCell(row, product, item){
+  const cell = document.createElement('div');
+  const select = document.createElement('select');
+  select.className = 'preservationSelect';
+  select.dataset.k = 'preservation_profile';
+  preservationOptions(product).forEach(option => {
+    const element = document.createElement('option');
+    element.value = option.value;
+    element.textContent = option.label;
+    select.appendChild(element);
+  });
+  select.value = item.preservation_profile || 'STANDARD';
+  cell.appendChild(select);
+  row.appendChild(cell);
+}
+
 function showToast(message, kind='ok'){
   toast.textContent = message;
   toast.className = `toast ${kind}`;
@@ -202,16 +234,6 @@ function fmtDate(d){
   const mm = String(d.getMonth()+1).padStart(2,'0');
   const yy = d.getFullYear();
   return `${dd}/${mm}/${yy}`;
-}
-
-function yymmdd(d){
-  return String(d.getFullYear()).slice(-2) + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
-}
-
-function buildDefaultLot(product){
-  const d = new Date();
-  const raw = (product.sku || product.name || 'PRD').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0,8) || 'PRD';
-  return `${raw}-${yymmdd(d)}-W`;
 }
 
 function calcExpiry(days){
@@ -271,8 +293,27 @@ function renderProducts(){
     if (!ready) readiness.title = missing.join(', ');
     readinessCell.appendChild(readiness);
     tr.appendChild(readinessCell);
-    tr.appendChild(textElement('td', '', `${product.shelf_life_days} days`));
-    tr.appendChild(textElement('td', 'muted', storage));
+    const lifeSummary = Number(product.vacuum_shelf_life_days || 0) > 0
+      ? `${product.shelf_life_days}η · Vacuum ${product.vacuum_shelf_life_days}η`
+      : `${product.shelf_life_days}η`;
+    tr.appendChild(textElement('td', '', lifeSummary));
+    const storageSummary = Number(product.vacuum_shelf_life_days || 0) > 0
+      ? `${storage} · Vacuum διαθέσιμο`
+      : storage;
+    tr.appendChild(textElement('td', 'muted', storageSummary));
+
+    const preservationCell = document.createElement('td');
+    const preservationSelect = document.createElement('select');
+    preservationSelect.className = 'preservationSelect';
+    preservationSelect.dataset.preservationFor = String(product.id);
+    preservationOptions(product).forEach(option => {
+      const element = document.createElement('option');
+      element.value = option.value;
+      element.textContent = option.label;
+      preservationSelect.appendChild(element);
+    });
+    preservationCell.appendChild(preservationSelect);
+    tr.appendChild(preservationCell);
 
     const quantityCell = document.createElement('td');
     const quantityBox = document.createElement('div');
@@ -309,16 +350,20 @@ function renderProducts(){
       const id = Number(btn.getAttribute('data-add'));
       const product = PRODUCTS.find(p => p.id === id);
       const qtyInput = productsBody.querySelector(`[data-qty-for="${id}"]`);
+      const preservationInput = productsBody.querySelector(`[data-preservation-for="${id}"]`);
       const copies = Math.max(1, Number(qtyInput?.value || 1));
-      const dates = calcExpiry(product.shelf_life_days);
+      const preservationProfile = String(preservationInput?.value || 'STANDARD');
+      const effectiveDays = preservationDays(product, preservationProfile);
+      const dates = calcExpiry(effectiveDays);
       batch.push({
         uid: String(Date.now()) + String(Math.random()),
         product_id: product.id,
         name: product.name,
         sku: product.sku || '',
         copies,
-        shelf_life_days: product.shelf_life_days,
-        lot_code: buildDefaultLot(product),
+        shelf_life_days: effectiveDays,
+        preservation_profile: preservationProfile,
+        lot_code: '',
         source_lot_code: (sourceLotDefault.value || '').trim(),
         label_origin_override: product.label_metadata?.origin || '',
         production_date: dates.production,
@@ -354,6 +399,8 @@ function renderBatch(){
     productCell.appendChild(textElement('div', 'prod', item.name));
     productCell.appendChild(textElement('div', 'muted', item.sku));
     row.appendChild(productCell);
+    const product = PRODUCTS.find(candidate => Number(candidate.id) === Number(item.product_id));
+    appendPreservationCell(row, product, item);
     appendInputCell(row, item.copies, 'copies', {type:'number', min:1, step:1});
     appendInputCell(row, item.source_lot_code || '', 'source_lot_code');
     appendInputCell(row, item.label_origin_override || '', 'label_origin_override');
@@ -368,11 +415,19 @@ function renderBatch(){
     row.appendChild(removeCell);
     batchRows.appendChild(row);
 
-    row.querySelectorAll('input[data-k]').forEach(input => {
+    row.querySelectorAll('input[data-k],select[data-k]').forEach(input => {
       input.addEventListener('input', () => {
         pendingPrintRequestId = null;
         const key = input.getAttribute('data-k');
         item[key] = input.type === 'number' ? Number(input.value || 0) : input.value;
+        if (key === 'preservation_profile'){
+          item.shelf_life_days = preservationDays(product, item.preservation_profile);
+          const dates = calcExpiry(item.shelf_life_days);
+          item.production_date = dates.production;
+          item.expiry_date = dates.expiry;
+          renderBatch();
+          return;
+        }
         totalCopiesEl.textContent = String(batch.reduce((s, x) => s + Number(x.copies || 0), 0));
       });
     });
@@ -398,6 +453,7 @@ function validationMessage(){
     const copies = Number(item.copies || 0);
     if (!Number.isInteger(copies) || copies < 1 || copies > 50) return `Item ${index + 1} (${item.name}): copies 1–50.`;
     if (!Number.isInteger(Number(item.product_id)) || Number(item.product_id) <= 0) return `Item ${index + 1}: invalid product.`;
+    if (!['STANDARD', 'VACUUM'].includes(item.preservation_profile)) return `Item ${index + 1}: invalid preservation profile.`;
   }
   return '';
 }
@@ -492,6 +548,7 @@ printBatchBtn.addEventListener('click', async () => {
     items: batch.map(x => ({
       product_id: x.product_id,
       copies: Number(x.copies || 0),
+      preservation_profile: x.preservation_profile || 'STANDARD',
       lot_code: (x.lot_code || '').trim(),
       source_lot_code: (x.source_lot_code || '').trim(),
       label_origin_override: (x.label_origin_override || '').trim()

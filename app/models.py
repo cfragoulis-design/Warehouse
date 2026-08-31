@@ -238,6 +238,10 @@ class LabelLayoutVersion(Base):
             name="ck_label_layout_versions_hash_length",
         ),
         CheckConstraint(
+            "length(content_sha256) = 64",
+            name="ck_label_layout_versions_content_hash_length",
+        ),
+        CheckConstraint(
             "length(trim(change_reason)) > 0",
             name="ck_label_layout_versions_reason_required",
         ),
@@ -249,6 +253,30 @@ class LabelLayoutVersion(Base):
     contract_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     settings_json: Mapped[str] = mapped_column(Text, nullable=False)
     settings_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default=(
+            '{"company_address":"Πλατεία Γεωργίου Θεοτόκη 25, 49100 Κέρκυρα",'
+            '"company_name":"ΣΚΛΑΒΟΥΝΟΣ ΑΝΔΡΕΑΣ & ΣΚΛΑΒΟΥΝΟΣ ΧΡΗΣΤΟΣ Ο.Ε.",'
+            '"footer_caption":"Παρασκευάζεται και συσκευάζεται από:",'
+            '"logo_asset_id":"NONE"}'
+        ),
+        server_default=(
+            '{"company_address":"Πλατεία Γεωργίου Θεοτόκη 25, 49100 Κέρκυρα",'
+            '"company_name":"ΣΚΛΑΒΟΥΝΟΣ ΑΝΔΡΕΑΣ & ΣΚΛΑΒΟΥΝΟΣ ΧΡΗΣΤΟΣ Ο.Ε.",'
+            '"footer_caption":"Παρασκευάζεται και συσκευάζεται από:",'
+            '"logo_asset_id":"NONE"}'
+        ),
+    )
+    content_sha256: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="181ac5a027bd2bab8c669c23ef90a69bf77474906888e74a4e4a4591a6e1e707",
+        server_default=(
+            "181ac5a027bd2bab8c669c23ef90a69bf77474906888e74a4e4a4591a6e1e707"
+        ),
+    )
     based_on_version_id: Mapped[int | None] = mapped_column(
         ForeignKey("label_layout_versions.id", ondelete="RESTRICT"),
         nullable=True,
@@ -321,6 +349,15 @@ class Product(Base):
             "NOT label_plain_piece OR lower(trim(unit)) IN ('pcs', 'box', 'tray')",
             name="ck_products_label_plain_piece_unit",
         ),
+        CheckConstraint(
+            "vacuum_shelf_life_days IS NULL "
+            "OR vacuum_shelf_life_days BETWEEN 1 AND 3650",
+            name="ck_products_vacuum_shelf_life_positive",
+        ),
+        CheckConstraint(
+            "vacuum_shelf_life_days IS NOT NULL OR vacuum_storage_text IS NULL",
+            name="ck_products_vacuum_storage_requires_profile",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -348,6 +385,8 @@ class Product(Base):
     # Label printing metadata
     shelf_life_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     storage_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    vacuum_shelf_life_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vacuum_storage_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
     label_template: Mapped[str | None] = mapped_column(String(255), nullable=True)
     label_legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     label_ingredients: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -379,6 +418,12 @@ class Product(Base):
 
 class ProductLot(Base):
     __tablename__ = "product_lots"
+    __table_args__ = (
+        CheckConstraint(
+            "preservation_profile IN ('STANDARD', 'VACUUM')",
+            name="ck_product_lots_preservation_profile",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     product_id: Mapped[int] = mapped_column(
@@ -394,6 +439,12 @@ class ProductLot(Base):
     batch_ref: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     extra_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     label_profile: Mapped[str] = mapped_column(String(32), nullable=False, default="INTERNAL")
+    preservation_profile: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="STANDARD",
+        server_default="STANDARD",
+    )
     source_lot_code: Mapped[str | None] = mapped_column(String(96), nullable=True)
     net_quantity_text: Mapped[str | None] = mapped_column(String(64), nullable=True)
     label_origin_override: Mapped[str | None] = mapped_column(String(255), nullable=True)

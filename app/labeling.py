@@ -12,12 +12,21 @@ from .approval_profiles import (
     normalize_approval_profile,
 )
 from .label_layout import LabelLayoutValidationError, validate_layout_snapshot
+from .label_content import (
+    LabelContentValidationError,
+    validate_label_content_snapshot,
+)
 
 
 INTERNAL_PROFILE = "INTERNAL"
 DISTRIBUTION_PROFILE = "DISTRIBUTION"
 VALID_LABEL_PROFILES = frozenset({INTERNAL_PROFILE, DISTRIBUTION_PROFILE})
 PLAIN_TRACEABILITY_UNITS = frozenset({"pcs", "box", "tray"})
+STANDARD_PRESERVATION = "STANDARD"
+VACUUM_PRESERVATION = "VACUUM"
+VALID_PRESERVATION_PROFILES = frozenset(
+    {STANDARD_PRESERVATION, VACUUM_PRESERVATION}
+)
 
 
 class LabelValidationError(ValueError):
@@ -65,6 +74,47 @@ def normalize_label_profile(value: object) -> str:
     return normalized
 
 
+def normalize_preservation_profile(value: object) -> str:
+    normalized = str(value or STANDARD_PRESERVATION).strip().upper()
+    if normalized not in VALID_PRESERVATION_PROFILES:
+        raise LabelValidationError("Μη έγκυρος τρόπος συσκευασίας.")
+    return normalized
+
+
+def preservation_details(product, value: object) -> dict[str, object]:
+    """Resolve an operator choice exclusively from controlled product data."""
+
+    profile = normalize_preservation_profile(value)
+    standard_days = int(getattr(product, "shelf_life_days", 0) or 0)
+    standard_storage = _clean(getattr(product, "storage_text", None), maximum=255)
+    if profile == STANDARD_PRESERVATION:
+        if standard_days <= 0:
+            raise LabelValidationError("Δεν έχουν οριστεί ημέρες κανονικής συσκευασίας.")
+        return {
+            "code": STANDARD_PRESERVATION,
+            "display_name": "Κανονική συσκευασία",
+            "shelf_life_days": standard_days,
+            "storage": standard_storage,
+        }
+
+    vacuum_days = int(getattr(product, "vacuum_shelf_life_days", 0) or 0)
+    if vacuum_days <= 0:
+        raise LabelValidationError("Το Vacuum δεν έχει ρυθμιστεί για αυτό το προϊόν.")
+    vacuum_storage = _clean(
+        getattr(product, "vacuum_storage_text", None), maximum=255
+    )
+    if not vacuum_storage:
+        vacuum_storage = "Συσκευασία υπό κενό"
+        if standard_storage:
+            vacuum_storage = f"{vacuum_storage} · {standard_storage}"
+    return {
+        "code": VACUUM_PRESERVATION,
+        "display_name": "Συσκευασία υπό κενό",
+        "shelf_life_days": vacuum_days,
+        "storage": vacuum_storage,
+    }
+
+
 def _clean(value: object, *, maximum: int = 4_000) -> str:
     text = str(value or "").strip()
     if len(text) > maximum:
@@ -76,7 +126,12 @@ def _label_date(value: date | None) -> str:
     return value.strftime("%d/%m/%Y") if value else ""
 
 
-def product_readiness(product, profile: str) -> tuple[str, ...]:
+def product_readiness(
+    product,
+    profile: str,
+    *,
+    label_content: Mapping[str, object] | None = None,
+) -> tuple[str, ...]:
     profile = normalize_label_profile(profile)
     missing: list[str] = []
     if not _clean(getattr(product, "label_legal_name", None) or getattr(product, "name", None)):
@@ -105,9 +160,14 @@ def product_readiness(product, profile: str) -> tuple[str, ...]:
     if not nutrition_exempt and not _clean(getattr(product, "label_nutrition", None)):
         missing.append("διατροφική δήλωση ή τεκμηριωμένη εξαίρεση")
     business = business_label_identity(product)
-    if not business.name:
+    business_name = business.name
+    business_address = business.address
+    if label_content is not None:
+        business_name = str(label_content.get("company_name") or "").strip()
+        business_address = str(label_content.get("company_address") or "").strip()
+    if not business_name:
         missing.append("επωνυμία επιχείρησης")
-    if not business.address:
+    if not business_address:
         missing.append("διεύθυνση επιχείρησης")
     if business.approval_profile == UNASSIGNED:
         missing.append("προφίλ κωδικού έγκρισης")
@@ -140,24 +200,55 @@ def build_label_payload(
     *,
     profile: str,
     layout_snapshot: Mapping[str, object] | None = None,
+    content_snapshot: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     profile = normalize_label_profile(profile)
-    missing = product_readiness(product, profile)
-    if missing:
-        raise LabelValidationError("Λείπουν: " + ", ".join(missing))
-
-    business = business_label_identity(product)
-    metadata = product_label_metadata(product)
-    origin_override = _clean(getattr(lot, "label_origin_override", None), maximum=255)
-    if origin_override:
-        metadata["origin"] = origin_override
-    plain_traceability = bool(metadata.pop("plain_traceability", False))
     normalized_layout: dict[str, object] | None = None
     if layout_snapshot is not None:
         try:
             normalized_layout = validate_layout_snapshot(layout_snapshot)
         except LabelLayoutValidationError as exc:
             raise LabelValidationError(str(exc)) from exc
+
+    normalized_content: dict[str, object] | None = None
+    if content_snapshot is not None:
+        if normalized_layout is None:
+            raise LabelValidationError(
+                "Το περιεχόμενο ετικέτας απαιτεί ενεργή έκδοση διάταξης."
+            )
+        try:
+            normalized_content = validate_label_content_snapshot(content_snapshot)
+        except LabelContentValidationError as exc:
+            raise LabelValidationError(str(exc)) from exc
+        if normalized_layout["version_id"] != normalized_content["version_id"]:
+            raise LabelValidationError(
+                "Οι εκδόσεις διάταξης και περιεχομένου ετικέτας δεν συμφωνούν."
+            )
+
+    content = None
+    if normalized_content is not None:
+        candidate_content = normalized_content.get("content")
+        if isinstance(candidate_content, Mapping):
+            content = candidate_content
+
+    missing = product_readiness(product, profile, label_content=content)
+    if missing:
+        raise LabelValidationError("Λείπουν: " + ", ".join(missing))
+
+    business = business_label_identity(product)
+    preservation = preservation_details(
+        product,
+        getattr(lot, "preservation_profile", STANDARD_PRESERVATION),
+    )
+    metadata = product_label_metadata(product)
+    origin_override = _clean(getattr(lot, "label_origin_override", None), maximum=255)
+    if origin_override:
+        metadata["origin"] = origin_override
+    plain_traceability = bool(metadata.pop("plain_traceability", False))
+    if normalized_content is not None:
+        schema_version = 7
+        metadata["plain_traceability"] = plain_traceability
+    elif normalized_layout is not None:
         schema_version = 6
         metadata["plain_traceability"] = plain_traceability
     elif plain_traceability:
@@ -184,16 +275,30 @@ def build_label_payload(
             "source_lot": _clean(getattr(lot, "source_lot_code", None), maximum=96),
             "production_date": _label_date(getattr(lot, "production_date", None)),
             "use_by_date": _label_date(getattr(lot, "expiry_date", None)),
-            "shelf_life_days": int(getattr(product, "shelf_life_days", 0) or 0),
+            "shelf_life_days": int(preservation["shelf_life_days"]),
         },
-        "storage": _clean(getattr(product, "storage_text", None), maximum=255),
+        "preservation": {
+            "code": preservation["code"],
+            "display_name": preservation["display_name"],
+        },
+        "storage": preservation["storage"],
         "business": {
-            "name": business.name,
-            "address": business.address,
+            "name": (
+                str(content.get("company_name") or "")
+                if content is not None
+                else business.name
+            ),
+            "address": (
+                str(content.get("company_address") or "")
+                if content is not None
+                else business.address
+            ),
             "approval_number": business.approval_number,
             "approval_profile": business.approval_profile,
         },
     }
     if normalized_layout is not None:
         payload["layout"] = normalized_layout
+    if normalized_content is not None:
+        payload["label_content"] = normalized_content
     return payload

@@ -108,8 +108,8 @@
 
       <div class="grid2">
         <div>
-          <label>Shelf Life (days)</label>
-          <input name="shelf_life_days" type="number" min="0" step="1" value="{{ product.shelf_life_days if product and product.shelf_life_days is not none else 0 }}">
+          <label>Ημέρες συντήρησης — κανονική συσκευασία</label>
+          <input name="shelf_life_days" type="number" min="0" max="3650" step="1" value="{{ product.shelf_life_days if product and product.shelf_life_days is not none else 0 }}">
           <div class="muted">Απαιτείται για αυτόματο υπολογισμό λήξης στις ετικέτες.</div>
         </div>
         <div>
@@ -119,9 +119,30 @@
         </div>
       </div>
 
-      <label>Storage Text</label>
+      <label>Κείμενο συντήρησης — κανονική συσκευασία</label>
       <input name="storage_text" value="{{ product.storage_text if product and product.storage_text else '' }}" placeholder="π.χ. Διατηρείται στους 0–4°C">
       <div class="muted">Υποχρεωτικό για αυτόματη ετικέτα. Παράδειγμα: Διατηρείται στους 0–4°C.</div>
+
+      {% set vacuum_configured = product and product.vacuum_shelf_life_days is not none %}
+      <input type="hidden" name="vacuum_fields_present" value="1">
+      <div class="checkrow">
+        <input id="vacuum_enabled" name="vacuum_enabled" type="checkbox" value="1" {% if vacuum_configured %}checked{% endif %}>
+        <label class="label" for="vacuum_enabled">Το ίδιο προϊόν διατίθεται και σε συσκευασία Vacuum</label>
+      </div>
+      <div class="muted">Δεν δημιουργείται δεύτερο προϊόν. Στην εκτύπωση επιλέγεται Κανονική ή Vacuum συσκευασία και υπολογίζεται η αντίστοιχη λήξη.</div>
+
+      <div id="vacuum_settings" class="grid2{% if not vacuum_configured %} hide{% endif %}">
+        <div>
+          <label for="vacuum_shelf_life_days">Ημέρες συντήρησης — Vacuum</label>
+          <input id="vacuum_shelf_life_days" name="vacuum_shelf_life_days" type="number" min="1" max="3650" step="1" value="{{ product.vacuum_shelf_life_days if product and product.vacuum_shelf_life_days is not none else '' }}">
+          <div class="muted">Υποχρεωτικό όταν είναι ενεργή η συσκευασία Vacuum.</div>
+        </div>
+        <div>
+          <label for="vacuum_storage_text">Κείμενο συντήρησης — Vacuum</label>
+          <input id="vacuum_storage_text" name="vacuum_storage_text" value="{{ product.vacuum_storage_text if product and product.vacuum_storage_text else '' }}" placeholder="Αν μείνει κενό, χρησιμοποιείται το κανονικό κείμενο">
+          <div class="muted">Προαιρετική διαφορετική οδηγία συντήρησης για Vacuum.</div>
+        </div>
+      </div>
 
       <h3 style="margin:24px 0 4px;color:#8ab4ff">Στοιχεία δυναμικής ετικέτας ΕΦΕΤ</h3>
       <div class="muted">Συμπληρώνονται μία φορά ανά προϊόν και χρησιμοποιούνται αυτόματα σε κάθε νέα παρτίδα.</div>
@@ -209,6 +230,10 @@
   const custom = document.getElementById("custom_input");
   const unit = document.getElementById("product_unit");
   const plainPiece = document.getElementById("label_plain_piece");
+  const vacuumEnabled = document.getElementById("vacuum_enabled");
+  const vacuumSettings = document.getElementById("vacuum_settings");
+  const vacuumDays = document.getElementById("vacuum_shelf_life_days");
+  const vacuumStorage = document.getElementById("vacuum_storage_text");
 
   function sync(){
     const v = sel.value || "";
@@ -228,13 +253,24 @@
     plainPiece.setCustomValidity(invalid ? "Η επιλογή ισχύει μόνο με μονάδα Τεμάχια, Κιβώτια ή Δίσκος." : "");
   }
 
+  function syncVacuum(){
+    if(!vacuumEnabled || !vacuumSettings || !vacuumDays || !vacuumStorage) return;
+    const enabled = vacuumEnabled.checked;
+    vacuumSettings.classList.toggle("hide", !enabled);
+    vacuumDays.disabled = !enabled;
+    vacuumStorage.disabled = !enabled;
+    vacuumDays.required = enabled;
+  }
+
   sel.addEventListener("change", sync);
   if(custom) custom.addEventListener("input", sync);
   if(unit) unit.addEventListener("change", syncPlainPiece);
   if(plainPiece) plainPiece.addEventListener("change", syncPlainPiece);
+  if(vacuumEnabled) vacuumEnabled.addEventListener("change", syncVacuum);
 
   sync();
   syncPlainPiece();
+  syncVacuum();
 })();
 </script>
 

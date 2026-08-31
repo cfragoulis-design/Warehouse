@@ -127,19 +127,20 @@ function Resolve-LabelLayout {
         [Parameter(Mandatory)][int]$SchemaVersion
     )
     $defaults = Get-CanonicalLabelLayoutDefaults
-    if ($SchemaVersion -ne 6) { return [pscustomobject]$defaults }
+    if ($SchemaVersion -ne 6 -and $SchemaVersion -ne 7) { return [pscustomobject]$defaults }
+    $schemaLabel = "Schema $SchemaVersion"
 
     $layout = $Payload.layout
     if ($null -eq $layout -or $layout -isnot [pscustomobject]) {
-        throw 'Schema 6 label layout is missing or invalid.'
+        throw "$schemaLabel label layout is missing or invalid."
     }
     $requiredLayoutFields = @('contract_version', 'version_id', 'settings_sha256', 'settings')
     $layoutFields = @($layout.PSObject.Properties.Name)
     foreach ($name in $layoutFields) {
-        if ($requiredLayoutFields -cnotcontains $name) { throw "Unknown schema 6 label layout field: $name." }
+        if ($requiredLayoutFields -cnotcontains $name) { throw "Unknown schema $SchemaVersion label layout field: $name." }
     }
     foreach ($name in $requiredLayoutFields) {
-        if ($layoutFields -cnotcontains $name) { throw "Schema 6 label layout field is missing: $name." }
+        if ($layoutFields -cnotcontains $name) { throw "$schemaLabel label layout field is missing: $name." }
     }
 
     $contractVersion = ConvertTo-StrictLayoutInteger -Value $layout.contract_version -Name 'contract_version' -Minimum 1 -Maximum 1
@@ -149,7 +150,7 @@ function Resolve-LabelLayout {
 
     $settingsObject = $layout.settings
     if ($null -eq $settingsObject -or $settingsObject -isnot [pscustomobject]) {
-        throw 'Schema 6 label layout settings are missing or invalid.'
+        throw "$schemaLabel label layout settings are missing or invalid."
     }
     $specification = Get-LabelLayoutSpecification
     $providedNames = @($settingsObject.PSObject.Properties.Name)
@@ -159,7 +160,7 @@ function Resolve-LabelLayout {
     foreach ($name in $specification.Keys) {
         if ($providedNames -cnotcontains $name) { throw "Label layout setting is missing: $name." }
     }
-    if ($providedNames.Count -ne $specification.Count) { throw 'Schema 6 label layout settings are incomplete.' }
+    if ($providedNames.Count -ne $specification.Count) { throw "$schemaLabel label layout settings are incomplete." }
 
     $settings = [ordered]@{}
     foreach ($name in $specification.Keys) {
@@ -167,12 +168,124 @@ function Resolve-LabelLayout {
         $settings[$name] = ConvertTo-StrictLayoutInteger -Value $settingsObject.$name -Name $name -Minimum ([int64]$range[1]) -Maximum ([int64]$range[2])
     }
     $claimedHash = (Get-LabelText -Value $layout.settings_sha256 -Maximum 64).ToLowerInvariant()
-    if ($claimedHash -notmatch '^[0-9a-f]{64}$') { throw 'Schema 6 label layout hash is invalid.' }
+    if ($claimedHash -notmatch '^[0-9a-f]{64}$') { throw "$schemaLabel label layout hash is invalid." }
     $actualHash = Get-CanonicalSettingsSha256 -Settings $settings
     if (-not [string]::Equals($claimedHash, $actualHash, [StringComparison]::Ordinal)) {
-        throw 'Schema 6 label layout hash does not match its settings.'
+        throw "$schemaLabel label layout hash does not match its settings."
     }
     return [pscustomobject]$settings
+}
+
+function ConvertTo-StrictLabelContentText {
+    param(
+        [Parameter(Mandatory)][object]$Value,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][int]$Maximum
+    )
+    if ($Value -isnot [string]) { throw "Label content $Name must be text." }
+    $text = Get-LabelText -Value $Value -Maximum $Maximum
+    if (-not $text) { throw "Label content $Name is required." }
+    $normalized = $text.Normalize([Text.NormalizationForm]::FormC)
+    if (-not [string]::Equals($text, $normalized, [StringComparison]::Ordinal)) {
+        throw "Label content $Name must use canonical Unicode."
+    }
+    $bidiControls = @(0x061C, 0x200E, 0x200F, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069)
+    foreach ($character in $text.ToCharArray()) {
+        $code = [int][char]$character
+        $category = [Globalization.CharUnicodeInfo]::GetUnicodeCategory($character)
+        if (
+            [char]::IsControl($character) -or
+            [char]::IsSurrogate($character) -or
+            $category -eq [Globalization.UnicodeCategory]::Format -or
+            $bidiControls -contains $code
+        ) {
+            throw "Label content $Name contains a forbidden control character."
+        }
+    }
+    return $text
+}
+
+function ConvertTo-CanonicalJsonStringLiteral {
+    param([Parameter(Mandatory)][string]$Value)
+    return '"' + $Value.Replace('\', '\\').Replace('"', '\"') + '"'
+}
+
+function Get-CanonicalLabelContentSha256 {
+    param([Parameter(Mandatory)][Collections.Specialized.OrderedDictionary]$Content)
+    $properties = @(
+        ('"company_address":' + (ConvertTo-CanonicalJsonStringLiteral -Value ([string]$Content.company_address)))
+        ('"company_name":' + (ConvertTo-CanonicalJsonStringLiteral -Value ([string]$Content.company_name)))
+        ('"footer_caption":' + (ConvertTo-CanonicalJsonStringLiteral -Value ([string]$Content.footer_caption)))
+        ('"logo_asset_id":' + (ConvertTo-CanonicalJsonStringLiteral -Value ([string]$Content.logo_asset_id)))
+    )
+    $canonicalJson = '{' + ($properties -join ',') + '}'
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha.ComputeHash((New-Object Text.UTF8Encoding($false, $true)).GetBytes($canonicalJson))
+        return (($digest | ForEach-Object { $_.ToString('x2') }) -join '')
+    }
+    finally { $sha.Dispose() }
+}
+
+function Resolve-LabelContent {
+    param(
+        [Parameter(Mandatory)][object]$Payload,
+        [Parameter(Mandatory)][int]$SchemaVersion
+    )
+    if ($SchemaVersion -ne 7) {
+        return [pscustomobject][ordered]@{
+            footer_caption = 'Παρασκευάζεται και συσκευάζεται από:'
+            company_name = Get-LabelText -Value $Payload.business.name -Maximum 255
+            company_address = Get-LabelText -Value $Payload.business.address -Maximum 500
+            logo_asset_id = 'NONE'
+        }
+    }
+
+    $snapshot = $Payload.label_content
+    if ($null -eq $snapshot -or $snapshot -isnot [pscustomobject]) {
+        throw 'Schema 7 label content snapshot is missing or invalid.'
+    }
+    $requiredSnapshotFields = @('contract_version', 'version_id', 'content_sha256', 'content')
+    $snapshotFields = @($snapshot.PSObject.Properties.Name)
+    foreach ($name in $snapshotFields) {
+        if ($requiredSnapshotFields -cnotcontains $name) { throw "Unknown schema 7 label content snapshot field: $name." }
+    }
+    foreach ($name in $requiredSnapshotFields) {
+        if ($snapshotFields -cnotcontains $name) { throw "Schema 7 label content snapshot field is missing: $name." }
+    }
+    [void](ConvertTo-StrictLayoutInteger -Value $snapshot.contract_version -Name 'label_content.contract_version' -Minimum 1 -Maximum 1)
+    [void](ConvertTo-StrictLayoutInteger -Value $snapshot.version_id -Name 'label_content.version_id' -Minimum 1 -Maximum ([int]::MaxValue))
+
+    $rawContent = $snapshot.content
+    if ($null -eq $rawContent -or $rawContent -isnot [pscustomobject]) {
+        throw 'Schema 7 label content is missing or invalid.'
+    }
+    $requiredContentFields = @('footer_caption', 'company_name', 'company_address', 'logo_asset_id')
+    $contentFields = @($rawContent.PSObject.Properties.Name)
+    foreach ($name in $contentFields) {
+        if ($requiredContentFields -cnotcontains $name) { throw "Unknown schema 7 label content field: $name." }
+    }
+    foreach ($name in $requiredContentFields) {
+        if ($contentFields -cnotcontains $name) { throw "Schema 7 label content field is missing: $name." }
+    }
+    if ($contentFields.Count -ne $requiredContentFields.Count) { throw 'Schema 7 label content is incomplete.' }
+
+    $content = [ordered]@{
+        footer_caption = ConvertTo-StrictLabelContentText -Value $rawContent.footer_caption -Name 'footer_caption' -Maximum 120
+        company_name = ConvertTo-StrictLabelContentText -Value $rawContent.company_name -Name 'company_name' -Maximum 255
+        company_address = ConvertTo-StrictLabelContentText -Value $rawContent.company_address -Name 'company_address' -Maximum 500
+        logo_asset_id = ConvertTo-StrictLabelContentText -Value $rawContent.logo_asset_id -Name 'logo_asset_id' -Maximum 32
+    }
+    if ($content.logo_asset_id -cne 'NONE' -and $content.logo_asset_id -cne 'SKLAVOUNOS_MARK') {
+        throw 'Schema 7 logo_asset_id is not approved.'
+    }
+    $claimedHash = (Get-LabelText -Value $snapshot.content_sha256 -Maximum 64).ToLowerInvariant()
+    if ($claimedHash -notmatch '^[0-9a-f]{64}$') { throw 'Schema 7 label content hash is invalid.' }
+    $actualHash = Get-CanonicalLabelContentSha256 -Content $content
+    if (-not [string]::Equals($claimedHash, $actualHash, [StringComparison]::Ordinal)) {
+        throw 'Schema 7 label content hash does not match its content.'
+    }
+    return [pscustomobject]$content
 }
 
 function Add-LabelText {
@@ -238,6 +351,49 @@ function Add-NutritionTable {
     }
     finally { $pen.Dispose() }
     return [int]($Layout.nutrition_heading_height_px + ($rows * $cellHeight))
+}
+
+function Add-ApprovedCompanyLogo {
+    param(
+        [Parameter(Mandatory)][Drawing.Graphics]$Graphics,
+        [Parameter(Mandatory)][string]$AssetId
+    )
+    if ($AssetId -ceq 'NONE') { return $false }
+    if ($AssetId -cne 'SKLAVOUNOS_MARK') { throw 'Company logo asset is not approved.' }
+
+    $assetPath = Join-Path $PSScriptRoot 'company-logo-sklavounos.png'
+    if (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
+        throw 'Approved company logo asset is missing from the Agent package.'
+    }
+    $expectedHash = '41633fd9bf9fc15c885c1c6b39ddfb9211c85a330bf07bc4465c1de3d357eeff'
+    $assetSha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $actualHash = (($assetSha.ComputeHash([IO.File]::ReadAllBytes($assetPath)) | ForEach-Object { $_.ToString('x2') }) -join '')
+    }
+    finally { $assetSha.Dispose() }
+    if (-not [string]::Equals($actualHash, $expectedHash, [StringComparison]::Ordinal)) {
+        throw 'Approved company logo asset failed integrity verification.'
+    }
+
+    $source = [Drawing.Image]::FromFile([IO.Path]::GetFullPath($assetPath))
+    try {
+        if ($source.Width -ne 1188 -or $source.Height -ne 1018) {
+            throw 'Approved company logo dimensions are invalid.'
+        }
+        $box = New-Object Drawing.RectangleF(17, 478, 50, 64)
+        $scale = [Math]::Min($box.Width / $source.Width, $box.Height / $source.Height)
+        $width = [single]($source.Width * $scale)
+        $height = [single]($source.Height * $scale)
+        $destination = New-Object Drawing.RectangleF(
+            [single]($box.X + (($box.Width - $width) / 2)),
+            [single]($box.Y + (($box.Height - $height) / 2)),
+            $width,
+            $height
+        )
+        $Graphics.DrawImage($source, $destination)
+    }
+    finally { $source.Dispose() }
+    return $true
 }
 
 function Add-ApprovalOval {
@@ -364,10 +520,14 @@ function Save-MonochromePreviewPng {
 function New-UnifiedLabelBitmap {
     param([Parameter(Mandatory)][object]$Payload)
     $schemaVersion = [int]$Payload.schema_version
-    if ($schemaVersion -ne 3 -and $schemaVersion -ne 4 -and $schemaVersion -ne 5 -and $schemaVersion -ne 6) { throw 'Unsupported dynamic label schema.' }
+    if ($schemaVersion -ne 3 -and $schemaVersion -ne 4 -and $schemaVersion -ne 5 -and $schemaVersion -ne 6 -and $schemaVersion -ne 7) { throw 'Unsupported dynamic label schema.' }
     if ([string]$Payload.printer_profile -cne 'HPRT_LPQ80_BITMAP_50X70') { throw 'Wrong dynamic printer profile.' }
     if (([string]$Payload.profile).Trim().ToUpperInvariant() -cne 'DISTRIBUTION') { throw 'Unsupported dynamic label profile.' }
     $layout = Resolve-LabelLayout -Payload $Payload -SchemaVersion $schemaVersion
+    $labelContent = Resolve-LabelContent -Payload $Payload -SchemaVersion $schemaVersion
+    if ($schemaVersion -eq 7 -and [int]$Payload.layout.version_id -ne [int]$Payload.label_content.version_id) {
+        throw 'Schema 7 layout and label content must use the same immutable version.'
+    }
 
     $displayName = Get-LabelText -Value $Payload.product.display_name -Maximum 255
     $legalName = Get-LabelText -Value $Payload.product.legal_name -Maximum 500
@@ -454,9 +614,12 @@ function New-UnifiedLabelBitmap {
         $separator = New-Object Drawing.Pen([Drawing.Color]::Black, 1)
         try { $graphics.DrawLine($separator, 14, 452, 386, 452) }
         finally { $separator.Dispose() }
-        Add-LabelText -Graphics $graphics -Text 'Παρασκευάζεται και συσκευάζεται από:' -Rectangle (New-Object Drawing.RectangleF(14, 456, 278, 18)) -MaximumFontPixels $layout.footer_caption_font_px -MinimumFontPixels 8 -NoWrap
-        Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.business.name 255) -Rectangle (New-Object Drawing.RectangleF(14, 473, 278, 31)) -MaximumFontPixels $layout.footer_name_font_px -MinimumFontPixels 9 -Style Bold
-        Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.business.address 500) -Rectangle (New-Object Drawing.RectangleF(14, 503, 278, 43)) -MaximumFontPixels $layout.footer_address_font_px -MinimumFontPixels 8
+        Add-LabelText -Graphics $graphics -Text $labelContent.footer_caption -Rectangle (New-Object Drawing.RectangleF(14, 456, 278, 18)) -MaximumFontPixels $layout.footer_caption_font_px -MinimumFontPixels 8 -NoWrap
+        $hasCompanyLogo = Add-ApprovedCompanyLogo -Graphics $graphics -AssetId $labelContent.logo_asset_id
+        $footerTextX = if ($hasCompanyLogo) { 72 } else { 14 }
+        $footerTextWidth = if ($hasCompanyLogo) { 220 } else { 278 }
+        Add-LabelText -Graphics $graphics -Text $labelContent.company_name -Rectangle (New-Object Drawing.RectangleF($footerTextX, 473, $footerTextWidth, 31)) -MaximumFontPixels $layout.footer_name_font_px -MinimumFontPixels 9 -Style Bold
+        Add-LabelText -Graphics $graphics -Text $labelContent.company_address -Rectangle (New-Object Drawing.RectangleF($footerTextX, 503, $footerTextWidth, 43)) -MaximumFontPixels $layout.footer_address_font_px -MinimumFontPixels 8
         Add-ApprovalOval -Graphics $graphics -ApprovalNumber (Get-LabelText $Payload.business.approval_number 128) -Y 470 -Layout $layout
         return $bitmap
     }

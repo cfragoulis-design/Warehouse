@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException, Request
@@ -14,6 +15,9 @@ os.environ.setdefault("DATABASE_URL", configured_test_database_url())
 from app import catalog_service  # noqa: E402
 from app.db import Base  # noqa: E402
 from app.models import AuditEvent, Category, Product, User  # noqa: E402
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture()
@@ -146,6 +150,173 @@ def test_product_create_persists_explicit_profile_and_audit_evidence(db: Session
     assert event.entity_id == str(product.id)
     assert event.before_json is None
     assert json.loads(event.after_json)["approval_profile"] == "POULTRY"
+
+
+def test_product_create_persists_optional_vacuum_profile_and_audit_evidence(
+    db: Session,
+) -> None:
+    admin = _user(db, "vacuum-create-admin")
+
+    response = catalog_service.product_create(
+        _request("/products/new"),
+        user=admin,
+        db=db,
+        name="Ρολό κοτόπουλο",
+        sku="CH-VAC-1",
+        category="Πουλερικά",
+        unit="pcs",
+        min_stock="0",
+        only_in_freezer=None,
+        is_production_item=None,
+        shelf_life_days="4",
+        storage_text="Διατηρείται στους 0–4°C",
+        vacuum_fields_present="1",
+        vacuum_enabled="1",
+        vacuum_shelf_life_days="10",
+        vacuum_storage_text="Vacuum · Διατηρείται στους 0–4°C",
+        label_template=None,
+        approval_profile="POULTRY",
+    )
+
+    assert response.status_code == 303
+    product = db.query(Product).filter(Product.sku == "CH-VAC-1").one()
+    assert product.shelf_life_days == 4
+    assert product.vacuum_shelf_life_days == 10
+    assert product.vacuum_storage_text == "Vacuum · Διατηρείται στους 0–4°C"
+    after = json.loads(db.query(AuditEvent).one().after_json)
+    assert after["vacuum_shelf_life_days"] == 10
+    assert after["vacuum_storage_text"] == "Vacuum · Διατηρείται στους 0–4°C"
+
+
+@pytest.mark.parametrize(
+    "days",
+    [None, "", "0", "-1", "2.5", "3651", "not-a-number"],
+)
+def test_vacuum_profile_requires_positive_integer_days(days: str | None) -> None:
+    with pytest.raises(HTTPException) as invalid:
+        catalog_service._validated_vacuum_settings(
+            fields_present="1",
+            enabled="1",
+            shelf_life_days=days,
+            storage_text=None,
+        )
+
+    assert invalid.value.status_code == 422
+
+
+@pytest.mark.parametrize("days", ["-1", "2.5", "3651", "not-a-number"])
+def test_standard_shelf_life_rejects_invalid_days_instead_of_truncating(
+    days: str,
+) -> None:
+    with pytest.raises(HTTPException) as invalid:
+        catalog_service._validated_standard_shelf_life_days(days)
+
+    assert invalid.value.status_code == 422
+
+
+@pytest.mark.parametrize(("raw", "expected"), [(None, 0), ("", 0), ("0", 0), ("3650", 3650)])
+def test_standard_shelf_life_keeps_compatible_valid_values(
+    raw: str | None,
+    expected: int,
+) -> None:
+    assert catalog_service._validated_standard_shelf_life_days(raw) == expected
+
+
+def test_product_form_exposes_one_product_with_optional_vacuum_settings() -> None:
+    source = (ROOT / "app" / "templates" / "product_form.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'name="vacuum_fields_present" value="1"' in source
+    assert 'name="vacuum_enabled"' in source
+    assert 'name="vacuum_shelf_life_days"' in source
+    assert 'name="vacuum_storage_text"' in source
+    assert "Δεν δημιουργείται δεύτερο προϊόν" in source
+
+
+def test_old_product_edit_client_preserves_existing_vacuum_profile(db: Session) -> None:
+    admin = _user(db, "vacuum-compat-admin")
+    product = Product(
+        name="Μπιφτέκι μοσχαρίσιο",
+        sku="BEEF-VAC-1",
+        unit="pcs",
+        shelf_life_days=3,
+        storage_text="0–4°C",
+        vacuum_shelf_life_days=8,
+        vacuum_storage_text="Vacuum 0–4°C",
+        approval_profile="RED_MEAT",
+    )
+    db.add(product)
+    db.commit()
+
+    response = catalog_service.product_update(
+        product.id,
+        _request(f"/products/{product.id}/edit"),
+        user=admin,
+        db=db,
+        name=product.name,
+        sku=product.sku,
+        category=None,
+        unit="pcs",
+        min_stock="0",
+        only_in_freezer=None,
+        is_production_item=None,
+        shelf_life_days="3",
+        storage_text="0–4°C",
+        label_template=None,
+        approval_profile="RED_MEAT",
+    )
+
+    assert response.status_code == 303
+    db.refresh(product)
+    assert product.vacuum_shelf_life_days == 8
+    assert product.vacuum_storage_text == "Vacuum 0–4°C"
+
+
+def test_current_product_form_can_explicitly_disable_vacuum_profile(db: Session) -> None:
+    admin = _user(db, "vacuum-disable-admin")
+    product = Product(
+        name="Μπιφτέκι μοσχαρίσιο",
+        sku="BEEF-VAC-2",
+        unit="pcs",
+        shelf_life_days=3,
+        storage_text="0–4°C",
+        vacuum_shelf_life_days=8,
+        vacuum_storage_text="Vacuum 0–4°C",
+        approval_profile="RED_MEAT",
+    )
+    db.add(product)
+    db.commit()
+
+    response = catalog_service.product_update(
+        product.id,
+        _request(f"/products/{product.id}/edit"),
+        user=admin,
+        db=db,
+        name=product.name,
+        sku=product.sku,
+        category=None,
+        unit="pcs",
+        min_stock="0",
+        only_in_freezer=None,
+        is_production_item=None,
+        shelf_life_days="3",
+        storage_text="0–4°C",
+        vacuum_fields_present="1",
+        vacuum_enabled=None,
+        vacuum_shelf_life_days=None,
+        vacuum_storage_text=None,
+        label_template=None,
+        approval_profile="RED_MEAT",
+    )
+
+    assert response.status_code == 303
+    db.refresh(product)
+    assert product.vacuum_shelf_life_days is None
+    assert product.vacuum_storage_text is None
+    event = db.query(AuditEvent).one()
+    assert json.loads(event.before_json)["vacuum_shelf_life_days"] == 8
+    assert json.loads(event.after_json)["vacuum_shelf_life_days"] is None
 
 
 def test_product_create_rejects_unknown_approval_profile(db: Session) -> None:

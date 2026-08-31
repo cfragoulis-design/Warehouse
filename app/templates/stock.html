@@ -106,6 +106,8 @@
   .needBtn:hover{filter:brightness(1.1)}
     .directLabelForm{display:inline-flex;align-items:center;gap:5px;padding-left:4px;border-left:1px solid rgba(202,162,74,.28)}
     .labelCopies{width:54px;min-width:54px;height:34px;padding:5px 4px;text-align:center;border-radius:10px;font-weight:900}
+    .labelPreservation{height:34px;max-width:132px;padding:4px 7px;border-radius:10px;font-weight:800;background:rgba(11,16,32,.72);color:var(--text);border:1px solid rgba(202,162,74,.38)}
+    .labelExpiry{min-width:68px;color:var(--muted);font-size:10px;font-weight:800;line-height:1.15;text-align:center}
     .labelBtn{display:inline-flex;align-items:center;justify-content:center;min-width:78px;height:34px;padding:0 10px;border-radius:10px;font-weight:900;cursor:pointer;border:1px solid transparent}
     .labelBtn.workshop{background:rgba(202,162,74,.16);border-color:rgba(202,162,74,.45);color:#f1d694}
     .labelBtn:hover{filter:brightness(1.08)}
@@ -186,6 +188,7 @@
       .pm{gap:3px}
       .pm button,.transferBtn,.needBtn{width:30px;height:30px;border-radius:8px}
       .pmQty,.needQty,.labelCopies{width:44px;min-width:44px;height:30px}
+      .labelPreservation{height:30px;max-width:112px;font-size:11px}
       .labelBtn{min-width:66px;height:30px;padding:0 7px}
       .targetInput{width:60px;min-width:60px;padding:6px}
     }
@@ -238,6 +241,11 @@
       .actions .targetInput{font-size:16px}
       .actions .needForm{display:grid;grid-template-columns:minmax(58px,1fr) 48px;width:100%;gap:8px}
       .actions .labelBtn{width:100%;min-width:0}
+      .actions .directLabelForm{display:grid;grid-template-columns:minmax(112px,1fr) 70px 48px;width:100%;gap:8px;border-left:0;padding-left:0}
+      .actions .labelPreservation{grid-column:1 / 2;width:100%;max-width:none;height:48px;font-size:14px}
+      .actions .labelCopies{grid-column:2 / 3;width:100%;min-width:0;height:48px;font-size:17px}
+      .actions .labelBtn{grid-column:3 / 4}
+      .actions .labelExpiry{grid-column:1 / -1;text-align:left;min-width:0}
       .targetBox{width:100%;justify-content:flex-end}
       .targetInput{width:82px;min-width:82px;min-height:44px;font-size:16px}
       .pendingForm .pillBtn{min-height:42px;padding:8px 14px}
@@ -441,8 +449,13 @@
                   {% if user and user.role in ['admin', 'workshop'] %}
                     <form method="post" action="/admin/labels/create-batch" class="js-label-print-form directLabelForm" data-product-id="{{ it.id }}">
                       <input type="hidden" name="product_id" value="{{ it.id }}" />
+                      <select class="labelPreservation" name="preservation_profile" aria-label="Τρόπος συσκευασίας" title="Τρόπος συσκευασίας και διάρκεια συντήρησης">
+                        <option value="STANDARD" data-days="{{ it.shelf_life_days }}">Κανονική · {{ it.shelf_life_days }}η</option>
+                        {% if it.vacuum_shelf_life_days > 0 %}<option value="VACUUM" data-days="{{ it.vacuum_shelf_life_days }}">Vacuum · {{ it.vacuum_shelf_life_days }}η</option>{% endif %}
+                      </select>
                       <input class="labelCopies" type="number" name="copies" value="1" min="1" max="50" step="1" inputmode="numeric" aria-label="Αντίτυπα ετικέτας" title="Αριθμός αντιτύπων" />
                       <button class="labelBtn workshop" type="submit" title="Προσθήκη στην ουρά HPRT του Εργαστηρίου">🖨 Queue</button>
+                      <span class="labelExpiry" data-label-expiry aria-live="polite"></span>
                     </form>
                   {% endif %}
                 </div>
@@ -522,6 +535,7 @@ async function submitLabelFormAjax(form){
   const original = btn ? btn.textContent : "";
   const productId = Number(form.querySelector('[name="product_id"]')?.value || 0);
   const copies = Number(form.querySelector('[name="copies"]')?.value || 0);
+  const preservationProfile = String(form.querySelector('[name="preservation_profile"]')?.value || "STANDARD");
   if (!Number.isInteger(copies) || copies < 1 || copies > 50){
     showLabelToast("Τα αντίτυπα πρέπει να είναι από 1 έως 50.", "err");
     return;
@@ -540,10 +554,10 @@ async function submitLabelFormAjax(form){
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        request_id: (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${productId}-${copies}`),
+        request_id: (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${productId}-${copies}-${preservationProfile}`),
         station: "WORKSHOP",
         label_profile: "DISTRIBUTION",
-        items: [{product_id: productId, copies}]
+        items: [{product_id: productId, copies, preservation_profile: preservationProfile}]
       }),
       credentials: "same-origin"
     });
@@ -564,6 +578,17 @@ async function submitLabelFormAjax(form){
 }
 
 document.querySelectorAll(".js-label-print-form").forEach(form => {
+  const selector = form.querySelector('[name="preservation_profile"]');
+  const expiry = form.querySelector('[data-label-expiry]');
+  const renderExpiry = () => {
+    const days = Number(selector?.selectedOptions?.[0]?.dataset?.days || 0);
+    if (!expiry || !days) return;
+    const value = new Date();
+    value.setDate(value.getDate() + days);
+    expiry.textContent = `Λήξη ${value.toLocaleDateString("el-GR")}`;
+  };
+  selector?.addEventListener("change", renderExpiry);
+  renderExpiry();
   form.addEventListener("submit", function(ev){
     ev.preventDefault();
     submitLabelFormAjax(form);

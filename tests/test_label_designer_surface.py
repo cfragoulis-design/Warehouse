@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException, Request
 
 from app import label_designer_surface
+from app.label_content import canonical_label_content_defaults
 from app.label_layout import LabelLayoutConflictError, canonical_layout_defaults
 from app.models import User
 
@@ -66,6 +67,7 @@ def test_save_draft_route_passes_only_authenticated_actor_and_version_token(
 ) -> None:
     captured: dict[str, object] = {}
     settings = canonical_layout_defaults()
+    content = canonical_label_content_defaults()
     admin = _user("admin")
 
     def fake_save(db, **kwargs):
@@ -83,6 +85,7 @@ def test_save_draft_route_passes_only_authenticated_actor_and_version_token(
         request=_request(),
         payload={
             "settings": settings,
+            "content": content,
             "reason": "Μεγαλύτερο LOT",
             "expected_version": 1,
         },
@@ -93,6 +96,7 @@ def test_save_draft_route_passes_only_authenticated_actor_and_version_token(
     assert response.status_code == 201
     assert json.loads(response.body)["version"]["id"] == 2
     assert captured["actor"] is admin
+    assert captured["content"] == content
     assert captured["expected_version"] == 1
     assert captured["reason"] == "Μεγαλύτερο LOT"
 

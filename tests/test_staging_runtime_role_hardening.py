@@ -328,6 +328,13 @@ def test_policy_excludes_bootstrap_and_label_objects_and_sequences() -> None:
         "note",
         "updated_at",
     )
+    assert "vacuum_shelf_life_days" in (
+        hardener.TABLE_POLICIES["products"].update_columns
+    )
+    assert "vacuum_storage_text" in hardener.TABLE_POLICIES["products"].update_columns
+    assert "preservation_profile" not in (
+        hardener.TABLE_POLICIES["product_lots"].update_columns
+    )
     assert hardener.TABLE_POLICIES["freezer_items"].table_privileges == (
         "SELECT",
         "INSERT",

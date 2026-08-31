@@ -36,12 +36,14 @@ try:
         build_label_payload,
         business_label_identity,
         normalize_label_profile,
+        normalize_preservation_profile,
+        preservation_details,
         product_label_metadata,
         product_readiness,
     )
     from app.label_layout import (
         LabelLayoutUnavailableError,
-        active_layout_snapshot_for_print,
+        active_label_contract_snapshots_for_print,
     )
     from app.stock_domain import (
         get_missing_map,
@@ -70,12 +72,14 @@ except ImportError:
         build_label_payload,
         business_label_identity,
         normalize_label_profile,
+        normalize_preservation_profile,
+        preservation_details,
         product_label_metadata,
         product_readiness,
     )
     from label_layout import (
         LabelLayoutUnavailableError,
-        active_layout_snapshot_for_print,
+        active_label_contract_snapshots_for_print,
     )
     from stock_domain import (
         get_missing_map,
@@ -255,6 +259,25 @@ def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
     label_key = getattr(product, 'label_template', None) or 'default.btw'
     if render_payload is not None:
         label_key = 'HPRT_EFET_UNIFIED_50'
+    preservation_profile = normalize_preservation_profile(
+        getattr(lot, "preservation_profile", None)
+    )
+    if render_payload is not None:
+        traceability = render_payload.get("traceability")
+        if isinstance(traceability, dict):
+            effective_days = int(traceability.get("shelf_life_days") or 0)
+        else:
+            effective_days = max(
+                0,
+                int((lot.expiry_date - lot.production_date).days)
+                if lot.expiry_date and lot.production_date
+                else 0,
+            )
+        effective_storage = str(render_payload.get("storage") or "")
+    else:
+        preservation = preservation_details(product, preservation_profile)
+        effective_days = int(preservation["shelf_life_days"])
+        effective_storage = str(preservation["storage"])
     return {
         'id': lot.id,
         'batch_ref': getattr(lot, 'batch_ref', None) or '',
@@ -269,8 +292,9 @@ def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
         'production_date': _fmt_label_date(lot.production_date),
         'expiry_date': _fmt_label_date(lot.expiry_date),
         'lot_code': lot.lot_code or '',
-        'storage_text': getattr(product, 'storage_text', None) or '',
-        'shelf_life_days': int(getattr(product, 'shelf_life_days', 0) or 0),
+        'preservation_profile': preservation_profile,
+        'storage_text': effective_storage,
+        'shelf_life_days': effective_days,
         'extra_code': getattr(lot, 'extra_code', None) or '',
     }
 
@@ -322,6 +346,29 @@ def _print_audit_snapshot(lot: ProductLot) -> dict[str, object]:
     """Return an operational print snapshot without claim credentials."""
 
     claim_expires_at = getattr(lot, "claim_expires_at", None)
+    render_contract: dict[str, object] = {}
+    payload_text = getattr(lot, "label_payload_json", None) or ""
+    if payload_text:
+        try:
+            render_payload = json.loads(payload_text)
+        except (TypeError, ValueError):
+            render_payload = None
+        if isinstance(render_payload, dict):
+            render_contract["schema_version"] = render_payload.get("schema_version")
+            for source_key, prefix in (
+                ("layout", "layout"),
+                ("label_content", "content"),
+            ):
+                snapshot = render_payload.get(source_key)
+                if isinstance(snapshot, dict):
+                    render_contract[f"{prefix}_version_id"] = snapshot.get(
+                        "version_id"
+                    )
+                    render_contract[f"{prefix}_sha256"] = snapshot.get(
+                        "settings_sha256"
+                        if source_key == "layout"
+                        else "content_sha256"
+                    )
     return {
         "status": lot.status,
         "station": lot.station,
@@ -329,9 +376,19 @@ def _print_audit_snapshot(lot: ProductLot) -> dict[str, object]:
         "copies": int(float(lot.quantity_labels or 0)),
         "batch_ref": lot.batch_ref or "",
         "lot_code": lot.lot_code or "",
+        "preservation_profile": normalize_preservation_profile(
+            getattr(lot, "preservation_profile", None)
+        ),
+        "production_date": (
+            lot.production_date.isoformat() if lot.production_date is not None else None
+        ),
+        "expiry_date": (
+            lot.expiry_date.isoformat() if lot.expiry_date is not None else None
+        ),
         "claim_expires_at": (
             claim_expires_at.isoformat() if claim_expires_at is not None else None
         ),
+        "render_contract": render_contract,
     }
 
 
@@ -381,6 +438,10 @@ def _print_job_rows(db: Session, *, limit: int = 100) -> list[dict]:
             "station": lot.station,
             "status": lot.status,
             "status_label": "PRINTING (CLAIMED)" if lot.status == "CLAIMED" else lot.status,
+            "preservation_profile": normalize_preservation_profile(
+                getattr(lot, "preservation_profile", None)
+            ),
+            "expiry_date": _fmt_label_date(lot.expiry_date),
             "error_reason": error_flags.get(_print_error_key(lot.id), ""),
             "created_at": lot.created_at.isoformat() if lot.created_at else "",
             "can_retry": lot.status in {"ERROR", "CANCELLED"},
@@ -941,6 +1002,8 @@ def build_stock_grouped(
             Product.is_active,
             Product.target_central,
             Product.min_stock,
+            Product.shelf_life_days,
+            Product.vacuum_shelf_life_days,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -960,6 +1023,8 @@ def build_stock_grouped(
             Product.is_active,
             Product.target_central,
             Product.min_stock,
+            Product.shelf_life_days,
+            Product.vacuum_shelf_life_days,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     )
@@ -1037,6 +1102,8 @@ def build_stock_grouped(
             "missing": missing,
             "total_qty": total,
             "is_low": low,
+            "shelf_life_days": int(r.shelf_life_days or 0),
+            "vacuum_shelf_life_days": int(r.vacuum_shelf_life_days or 0),
         }
         cat = (r.category or "").strip()
         if not cat:
@@ -1148,6 +1215,8 @@ def _eligible_label_products(db: Session):
             "unit": p.unit or "",
             "shelf_life_days": int(p.shelf_life_days or 0),
             "storage_text": p.storage_text or "",
+            "vacuum_shelf_life_days": int(p.vacuum_shelf_life_days or 0),
+            "vacuum_storage_text": p.vacuum_storage_text or "",
             "label_template": p.label_template or "",
             "label_metadata": product_label_metadata(p),
             # Legacy names remain in the JSON for old open browser tabs. Both now
@@ -1164,13 +1233,13 @@ def _hprt_agent_download() -> tuple[str | None, str]:
     release = load_hprt_agent_release_settings()
     if release.channel == "production":
         return (
-            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16.zip",
-            "↓ Λήψη HPRT Agent v1.0.16 · Production",
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.17.zip",
+            "↓ Λήψη HPRT Agent v1.0.17 · Production",
         )
     if release.channel == "staging":
         return (
-            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.16-STAGING.zip",
-            "↓ Λήψη HPRT Agent v1.0.16 · Staging",
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.17-STAGING.zip",
+            "↓ Λήψη HPRT Agent v1.0.17 · Staging",
         )
     return None, "Η λήψη HPRT Agent είναι απενεργοποιημένη"
 
@@ -1338,7 +1407,7 @@ def labels_create_batch(
         })
 
     try:
-        layout_snapshot = active_layout_snapshot_for_print(db)
+        layout_snapshot, content_snapshot = active_label_contract_snapshots_for_print(db)
     except LabelLayoutUnavailableError as exc:
         raise HTTPException(
             status_code=503,
@@ -1360,6 +1429,13 @@ def labels_create_batch(
         except (TypeError, ValueError):
             validation_errors.append({"index": index, "error": "Invalid product or copies"})
             continue
+        try:
+            preservation_profile = normalize_preservation_profile(
+                raw.get("preservation_profile")
+            )
+        except LabelValidationError as exc:
+            validation_errors.append({"index": index, "error": str(exc)})
+            continue
         if product_id <= 0 or copies <= 0 or copies > 50:
             validation_errors.append({"index": index, "product_id": product_id, "error": "Copies must be from 1 to 50"})
             continue
@@ -1371,12 +1447,21 @@ def labels_create_batch(
         if not product.is_active or product.only_in_freezer:
             validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": "Product is not eligible for labels"})
             continue
-        if int(product.shelf_life_days or 0) <= 0:
-            validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": "Shelf life is missing"})
+        try:
+            preservation = preservation_details(product, preservation_profile)
+        except LabelValidationError as exc:
+            validation_errors.append({
+                "index": index,
+                "product_id": product_id,
+                "product_name": product.name,
+                "error": str(exc),
+            })
             continue
 
         production_date = today
-        expiry_date = production_date + timedelta(days=int(product.shelf_life_days or 0))
+        expiry_date = production_date + timedelta(
+            days=int(preservation["shelf_life_days"])
+        )
         lot_code_raw = (str(raw.get("lot_code") or "")).strip()
         source_lot_code = (str(raw.get("source_lot_code") or "")).strip()[:96]
         label_origin_override = (str(raw.get("label_origin_override") or "")).strip()[:255]
@@ -1406,6 +1491,7 @@ def labels_create_batch(
             status="QUEUED",
             created_by_user_id=user.id,
             label_profile=label_profile,
+            preservation_profile=preservation_profile,
             source_lot_code=source_lot_code or None,
             label_origin_override=label_origin_override or None,
         )
@@ -1416,6 +1502,7 @@ def labels_create_batch(
                 lot,
                 profile=label_profile,
                 layout_snapshot=layout_snapshot,
+                content_snapshot=content_snapshot,
             )
         except LabelValidationError as exc:
             validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": str(exc)})
@@ -1463,6 +1550,7 @@ def labels_create_batch(
                         lot,
                         profile=label_profile,
                         layout_snapshot=layout_snapshot,
+                        content_snapshot=content_snapshot,
                     )
                 except LabelValidationError as validation_exc:
                     raise HTTPException(status_code=422, detail=str(validation_exc)) from validation_exc

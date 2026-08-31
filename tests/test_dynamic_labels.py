@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.label_content import label_content_sha256
+from app.label_layout import canonical_layout_defaults, layout_settings_sha256
 from app.labeling import (
     DISTRIBUTION_PROFILE,
     INTERNAL_PROFILE,
@@ -23,6 +25,8 @@ def _product(**overrides):
         "unit": "kg",
         "shelf_life_days": 3,
         "storage_text": "Διατηρείται στους 0–4°C",
+        "vacuum_shelf_life_days": None,
+        "vacuum_storage_text": None,
         "label_legal_name": "Παρασκεύασμα κρέατος από βόειο κρέας",
         "label_ingredients": "Βόειο κρέας 95%, κρεμμύδι, αλάτι, μπαχαρικά",
         "label_allergens": "Περιέχει: ΣΙΝΑΠΙ",
@@ -47,6 +51,7 @@ def _lot(**overrides):
         "net_quantity_text": "2,5 kg",
         "label_origin_override": None,
         "extra_code": "PE 620",
+        "preservation_profile": "STANDARD",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -105,6 +110,10 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
             "shelf_life_days": 3,
         },
         "storage": "Διατηρείται στους 0–4°C",
+        "preservation": {
+            "code": "STANDARD",
+            "display_name": "Κανονική συσκευασία",
+        },
         "business": {
             "name": "Σκλαβούνος Meat",
             "address": "Διεύθυνση δοκιμής",
@@ -112,6 +121,71 @@ def test_distribution_profile_builds_complete_immutable_render_payload(monkeypat
             "approval_profile": "RED_MEAT",
         },
     }
+
+
+def test_vacuum_profile_snapshots_effective_days_storage_and_mode(monkeypatch):
+    _set_business_identity(monkeypatch)
+    product = _product(
+        vacuum_shelf_life_days=10,
+        vacuum_storage_text=None,
+    )
+    lot = _lot(
+        preservation_profile="VACUUM",
+        expiry_date=date(2026, 9, 2),
+    )
+
+    payload = build_label_payload(product, lot, profile=DISTRIBUTION_PROFILE)
+
+    assert payload["preservation"] == {
+        "code": "VACUUM",
+        "display_name": "Συσκευασία υπό κενό",
+    }
+    assert payload["traceability"]["shelf_life_days"] == 10
+    assert payload["traceability"]["use_by_date"] == "02/09/2026"
+    assert payload["storage"] == (
+        "Συσκευασία υπό κενό · Διατηρείται στους 0–4°C"
+    )
+
+
+def test_vacuum_profile_is_fail_closed_when_product_is_not_configured(monkeypatch):
+    _set_business_identity(monkeypatch)
+
+    with pytest.raises(LabelValidationError, match="Vacuum δεν έχει ρυθμιστεί"):
+        build_label_payload(
+            _product(),
+            _lot(preservation_profile="VACUUM"),
+            profile=DISTRIBUTION_PROFILE,
+        )
+
+
+def test_schema7_rejects_mismatched_layout_and_content_versions(monkeypatch):
+    _set_business_identity(monkeypatch)
+    settings = canonical_layout_defaults()
+    content = {
+        "footer_caption": "Παρασκευάζεται και συσκευάζεται από:",
+        "company_name": "ΣΚΛΑΒΟΥΝΟΣ ΑΝΔΡΕΑΣ & ΣΚΛΑΒΟΥΝΟΣ ΧΡΗΣΤΟΣ Ο.Ε.",
+        "company_address": "Πλατεία Γεωργίου Θεοτόκη 25, 49100 Κέρκυρα",
+        "logo_asset_id": "NONE",
+    }
+
+    with pytest.raises(LabelValidationError, match="δεν συμφωνούν"):
+        build_label_payload(
+            _product(),
+            _lot(),
+            profile=DISTRIBUTION_PROFILE,
+            layout_snapshot={
+                "contract_version": 1,
+                "version_id": 10,
+                "settings_sha256": layout_settings_sha256(settings),
+                "settings": settings,
+            },
+            content_snapshot={
+                "contract_version": 1,
+                "version_id": 11,
+                "content_sha256": label_content_sha256(content),
+                "content": content,
+            },
+        )
 
 
 @pytest.mark.parametrize(

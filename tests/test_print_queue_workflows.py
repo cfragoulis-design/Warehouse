@@ -11,7 +11,24 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app import services
 from app.db import Base
-from app.models import AppFlag, AuditEvent, Product, ProductLot, User
+from app.label_content import (
+    canonical_label_content_json,
+    label_content_sha256,
+)
+from app.label_layout import (
+    canonical_layout_defaults,
+    canonical_layout_settings_json,
+    layout_settings_sha256,
+)
+from app.models import (
+    AppFlag,
+    AuditEvent,
+    LabelLayoutActive,
+    LabelLayoutVersion,
+    Product,
+    ProductLot,
+    User,
+)
 from tests.db_test_support import create_characterization_engine
 
 
@@ -62,6 +79,8 @@ def _user_product(db: Session) -> tuple[User, Product]:
         only_in_freezer=False,
         shelf_life_days=3,
         storage_text="Keep refrigerated",
+        vacuum_shelf_life_days=10,
+        vacuum_storage_text="Vacuum packed · Keep refrigerated",
         label_legal_name="Prepared beef product",
         label_ingredients="Beef, salt",
         label_allergens="No declarable allergens",
@@ -81,6 +100,39 @@ def _create_payload(product_id: int, request_id: str = "print-request-1") -> dic
         "label_profile": "DISTRIBUTION",
         "items": [{"product_id": product_id, "copies": 2}],
     }
+
+
+def _seed_schema7_layout(db: Session, user: User) -> LabelLayoutVersion:
+    settings = canonical_layout_defaults()
+    content = {
+        "footer_caption": "Παρασκευάζεται και συσκευάζεται από:",
+        "company_name": "Εταιρική επωνυμία από Designer",
+        "company_address": "Εταιρική διεύθυνση από Designer",
+        "logo_asset_id": "SKLAVOUNOS_MARK",
+    }
+    version = LabelLayoutVersion(
+        printer_profile="HPRT_LPQ80_BITMAP_50X70",
+        version=1,
+        contract_version=1,
+        settings_json=canonical_layout_settings_json(settings),
+        settings_sha256=layout_settings_sha256(settings),
+        content_json=canonical_label_content_json(content),
+        content_sha256=label_content_sha256(content),
+        created_by_user_id=user.id,
+        change_reason="Schema 7 integration test",
+    )
+    db.add(version)
+    db.flush()
+    db.add(
+        LabelLayoutActive(
+            printer_profile="HPRT_LPQ80_BITMAP_50X70",
+            active_version_id=version.id,
+            lock_version=1,
+            updated_by_user_id=user.id,
+        )
+    )
+    db.commit()
+    return version
 
 
 def test_batch_validation_is_atomic_and_request_id_prevents_duplicates(db: Session) -> None:
@@ -108,6 +160,90 @@ def test_batch_validation_is_atomic_and_request_id_prevents_duplicates(db: Sessi
     assert second["duplicate"] is True
     assert first["batch_ref"] == second["batch_ref"]
     assert db.scalar(select(func.count(ProductLot.id))) == 1
+
+
+def test_vacuum_batch_uses_server_config_and_snapshots_the_choice(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user, product = _user_product(db)
+    production_date = date(2026, 8, 31)
+    monkeypatch.setattr(services, "_today_athens", lambda: production_date)
+    request_payload = _create_payload(product.id, "vacuum-request")
+    request_payload["items"][0]["preservation_profile"] = "VACUUM"
+
+    created = _json(
+        services.labels_create_batch(
+            RequestStub(payload=request_payload), user=user, db=db
+        )
+    )
+    lot = db.get(ProductLot, created["items"][0]["id"])
+    snapshot = json.loads(lot.label_payload_json)
+
+    assert lot.preservation_profile == "VACUUM"
+    assert lot.production_date == production_date
+    assert lot.expiry_date == date(2026, 9, 10)
+    assert snapshot["preservation"]["code"] == "VACUUM"
+    assert snapshot["traceability"]["shelf_life_days"] == 10
+    assert snapshot["storage"] == "Vacuum packed · Keep refrigerated"
+    assert created["items"][0]["preservation_profile"] == "VACUUM"
+
+
+def test_schema7_batch_snapshots_layout_and_company_content(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user, product = _user_product(db)
+    version = _seed_schema7_layout(db, user)
+    monkeypatch.setenv("WAREHOUSE_LABEL_CONTENT_SCHEMA7_ENABLED", "true")
+
+    created = _json(
+        services.labels_create_batch(
+            RequestStub(payload=_create_payload(product.id, "schema7-request")),
+            user=user,
+            db=db,
+        )
+    )
+    lot = db.get(ProductLot, created["items"][0]["id"])
+    snapshot = json.loads(lot.label_payload_json)
+
+    assert snapshot["schema_version"] == 7
+    assert snapshot["layout"]["version_id"] == version.id
+    assert snapshot["label_content"]["version_id"] == version.id
+    assert snapshot["label_content"]["content"]["logo_asset_id"] == (
+        "SKLAVOUNOS_MARK"
+    )
+    assert snapshot["business"]["name"] == "Εταιρική επωνυμία από Designer"
+    assert snapshot["business"]["address"] == "Εταιρική διεύθυνση από Designer"
+    assert snapshot["business"]["approval_number"] == "GR A 920 CE"
+
+    audit = db.scalar(
+        select(AuditEvent)
+        .where(AuditEvent.entity_id == str(lot.id))
+        .order_by(AuditEvent.id.desc())
+    )
+    audit_after = json.loads(audit.after_json)
+    assert audit_after["render_contract"]["schema_version"] == 7
+    assert audit_after["render_contract"]["layout_version_id"] == version.id
+    assert audit_after["render_contract"]["content_version_id"] == version.id
+
+
+def test_vacuum_batch_is_rejected_when_product_has_no_vacuum_profile(
+    db: Session,
+) -> None:
+    user, product = _user_product(db)
+    product.vacuum_shelf_life_days = None
+    product.vacuum_storage_text = None
+    db.commit()
+    request_payload = _create_payload(product.id, "vacuum-not-configured")
+    request_payload["items"][0]["preservation_profile"] = "VACUUM"
+
+    with pytest.raises(HTTPException) as rejected:
+        services.labels_create_batch(
+            RequestStub(payload=request_payload), user=user, db=db
+        )
+
+    assert rejected.value.status_code == 422
+    assert "Vacuum δεν έχει ρυθμιστεί" in str(rejected.value.detail)
+    assert db.scalar(select(func.count(ProductLot.id))) == 0
 
 
 def test_plain_traceability_mode_is_server_owned_and_snapshotted_in_queue(db: Session) -> None:

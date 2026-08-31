@@ -50,7 +50,7 @@ _LABEL_PRIVILEGE_MIGRATION_PATH = (
     PROJECT_ROOT
     / "app"
     / "migrations"
-    / "20260830_003_label_layout_runtime_privileges.sql"
+    / "20260831_004_label_content_runtime_privileges.sql"
 )
 
 
@@ -77,7 +77,7 @@ TABLE_POLICIES: dict[str, TablePolicy] = {
         select_columns=("id", "created_at"),
     ),
     # label_layout_versions and label_layout_active intentionally remain absent.
-    # Migration 20260830_003 is their single privilege contract.
+    # Migration 20260831_004 is their single privilege contract.
     "products": TablePolicy(
         ("SELECT", "INSERT"),
         update_columns=(
@@ -92,6 +92,8 @@ TABLE_POLICIES: dict[str, TablePolicy] = {
             "is_production_item",
             "shelf_life_days",
             "storage_text",
+            "vacuum_shelf_life_days",
+            "vacuum_storage_text",
             "label_template",
             "label_legal_name",
             "label_ingredients",
@@ -644,7 +646,7 @@ def _build_plan(connection: psycopg.Connection[object]) -> HardeningPlan:
     recorded_migration_row = connection.execute(
         "SELECT checksum FROM public.warehouse_schema_migrations "
         "WHERE version = %s",
-        ("20260830_003",),
+        ("20260831_004",),
     ).fetchone()
     recorded_label_migration_sha256 = (
         None if recorded_migration_row is None else str(recorded_migration_row[0])

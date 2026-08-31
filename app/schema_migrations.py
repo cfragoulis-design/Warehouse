@@ -98,6 +98,8 @@ _LABEL_VERSION_INSERT_COLUMNS = (
     "contract_version",
     "settings_json",
     "settings_sha256",
+    "content_json",
+    "content_sha256",
     "based_on_version_id",
     "created_by_user_id",
     "change_reason",
@@ -281,6 +283,22 @@ def migration_catalog() -> tuple[MigrationDefinition, ...]:
         (
             "20260830_003",
             "20260830_003_label_layout_runtime_privileges.sql",
+        ),
+        (
+            "20260831_001",
+            "20260831_001_vacuum_preservation_profiles.sql",
+        ),
+        (
+            "20260831_002",
+            "20260831_002_vacuum_preservation_runtime_privileges.sql",
+        ),
+        (
+            "20260831_003",
+            "20260831_003_label_content_versions.sql",
+        ),
+        (
+            "20260831_004",
+            "20260831_004_label_content_runtime_privileges.sql",
         ),
     )
     catalog: list[MigrationDefinition] = []

@@ -110,7 +110,7 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
 
     psycopg_url = schema_migrations._psycopg_url(make_url(database_url))
     catalog = schema_migrations.migration_catalog()
-    assert catalog[-1].version == "20260830_003"
+    assert catalog[-1].version == "20260831_004"
     with psycopg.connect(psycopg_url, autocommit=False) as connection:
         connection.execute(
             sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(
@@ -138,10 +138,10 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
         # already contains its named constraints.
         for migration in catalog[2:5]:
             connection.execute(migration.sql)
-        # Record the exact prefix through 20260830_001, then apply only the two
-        # label-layout migrations under test so their canonical seed,
-        # immutability triggers and restricted-role grants are proven here.
-        for migration in catalog[:-2]:
+        # Record the exact prefix through 20260830_001, then apply the two
+        # label-layout, Vacuum-preservation and label-content migrations under test so
+        # their schema, immutability and restricted-role grants are proven.
+        for migration in catalog[:-6]:
             connection.execute(
                 """
                 INSERT INTO warehouse_schema_migrations
@@ -178,9 +178,16 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
     first = schema_migrations.apply_pending_migrations(**arguments)
     second = schema_migrations.apply_pending_migrations(**arguments)
 
-    assert first.applied_versions == ("20260830_002", "20260830_003")
+    assert first.applied_versions == (
+        "20260830_002",
+        "20260830_003",
+        "20260831_001",
+        "20260831_002",
+        "20260831_003",
+        "20260831_004",
+    )
     assert second.applied_versions == ()
-    assert second.current_version == "20260830_003"
+    assert second.current_version == "20260831_004"
     assert second.post_schema_fingerprint == first.post_schema_fingerprint
 
     runtime_psycopg_url = schema_migrations._psycopg_url(runtime_url)
@@ -281,6 +288,36 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
             "SELECT pg_catalog.has_table_privilege("
             "current_user, 'public.label_layout_versions', 'MAINTAIN')"
         ).fetchone()[0]
+        vacuum_update_privileges = runtime_connection.execute(
+            """
+            SELECT
+                pg_catalog.has_column_privilege(
+                    current_user,
+                    'public.products',
+                    'vacuum_shelf_life_days',
+                    'UPDATE'
+                ),
+                pg_catalog.has_column_privilege(
+                    current_user,
+                    'public.products',
+                    'vacuum_storage_text',
+                    'UPDATE'
+                ),
+                pg_catalog.has_column_privilege(
+                    current_user,
+                    'public.products',
+                    'vacuum_shelf_life_days',
+                    'UPDATE WITH GRANT OPTION'
+                ),
+                pg_catalog.has_column_privilege(
+                    current_user,
+                    'public.products',
+                    'vacuum_storage_text',
+                    'UPDATE WITH GRANT OPTION'
+                )
+            """
+        ).fetchone()
+        assert vacuum_update_privileges == (True, True, False, False)
         assert not runtime_connection.execute(
             """
             SELECT

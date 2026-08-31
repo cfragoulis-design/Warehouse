@@ -11,6 +11,17 @@ from sqlalchemy.orm import Session
 
 from .audit import record_audit_event
 from .db import acquire_transaction_lock
+from .label_content import (
+    CONTENT_CONTRACT_VERSION,
+    CONTENT_FIELD_LIMITS,
+    LabelContentUnavailableError,
+    LabelContentValidationError,
+    canonical_label_content_defaults,
+    canonical_label_content_json,
+    label_content_sha256,
+    schema7_content_enabled as _schema7_content_enabled,
+    validate_label_content,
+)
 from .models import LabelLayoutActive, LabelLayoutVersion, User
 
 
@@ -244,6 +255,13 @@ def schema6_layout_enabled() -> bool:
     )
 
 
+def schema7_content_enabled() -> bool:
+    try:
+        return _schema7_content_enabled()
+    except LabelContentUnavailableError as exc:
+        raise LabelLayoutUnavailableError(str(exc)) from exc
+
+
 def _clean_reason(reason: object) -> str:
     text = str(reason or "").strip()
     if not text:
@@ -287,6 +305,37 @@ def _load_version_settings(version: LabelLayoutVersion) -> dict[str, int]:
     return settings
 
 
+def _load_version_content(version: LabelLayoutVersion) -> dict[str, str]:
+    raw_json = getattr(version, "content_json", None)
+    stored_hash = getattr(version, "content_sha256", None)
+    if not raw_json and not stored_hash:
+        # Rows created before the schema-7 content contract inherit the
+        # configured legal business identity.  They are never guessed from
+        # product data and become immutable once a new version is saved.
+        try:
+            return validate_label_content(canonical_label_content_defaults())
+        except LabelContentValidationError as exc:
+            raise LabelLayoutUnavailableError(
+                "The configured legal label content is invalid."
+            ) from exc
+    if not raw_json or not stored_hash:
+        raise LabelLayoutUnavailableError(
+            "Stored label content is incomplete."
+        )
+    try:
+        raw = json.loads(raw_json)
+    except (TypeError, ValueError) as exc:
+        raise LabelLayoutUnavailableError("Stored label content JSON is invalid.") from exc
+    try:
+        content = validate_label_content(raw)
+    except LabelContentValidationError as exc:
+        raise LabelLayoutUnavailableError("Stored label content is invalid.") from exc
+    actual_hash = label_content_sha256(content)
+    if actual_hash != stored_hash:
+        raise LabelLayoutUnavailableError("Stored label content hash does not match.")
+    return content
+
+
 def layout_version_snapshot(version: LabelLayoutVersion) -> dict[str, object]:
     settings = _load_version_settings(version)
     return {
@@ -297,11 +346,22 @@ def layout_version_snapshot(version: LabelLayoutVersion) -> dict[str, object]:
     }
 
 
+def label_content_version_snapshot(version: LabelLayoutVersion) -> dict[str, object]:
+    content = _load_version_content(version)
+    return {
+        "contract_version": CONTENT_CONTRACT_VERSION,
+        "version_id": version.id,
+        "content_sha256": label_content_sha256(content),
+        "content": content,
+    }
+
+
 def _version_record(
     version: LabelLayoutVersion,
     *,
     active_version_id: int | None,
 ) -> dict[str, object]:
+    content = _load_version_content(version)
     return {
         "id": version.id,
         "version": version.version,
@@ -309,6 +369,8 @@ def _version_record(
         "contract_version": version.contract_version,
         "settings_sha256": version.settings_sha256,
         "settings": _load_version_settings(version),
+        "content_sha256": label_content_sha256(content),
+        "content": content,
         "based_on_version_id": version.based_on_version_id,
         "created_by_user_id": version.created_by_user_id,
         "change_reason": version.change_reason,
@@ -343,14 +405,37 @@ def active_layout_version(
     if version is None or version.printer_profile != PRINTER_PROFILE:
         raise LabelLayoutUnavailableError("The active label-layout pointer is invalid.")
     _load_version_settings(version)
+    _load_version_content(version)
     return pointer, version
 
 
 def active_layout_snapshot_for_print(db: Session) -> dict[str, object] | None:
-    if not schema6_layout_enabled():
+    if not schema6_layout_enabled() and not schema7_content_enabled():
         return None
     _pointer, version = active_layout_version(db)
     return layout_version_snapshot(version)
+
+
+def active_label_content_snapshot_for_print(db: Session) -> dict[str, object] | None:
+    if not schema7_content_enabled():
+        return None
+    _pointer, version = active_layout_version(db)
+    return label_content_version_snapshot(version)
+
+
+def active_label_contract_snapshots_for_print(
+    db: Session,
+) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+    """Read the immutable layout/content pair from one active version."""
+
+    content_enabled = schema7_content_enabled()
+    layout_enabled = schema6_layout_enabled() or content_enabled
+    if not layout_enabled:
+        return None, None
+    _pointer, version = active_layout_version(db)
+    layout = layout_version_snapshot(version)
+    content = label_content_version_snapshot(version) if content_enabled else None
+    return layout, content
 
 
 def layout_state(db: Session, *, limit: int = 50) -> dict[str, object]:
@@ -365,6 +450,7 @@ def layout_state(db: Session, *, limit: int = 50) -> dict[str, object]:
         "contract_version": LAYOUT_CONTRACT_VERSION,
         "printer_profile": PRINTER_PROFILE,
         "schema6_enabled": schema6_layout_enabled(),
+        "schema7_enabled": schema7_content_enabled(),
         "version_token": pointer.lock_version,
         "active": _version_record(active, active_version_id=active.id),
         "versions": [
@@ -373,6 +459,8 @@ def layout_state(db: Session, *, limit: int = 50) -> dict[str, object]:
         ],
         "defaults": canonical_layout_defaults(),
         "bounds": layout_field_bounds(),
+        "content_defaults": canonical_label_content_defaults(),
+        "content_limits": dict(CONTENT_FIELD_LIMITS),
     }
 
 
@@ -398,18 +486,26 @@ def _new_version(
     db: Session,
     *,
     settings: object,
+    content: object,
     actor: User,
     reason: str,
     based_on_version_id: int | None,
 ) -> LabelLayoutVersion:
     normalized = validate_layout_settings(settings)
+    try:
+        normalized_content = validate_label_content(content)
+    except LabelContentValidationError as exc:
+        raise LabelLayoutValidationError(str(exc)) from exc
     canonical = canonical_layout_settings_json(normalized)
+    canonical_content = canonical_label_content_json(normalized_content)
     version = LabelLayoutVersion(
         printer_profile=PRINTER_PROFILE,
         version=_next_version_number(db),
         contract_version=LAYOUT_CONTRACT_VERSION,
         settings_json=canonical,
         settings_sha256=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        content_json=canonical_content,
+        content_sha256=hashlib.sha256(canonical_content.encode("utf-8")).hexdigest(),
         based_on_version_id=based_on_version_id,
         created_by_user_id=actor.id,
         change_reason=reason,
@@ -423,6 +519,7 @@ def save_layout_draft(
     db: Session,
     *,
     settings: object,
+    content: object | None = None,
     actor: User,
     reason: object,
     expected_version: object,
@@ -436,6 +533,7 @@ def save_layout_draft(
         version = _new_version(
             db,
             settings=settings,
+            content=_load_version_content(active) if content is None else content,
             actor=actor,
             reason=clean_reason,
             based_on_version_id=active.id,
@@ -451,6 +549,7 @@ def save_layout_draft(
                 "printer_profile": PRINTER_PROFILE,
                 "version": version.version,
                 "settings_sha256": version.settings_sha256,
+                "content_sha256": version.content_sha256,
                 "based_on_version_id": version.based_on_version_id,
             },
             reason=clean_reason,
@@ -481,6 +580,7 @@ def activate_layout_version(
         if target is None or target.printer_profile != PRINTER_PROFILE:
             raise LabelLayoutNotFoundError("Label-layout version not found.")
         _load_version_settings(target)
+        _load_version_content(target)
         if target.id == active.id:
             db.commit()
             return layout_state(db)
@@ -489,6 +589,7 @@ def activate_layout_version(
             "active_version_id": active.id,
             "lock_version": pointer.lock_version,
             "settings_sha256": active.settings_sha256,
+            "content_sha256": label_content_sha256(_load_version_content(active)),
         }
         pointer.active_version_id = target.id
         pointer.lock_version += 1
@@ -504,6 +605,7 @@ def activate_layout_version(
                 "active_version_id": target.id,
                 "lock_version": pointer.lock_version,
                 "settings_sha256": target.settings_sha256,
+                "content_sha256": label_content_sha256(_load_version_content(target)),
             },
             reason=clean_reason,
             correlation_id=correlation_id,
@@ -531,6 +633,7 @@ def reset_layout(
         version = _new_version(
             db,
             settings=canonical_layout_defaults(),
+            content=canonical_label_content_defaults(),
             actor=actor,
             reason=clean_reason,
             based_on_version_id=active.id,
@@ -539,6 +642,7 @@ def reset_layout(
             "active_version_id": active.id,
             "lock_version": pointer.lock_version,
             "settings_sha256": active.settings_sha256,
+            "content_sha256": label_content_sha256(_load_version_content(active)),
         }
         pointer.active_version_id = version.id
         pointer.lock_version += 1
@@ -555,6 +659,7 @@ def reset_layout(
                 "version": version.version,
                 "lock_version": pointer.lock_version,
                 "settings_sha256": version.settings_sha256,
+                "content_sha256": version.content_sha256,
             },
             reason=clean_reason,
             correlation_id=correlation_id,

@@ -25,6 +25,10 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20260830_001",
         "20260830_002",
         "20260830_003",
+        "20260831_001",
+        "20260831_002",
+        "20260831_003",
+        "20260831_004",
     ]
     migration = catalog[0]
     assert (
@@ -160,6 +164,70 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "DROP TABLE" not in label_layout_privileges_sql.upper()
     assert "TRUNCATE TABLE" not in label_layout_privileges_sql.upper()
     assert "DELETE FROM" not in label_layout_privileges_sql.upper()
+
+    vacuum_profiles = catalog[9]
+    vacuum_profiles_sql = vacuum_profiles.sql
+    assert "vacuum_shelf_life_days INTEGER" in vacuum_profiles_sql
+    assert "vacuum_storage_text VARCHAR(255)" in vacuum_profiles_sql
+    assert "preservation_profile VARCHAR(16)" in vacuum_profiles_sql
+    assert "DEFAULT 'STANDARD'" in vacuum_profiles_sql
+    assert "preservation_profile IN ('STANDARD', 'VACUUM')" in vacuum_profiles_sql
+    assert "ck_products_vacuum_shelf_life_positive" in vacuum_profiles_sql
+    assert "vacuum_shelf_life_days BETWEEN 1 AND 3650" in vacuum_profiles_sql
+    assert "ck_products_vacuum_storage_requires_profile" in vacuum_profiles_sql
+    assert "DROP TABLE" not in vacuum_profiles_sql.upper()
+    assert "TRUNCATE" not in vacuum_profiles_sql.upper()
+    assert "DELETE FROM" not in vacuum_profiles_sql.upper()
+
+    vacuum_privileges = catalog[10]
+    vacuum_privileges_sql = vacuum_privileges.sql
+    normalized_vacuum_privileges_sql = " ".join(vacuum_privileges_sql.split())
+    assert (
+        "current_setting('warehouse.runtime_role', TRUE)" in vacuum_privileges_sql
+    )
+    assert "rolcanlogin" in vacuum_privileges_sql
+    assert "rolsuper" in vacuum_privileges_sql
+    assert "pg_has_role" in vacuum_privileges_sql
+    assert "relowner" in vacuum_privileges_sql
+    assert "current_user" in vacuum_privileges_sql
+    assert (
+        "GRANT UPDATE ( vacuum_shelf_life_days, vacuum_storage_text ) "
+        "ON TABLE public.products TO %I" in normalized_vacuum_privileges_sql
+    )
+    assert "UPDATE WITH GRANT OPTION" in vacuum_privileges_sql
+    assert "GRANT ALL" not in vacuum_privileges_sql.upper()
+    assert "TO PUBLIC" not in vacuum_privileges_sql.upper()
+    assert "DROP TABLE" not in vacuum_privileges_sql.upper()
+    assert "TRUNCATE TABLE" not in vacuum_privileges_sql.upper()
+    assert "DELETE FROM" not in vacuum_privileges_sql.upper()
+
+    label_content = catalog[11]
+    label_content_sql = label_content.sql
+    assert "ADD COLUMN IF NOT EXISTS content_json" in label_content_sql
+    assert "ADD COLUMN IF NOT EXISTS content_sha256" in label_content_sql
+    assert "ck_label_layout_versions_content_hash" in label_content_sql
+    assert "181ac5a027bd2bab8c669c23ef90a69b" in label_content_sql
+    assert "UPDATE label_layout_versions" not in label_content_sql
+    assert "DROP TABLE" not in label_content_sql.upper()
+    assert "TRUNCATE" not in label_content_sql.upper()
+    assert "DELETE FROM" not in label_content_sql.upper()
+
+    label_content_privileges = catalog[12]
+    label_content_privileges_sql = label_content_privileges.sql
+    normalized_content_privileges_sql = " ".join(
+        label_content_privileges_sql.split()
+    )
+    assert "current_setting('warehouse.runtime_role', TRUE)" in (
+        label_content_privileges_sql
+    )
+    assert "content_json" in normalized_content_privileges_sql
+    assert "content_sha256" in normalized_content_privileges_sql
+    assert "GRANT SELECT ON TABLE public.label_layout_versions TO %I" in (
+        normalized_content_privileges_sql
+    )
+    assert "GRANT USAGE ON SEQUENCE" in normalized_content_privileges_sql
+    assert "GRANT ALL" not in normalized_content_privileges_sql.upper()
+    assert "TO PUBLIC" not in label_content_privileges_sql.upper()
     assert len(BASELINE_SCHEMA_FINGERPRINT) == 64
 
 

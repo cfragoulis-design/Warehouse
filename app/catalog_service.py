@@ -14,7 +14,7 @@ try:
     from app.auth import require_user
     from app.db import get_db
     from app.models import Category, Product, User
-    from app.stock_domain import parse_qty
+    from app.stock_domain import parse_qty, parse_qty_any
     from app.templating import WarehouseJinja2Templates
 except ImportError:
     from approval_profiles import normalize_approval_profile
@@ -22,7 +22,7 @@ except ImportError:
     from auth import require_user
     from db import get_db
     from models import Category, Product, User
-    from stock_domain import parse_qty
+    from stock_domain import parse_qty, parse_qty_any
     from templating import WarehouseJinja2Templates
 
 
@@ -104,6 +104,58 @@ def _validated_approval_profile(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _validated_vacuum_settings(
+    *,
+    fields_present: str | None,
+    enabled: str | None,
+    shelf_life_days: str | None,
+    storage_text: str | None,
+    existing_shelf_life_days: int | None = None,
+    existing_storage_text: str | None = None,
+) -> tuple[int | None, str | None]:
+    """Return an explicit Vacuum profile while preserving old edit clients.
+
+    The hidden ``fields_present`` marker is emitted by the current form. An old
+    browser tab or API client that does not know about Vacuum must not erase an
+    already configured profile during an otherwise unrelated product update.
+    """
+
+    if not _truthy_flag(fields_present):
+        return existing_shelf_life_days, existing_storage_text
+    if not _truthy_flag(enabled):
+        return None, None
+
+    parsed_days = parse_qty(shelf_life_days)
+    if (
+        parsed_days is None
+        or parsed_days <= 0
+        or parsed_days > 3650
+        or parsed_days != parsed_days.to_integral_value()
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Οι ημέρες συντήρησης Vacuum πρέπει να είναι ακέραιος από 1 έως 3650.",
+        )
+    cleaned_storage = storage_text.strip() if storage_text else None
+    return int(parsed_days), cleaned_storage or None
+
+
+def _validated_standard_shelf_life_days(value: str | None) -> int:
+    if value is None or not str(value).strip():
+        return 0
+    parsed_days = parse_qty_any(value)
+    if (
+        parsed_days is None
+        or parsed_days > 3650
+        or parsed_days != parsed_days.to_integral_value()
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Οι κανονικές ημέρες συντήρησης πρέπει να είναι ακέραιος από 0 έως 3650.",
+        )
+    return int(parsed_days)
+
+
 def _product_snapshot(product: Product) -> dict[str, object]:
     return {
         "id": product.id,
@@ -118,6 +170,8 @@ def _product_snapshot(product: Product) -> dict[str, object]:
         "is_production_item": product.is_production_item,
         "shelf_life_days": product.shelf_life_days,
         "storage_text": product.storage_text,
+        "vacuum_shelf_life_days": product.vacuum_shelf_life_days,
+        "vacuum_storage_text": product.vacuum_storage_text,
         "label_template": product.label_template,
         "label_legal_name": product.label_legal_name,
         "label_ingredients": product.label_ingredients,
@@ -202,6 +256,10 @@ def product_create(
     is_production_item: str | None = Form(None),
     shelf_life_days: str = Form("0"),
     storage_text: str | None = Form(None),
+    vacuum_fields_present: str | None = Form(None),
+    vacuum_enabled: str | None = Form(None),
+    vacuum_shelf_life_days: str | None = Form(None),
+    vacuum_storage_text: str | None = Form(None),
     label_template: str | None = Form(None),
     label_legal_name: str | None = Form(None),
     label_ingredients: str | None = Form(None),
@@ -218,6 +276,12 @@ def product_create(
     approval_profile_normalized = _validated_approval_profile(approval_profile)
     unit_normalized = _normalized_unit(unit)
     plain_piece = _validated_plain_piece_flag(unit=unit_normalized, value=label_plain_piece)
+    vacuum_days, vacuum_storage = _validated_vacuum_settings(
+        fields_present=vacuum_fields_present,
+        enabled=vacuum_enabled,
+        shelf_life_days=vacuum_shelf_life_days,
+        storage_text=vacuum_storage_text,
+    )
     product = Product(
         name=name.strip(),
         sku=sku.strip() if sku else None,
@@ -226,8 +290,10 @@ def product_create(
         min_stock=float(minimum_stock),
         only_in_freezer=_truthy_flag(only_in_freezer),
         is_production_item=_truthy_flag(is_production_item),
-        shelf_life_days=int(parse_qty(shelf_life_days) or 0),
+        shelf_life_days=_validated_standard_shelf_life_days(shelf_life_days),
         storage_text=storage_text.strip() if storage_text else None,
+        vacuum_shelf_life_days=vacuum_days,
+        vacuum_storage_text=vacuum_storage,
         label_template=label_template.strip() if label_template else None,
         label_legal_name=_optional_label_text(label_legal_name),
         label_ingredients=_optional_label_text(label_ingredients),
@@ -298,6 +364,10 @@ def product_update(
     is_production_item: str | None = Form(None),
     shelf_life_days: str = Form("0"),
     storage_text: str | None = Form(None),
+    vacuum_fields_present: str | None = Form(None),
+    vacuum_enabled: str | None = Form(None),
+    vacuum_shelf_life_days: str | None = Form(None),
+    vacuum_storage_text: str | None = Form(None),
     label_template: str | None = Form(None),
     label_legal_name: str | None = Form(None),
     label_ingredients: str | None = Form(None),
@@ -321,6 +391,14 @@ def product_update(
     )
     unit_normalized = _normalized_unit(unit)
     plain_piece = _validated_plain_piece_flag(unit=unit_normalized, value=label_plain_piece)
+    vacuum_days, vacuum_storage = _validated_vacuum_settings(
+        fields_present=vacuum_fields_present,
+        enabled=vacuum_enabled,
+        shelf_life_days=vacuum_shelf_life_days,
+        storage_text=vacuum_storage_text,
+        existing_shelf_life_days=product.vacuum_shelf_life_days,
+        existing_storage_text=product.vacuum_storage_text,
+    )
     product.name = name.strip()
     product.sku = sku.strip() if sku else None
     product.category = category.strip() if category else None
@@ -329,8 +407,10 @@ def product_update(
     product.is_production_item = _truthy_flag(is_production_item)
     minimum_stock = parse_qty(min_stock)
     product.min_stock = float(minimum_stock) if minimum_stock is not None else 0
-    product.shelf_life_days = int(parse_qty(shelf_life_days) or 0)
+    product.shelf_life_days = _validated_standard_shelf_life_days(shelf_life_days)
     product.storage_text = storage_text.strip() if storage_text else None
+    product.vacuum_shelf_life_days = vacuum_days
+    product.vacuum_storage_text = vacuum_storage
     product.label_template = label_template.strip() if label_template else None
     product.label_legal_name = _optional_label_text(label_legal_name)
     product.label_ingredients = _optional_label_text(label_ingredients)

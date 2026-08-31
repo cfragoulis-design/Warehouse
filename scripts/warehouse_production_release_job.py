@@ -77,7 +77,7 @@ NONE_PENDING = "NONE"
 # sequence allow-list and matrix version. Production fails closed if that source
 # contract changes before this one-shot tool is reviewed again.
 REVIEWED_ACL_CONTRACT_SHA256 = (
-    "97f1e4a5063d45ef60a7d7377891eb24ea2ed399ef6d7d7484c3d9664328f25b"
+    "c325caabfa5b55267c90c727a99b3bfa76ad9bbf2a0c4a38537bf88a76c716ca"
 )
 PLAN_VERSION = 2
 PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT = (
@@ -2395,7 +2395,7 @@ def _build_acl_plan(
         raise RuntimeError("Label-layout privilege migration changed after PLAN")
     recorded = connection.execute(
         "SELECT checksum FROM warehouse_schema_migrations WHERE version = %s",
-        ("20260830_003",),
+        ("20260831_004",),
     ).fetchone()
     if recorded is None or not hmac.compare_digest(str(recorded[0]), label_digest):
         raise RuntimeError("Production label-layout migration ledger is invalid")
