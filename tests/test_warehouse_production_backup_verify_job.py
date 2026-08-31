@@ -151,6 +151,10 @@ def _inspection(*, suffix: str = "") -> backup_job.DatabaseInspection:
         server_version_num=170006,
         schema_sha256=hashlib.sha256(f"schema{suffix}".encode()).hexdigest(),
         schema_entry_counts=(("table", 2), ("trigger", 3)),
+        schema_category_sha256=(
+            ("table", hashlib.sha256(f"table{suffix}".encode()).hexdigest()),
+            ("trigger", hashlib.sha256(f"trigger{suffix}".encode()).hexdigest()),
+        ),
         migration_columns=("version", "checksum", "applied_by_commit"),
         migration_rows=ledger_rows,
         migration_ledger_sha256=hashlib.sha256(
