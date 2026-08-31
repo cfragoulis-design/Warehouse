@@ -10,6 +10,31 @@ The long-lived Warehouse web service must never receive the PostgreSQL admin
 credential. The tool is designed for a dedicated, manually invoked, one-shot
 job that exits after one operation.
 
+## Current candidate boundary — 2026-08-31
+
+This runbook revision covers the candidate whose ordered migration catalog ends
+at `20260831_004`. The four new catalog entries are:
+
+- `20260831_001_vacuum_preservation_profiles.sql`;
+- `20260831_002_vacuum_preservation_runtime_privileges.sql`;
+- `20260831_003_label_content_versions.sql`; and
+- `20260831_004_label_content_runtime_privileges.sql`.
+
+The matching print component is Production HPRT Agent `1.0.17`, which accepts
+payload schemas 3 through 7. Schema 7 is a separately gated application
+feature. Keep `WAREHOUSE_LABEL_CONTENT_SCHEMA7_ENABLED=false` while applying
+the database candidate and during the first application smoke test. Install
+and verify Agent `1.0.17` before changing that flag to `true`.
+
+This candidate is not APPLY-ready merely because the catalog is complete. Its
+new Production PRE and POST schema fingerprints must be established from a
+fresh verified Production backup and two clean offline restore/exercise cycles.
+The two cycles must independently produce the same PRE and the same discovered
+POST. Do not copy a fingerprint from an older release, infer one from Staging,
+or write an unobserved value into this runbook. The reviewed values must be
+compiled into a successor canonical, manifest-attested candidate, which must
+then repeat the offline proof before any Production APPLY.
+
 ## Immutable Production boundary
 
 The script fails closed unless every boundary below matches:
@@ -111,8 +136,11 @@ migrator URL. Keep these web settings false during the cutover:
 
 - `WAREHOUSE_MIGRATIONS_ENABLED=false`
 - `WAREHOUSE_STARTUP_MUTATIONS_ENABLED=false`
-- `WAREHOUSE_LABEL_LAYOUT_SCHEMA6_ENABLED=false`
+- `WAREHOUSE_LABEL_CONTENT_SCHEMA7_ENABLED=false`
 - `ONE_SSO_ENABLED=false`, unless One SSO has its own explicit approval
+
+Do not silently change the already approved schema-6 setting during this
+release. Schema 6 and schema 7 have independent feature gates.
 
 ## Mandatory operational gates
 
@@ -123,31 +151,30 @@ Before running the tool:
 3. Take a fresh Production backup.
 4. Verify the backup checksum and complete the two-cycle, rollback-only offline
    proof in `docs/WAREHOUSE_VERIFIED_RESTORE_EXERCISE.md`. Retain its
-   deterministic POST and cleanup evidence.
+   deterministic PRE, discovered POST and cleanup evidence from both cycles.
 5. Use a clean, approved candidate artifact and its full lowercase commit SHA.
 6. Confirm the runtime password has at least 32 characters and is available
    only through the non-display secret environment.
+7. Review and compile the two-cycle PRE and POST into a successor canonical
+   candidate. Repeat the offline proof with that successor and the same fresh
+   backup. Stop if either fingerprint, the ledger or the pending set differs.
 
 `EXERCISE` and `APPLY` tokens are typo barriers, not approvals.
 They are deliberately different and cannot be used across modes.
 
-Production currently has one reviewed historical ledger shape: exact versions
-`20260803_001,20260823_001,20260827_001,20260828_001,20260829_001,20260830_001`
-with their catalog-pinned hashes and deferred `20260828_002`. The tool accepts
-no generic gap. It also pins the comprehensive PRE schema fingerprint
-`48a6e34128e8ebcc8a4b4a3a52e117b932f26a94a1385c90f7a391c1886e844c`.
-Inside one transaction it applies `20260828_002`, reloads the ledger, demands a
-strict complete prefix through `20260830_001`, then continues with
-`20260830_002/003`.
+The target catalog is the strict ordered prefix through `20260831_004`:
+`20260803_001,20260823_001,20260827_001,20260828_001,20260828_002,`
+`20260829_001,20260830_001,20260830_002,20260830_003,20260831_001,`
+`20260831_002,20260831_003,20260831_004`. The fresh Production PLAN decides
+which exact suffix is pending; this runbook does not assume the live ledger.
+A generic gap, unexpected checksum or mixed prefix is a stop condition.
 
-The interim attested candidate intentionally carries a POST-fingerprint
-sentinel. PLAN may report it. EXERCISE may discover the comprehensive POST only
-because rollback is mandatory; a second PLAN must prove PRE state unchanged.
-APPLY rejects the sentinel before mutation. The observed POST is acceptable
-only after the same candidate succeeds on the verified PG17 restore clone; it
-must then be compiled into a successor manifest-attested commit. The final
-EXERCISE and APPLY compare against that 64-hex pin. A live measurement alone is
-never expected-state evidence.
+Any PRE or POST fingerprint compiled for the previous catalog is historical
+evidence only. The first candidate is rollback-only discovery evidence; APPLY
+must reject an unknown or stale expected POST. Both verified PG17 restore
+cycles must agree, rollback must return each clone to PRE, and the reviewed
+PRE/POST pair must be compiled into a successor manifest-attested commit. A
+live measurement alone is never expected-state evidence.
 
 The PostgreSQL-backed test module accepts `WAREHOUSE_TEST_POSTGRES_URL` only
 when its database name ends in `_restore_verify`. This is an internal test seam,
@@ -230,7 +257,8 @@ python scripts/warehouse_production_release_job.py exercise `
 EXERCISE acquires transaction-scoped hardening and migration locks, rebuilds
 the PLAN, optionally creates the exact restricted role, applies every confirmed
 pending migration, rebuilds the reviewed ACL matrix, replays the exact
-checksum-bound migration `20260830_003`, and runs exhaustive postchecks. It
+checksum-bound privilege contract through `20260831_004`, and runs exhaustive
+postchecks. It
 then always rolls everything back. Continue only when the status is
 `validated_rollback`.
 
@@ -267,9 +295,9 @@ python scripts/warehouse_production_release_job.py apply `
 
 If the role already exists, omit `--create-runtime-role`, do not expose the
 runtime password to the job, and confirm `--confirm-role-action existing`.
-APPLY commits only after migrations, ACL hardening, migration-003 regrant and
-all postchecks succeed. An exception before `COMMIT` rolls back the entire
-transaction.
+APPLY commits only after migrations, ACL hardening, the checksum-bound
+`20260831_004` privilege regrant and all postchecks succeed. An exception before
+`COMMIT` rolls back the entire transaction.
 
 `COMMIT` acknowledgement is a special failure boundary: a connection error can
 mean either that PostgreSQL rolled back or that PostgreSQL committed and the
@@ -296,13 +324,18 @@ Do not accept traffic until all of these pass:
 3. Prove allowed application reads/writes and explicit denials for schema
    creation, arbitrary table mutation, protected tables, custom routines,
    sequence `SELECT`/`UPDATE`, role assumption and every grant option.
-4. Deploy the exact approved application artifact with migrations and schema 6
-   disabled.
+4. Deploy the exact approved application artifact with migrations disabled and
+   `WAREHOUSE_LABEL_CONTENT_SCHEMA7_ENABLED=false`; preserve the separately
+   approved schema-6 setting.
 5. Require `/ready`, `/health`, login, authenticated admin/designer access and
-   schema-3/4/5 print regression.
-6. Install and verify Production Agent 1.0.16 before any separately approved
-   schema-6 physical print.
-7. Resume Warehouse writes only after the smoke evidence is recorded.
+   schema-3/4/5/6 compatibility plus Standard/Vacuum date-selection regression.
+6. Install and verify Production Agent `1.0.17`, including the Production URL,
+   package/company-logo hashes and advertised payload schemas 3–7.
+7. In a separate recorded rollout, set
+   `WAREHOUSE_LABEL_CONTENT_SCHEMA7_ENABLED=true` and complete one controlled
+   schema-7 physical print. Disable schema 7 first on failure; do not downgrade
+   the Agent while a schema-7 job is queued or leased.
+8. Resume Warehouse writes only after the phased smoke evidence is recorded.
 
 The label-layout UI and migrations do not add creator credits to EFET labels,
 traceability labels, receipts or any other regulated/operational print.

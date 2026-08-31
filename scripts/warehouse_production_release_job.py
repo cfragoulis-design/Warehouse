@@ -84,7 +84,7 @@ PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT = (
     "c330e1bd637970415c9cb699523dd44a5ba6a9aa25358714eb351f2319687473"
 )
 PRODUCTION_EXPECTED_POST_SCHEMA_FINGERPRINT = (
-    "2b6c4ceda324b361f359c7959a5bb001e0a315551dbb32a75a3f1bac23149512"
+    "PENDING_VERIFIED_VALUE"
 )
 _COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 _PRODUCTION_LOCK_KEY = 907_541_063_337_221_121
@@ -2459,8 +2459,8 @@ def _execute_changes(
         label_digest, plan.label_privilege_migration_sha256
     ):
         raise RuntimeError("Label-layout privilege migration changed after PLAN")
-    # Migration 003 is intentionally re-run after the broad revoke so its exact,
-    # column-scoped label-layout contract is the final grant operation.
+    # The latest label-content privilege migration is intentionally re-run after
+    # the broad revoke so its exact column-scoped contract is the final grant.
     connection.execute(label_sql)
     _validate_production_post_state(connection, plan, acl_plan)
     post_contract = schema_migrations.schema_contract_fingerprint(connection)
