@@ -11,6 +11,11 @@ restores it into one reserved disposable database on the same PostgreSQL
 service, compares the source and restore, and drops the disposable database in
 `finally`.
 
+For the candidate whose catalog ends at `20260831_004` (matching HPRT Agent
+`1.0.17`), capture a fresh Production backup for the exact canonical candidate
+and maintenance window. An older successful backup must not establish this
+candidate's PRE fingerprint, ledger or row-count baseline.
+
 ## Immutable target
 
 The runner accepts no URL, target, service, source-database or restore-database
@@ -259,6 +264,12 @@ role/migration rollback proof in
 `docs/WAREHOUSE_VERIFIED_RESTORE_EXERCISE.md`. That bridge accepts only this
 four-file verified artifact set and a canonical release, starts its own
 loopback-only PostgreSQL 17 clusters, and never connects back to Production.
+
+Both clean cycles must reproduce the same source PRE and independently discover
+the same rollback-only POST through `20260831_004`. The new POST is intentionally
+not stated here: never reuse an older-release or Staging value, and never guess.
+Review the evidence, compile the agreed PRE/POST into a successor canonical
+candidate, then repeat the two-cycle proof before Production APPLY approval.
 
 ---
 

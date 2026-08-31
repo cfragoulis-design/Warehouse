@@ -7,6 +7,19 @@ approved dump twice into fresh, disposable PostgreSQL 17 clusters bound only to
 `127.0.0.1`, invokes the shared release job's PLAN and rollback-only EXERCISE,
 and requires both clean restores to discover the same POST fingerprint.
 
+The current candidate catalog ends at `20260831_004` and includes Vacuum
+preservation plus immutable label-content migrations `20260831_001`–`004`.
+The matching HPRT Agent is `1.0.17`; this database-only bridge does not install
+it. Schema 7 remains OFF for the later first Production deployment, then follows
+the separate sequence: install and verify Agent `1.0.17`, then enable schema 7.
+
+Use a fresh verified Production backup for this exact candidate. Both clean
+cycles must reproduce the same PRE, discover the same POST through
+`20260831_004`, and prove rollback to PRE. The unknown new POST is deliberately
+not documented or guessed. Review the two-cycle result, compile the agreed
+PRE/POST into a successor canonical candidate, and repeat this proof before
+Production APPLY approval.
+
 ## Fixed safety boundary
 
 - PostgreSQL major is exactly 17. The `initdb`, `postgres`, `pg_ctl` and
