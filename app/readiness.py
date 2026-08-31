@@ -8,8 +8,20 @@ from dataclasses import dataclass
 from sqlalchemy import Engine, inspect, text
 
 try:
+    from .label_content import (
+        LabelContentUnavailableError,
+        label_content_sha256,
+        schema7_content_enabled,
+        validate_label_content,
+    )
     from .runtime_config import load_one_sso_settings
 except ImportError:
+    from label_content import (
+        LabelContentUnavailableError,
+        label_content_sha256,
+        schema7_content_enabled,
+        validate_label_content,
+    )
     from runtime_config import load_one_sso_settings
 
 
@@ -32,6 +44,8 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
             "only_in_freezer",
             "approval_profile",
             "label_plain_piece",
+            "vacuum_shelf_life_days",
+            "vacuum_storage_text",
         }
     ),
     "locations": frozenset({"id", "code", "name"}),
@@ -71,6 +85,7 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
             "status",
             "claim_token_hash",
             "claim_expires_at",
+            "preservation_profile",
         }
     ),
     "label_layout_versions": frozenset(
@@ -81,6 +96,8 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
             "contract_version",
             "settings_json",
             "settings_sha256",
+            "content_json",
+            "content_sha256",
             "based_on_version_id",
             "created_by_user_id",
             "change_reason",
@@ -288,15 +305,42 @@ def _invariant_problem(bind: Engine) -> str | None:
         if invalid_plain_piece is not None:
             return "invalid-plain-piece-unit"
 
+        invalid_vacuum_product = connection.execute(
+            text(
+                "SELECT 1 FROM products WHERE "
+                "(vacuum_shelf_life_days IS NOT NULL AND "
+                "(vacuum_shelf_life_days < 1 OR vacuum_shelf_life_days > 3650)) "
+                "OR (vacuum_shelf_life_days IS NULL AND "
+                "vacuum_storage_text IS NOT NULL) LIMIT 1"
+            )
+        ).first()
+        if invalid_vacuum_product is not None:
+            return "invalid-vacuum-preservation-profile"
+
+        invalid_lot_preservation = connection.execute(
+            text(
+                "SELECT 1 FROM product_lots "
+                "WHERE preservation_profile NOT IN ('STANDARD', 'VACUUM') LIMIT 1"
+            )
+        ).first()
+        if invalid_lot_preservation is not None:
+            return "invalid-lot-preservation-profile"
+
         try:
             _schema6_layout_enabled()
         except ValueError:
             return "invalid-label-layout-feature-flag"
 
+        try:
+            schema7_content_enabled()
+        except LabelContentUnavailableError:
+            return "invalid-label-content-feature-flag"
+
         active_layout = connection.execute(
             text(
                 "SELECT v.id, v.contract_version, v.settings_json, "
-                "v.settings_sha256, a.lock_version "
+                "v.settings_sha256, v.content_json, v.content_sha256, "
+                "a.lock_version "
                 "FROM label_layout_active AS a "
                 "JOIN label_layout_versions AS v ON v.id = a.active_version_id "
                 "WHERE a.printer_profile = 'HPRT_LPQ80_BITMAP_50X70' "
@@ -318,6 +362,13 @@ def _invariant_problem(bind: Engine) -> str | None:
                 return "invalid-active-label-layout"
         except Exception:
             return "invalid-active-label-layout"
+
+        try:
+            content = validate_label_content(json.loads(active_layout.content_json))
+            if label_content_sha256(content) != active_layout.content_sha256:
+                return "invalid-active-label-content"
+        except Exception:
+            return "invalid-active-label-content"
 
         # PostgreSQL immutability is part of the safety boundary, even while
         # schema 6 is feature-gated off.  This also makes a create_all-only

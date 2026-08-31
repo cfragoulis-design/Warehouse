@@ -103,10 +103,16 @@ def preservation_details(product, value: object) -> dict[str, object]:
     vacuum_storage = _clean(
         getattr(product, "vacuum_storage_text", None), maximum=255
     )
-    if not vacuum_storage:
-        vacuum_storage = "Συσκευασία υπό κενό"
-        if standard_storage:
-            vacuum_storage = f"{vacuum_storage} · {standard_storage}"
+    vacuum_designation = "Συσκευασία υπό κενό"
+    storage_instruction = vacuum_storage or standard_storage
+    if storage_instruction and not storage_instruction.casefold().startswith(
+        vacuum_designation.casefold()
+    ):
+        vacuum_storage = f"{vacuum_designation} · {storage_instruction}"
+    elif storage_instruction:
+        vacuum_storage = storage_instruction
+    else:
+        vacuum_storage = vacuum_designation
     return {
         "code": VACUUM_PRESERVATION,
         "display_name": "Συσκευασία υπό κενό",

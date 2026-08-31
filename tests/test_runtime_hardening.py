@@ -214,6 +214,80 @@ def test_readiness_requires_label_layout_parent_version_column() -> None:
     assert status.reason == "missing-required-columns"
 
 
+@pytest.mark.parametrize(
+    ("table_name", "column_name"),
+    [
+        ("products", "vacuum_shelf_life_days"),
+        ("products", "vacuum_storage_text"),
+        ("product_lots", "preservation_profile"),
+        ("label_layout_versions", "content_json"),
+        ("label_layout_versions", "content_sha256"),
+    ],
+)
+def test_readiness_requires_vacuum_and_label_content_columns(
+    table_name: str,
+    column_name: str,
+) -> None:
+    assert column_name in _REQUIRED_SCHEMA[table_name]
+    engine = _engine_with_required_schema_except(
+        missing_column=(table_name, column_name)
+    )
+
+    status = check_readiness(engine)
+
+    assert status.ready is False
+    assert status.schema == "failed"
+    assert status.reason == "missing-required-columns"
+
+
+def test_readiness_rejects_invalid_schema7_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            Location.__table__.insert(),
+            [
+                {"code": "CENTRAL", "name": "Κεντρικό"},
+                {"code": "WORKSHOP", "name": "Εργαστήριο"},
+            ],
+        )
+        _seed_active_label_layout(connection)
+    monkeypatch.setenv("WAREHOUSE_LABEL_CONTENT_SCHEMA7_ENABLED", "maybe")
+
+    status = check_readiness(engine)
+
+    assert status.ready is False
+    assert status.reason == "invalid-label-content-feature-flag"
+
+
+def test_readiness_rejects_corrupt_active_label_content() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            Location.__table__.insert(),
+            [
+                {"code": "CENTRAL", "name": "Κεντρικό"},
+                {"code": "WORKSHOP", "name": "Εργαστήριο"},
+            ],
+        )
+        _seed_active_label_layout(connection)
+        connection.execute(
+            text(
+                "UPDATE label_layout_versions "
+                "SET content_sha256 = :invalid_hash"
+            ),
+            {"invalid_hash": "0" * 64},
+        )
+
+    status = check_readiness(engine)
+
+    assert status.ready is False
+    assert status.reason == "invalid-active-label-content"
+
+
 def _valid_label_trigger_rows() -> list[dict[str, object]]:
     return [
         {

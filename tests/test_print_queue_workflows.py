@@ -184,7 +184,9 @@ def test_vacuum_batch_uses_server_config_and_snapshots_the_choice(
     assert lot.expiry_date == date(2026, 9, 10)
     assert snapshot["preservation"]["code"] == "VACUUM"
     assert snapshot["traceability"]["shelf_life_days"] == 10
-    assert snapshot["storage"] == "Vacuum packed · Keep refrigerated"
+    assert snapshot["storage"] == (
+        "Συσκευασία υπό κενό · Vacuum packed · Keep refrigerated"
+    )
     assert created["items"][0]["preservation_profile"] == "VACUUM"
 
 
