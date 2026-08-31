@@ -18,8 +18,11 @@ Production migrations are accepted only for this exact target:
 
 The pre-deploy command is `python -B scripts/warehouse_predeploy.py`; Railway
 then probes `/ready` for up to 120 seconds. Migrations remain disabled unless
-explicitly enabled. With the flag off, the guard does not resolve a target or
-contact PostgreSQL.
+explicitly enabled. With the flag off, a non-Production process remains a
+database-free no-op. A Production process still verifies the exact Railway
+target and the approved Git commit or canonical CLI release manifest before it
+can start; this attestation reads no database state and never applies a
+migration.
 
 ## Restricted runtime database role
 

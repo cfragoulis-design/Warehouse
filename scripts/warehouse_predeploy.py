@@ -50,13 +50,41 @@ def _boolean_environment(name: str, *, default: bool = False) -> bool:
 def _required_environment(name: str) -> str:
     value = (os.getenv(name) or "").strip()
     if not value:
-        raise RuntimeError(f"{name} is required when Warehouse migrations are enabled")
+        raise RuntimeError(f"{name} is required for guarded Warehouse pre-deploy")
     return value
 
 
 def _require_exact_environment(name: str, expected: str) -> None:
     if _required_environment(name) != expected:
         raise RuntimeError(f"{name} does not match the reviewed Production target")
+
+
+def _is_production_release_context() -> bool:
+    """Recognise Production without trusting only one caller-controlled value.
+
+    Railway injects the environment and service identifiers. The explicit target
+    names cover release tooling and make a malformed Production identity fail
+    closed before any migration decision is considered.
+    """
+    explicit_targets = (
+        os.getenv("WAREHOUSE_MIGRATION_TARGET"),
+        os.getenv("WAREHOUSE_ENVIRONMENT"),
+        os.getenv("APP_ENV"),
+        os.getenv("ENVIRONMENT"),
+        os.getenv("RAILWAY_ENVIRONMENT_NAME"),
+        os.getenv("RAILWAY_ENVIRONMENT"),
+    )
+    if any(
+        (value or "").strip().casefold() in {"production", "prod"}
+        for value in explicit_targets
+    ):
+        return True
+    return (
+        (os.getenv("RAILWAY_ENVIRONMENT_ID") or "").strip()
+        == PRODUCTION_ENVIRONMENT_ID
+        or (os.getenv("RAILWAY_SERVICE_ID") or "").strip()
+        == PRODUCTION_WEB_SERVICE_ID
+    )
 
 
 def _validate_production_target(
@@ -128,7 +156,13 @@ def run_predeploy() -> dict[str, object]:
     process.
     """
     runtime_report = validate_predeploy_environment()
-    if not _boolean_environment("WAREHOUSE_MIGRATIONS_ENABLED"):
+    migrations_enabled = _boolean_environment("WAREHOUSE_MIGRATIONS_ENABLED")
+    if not migrations_enabled:
+        if _is_production_release_context():
+            _validate_production_target(
+                database_url=_required_environment("DATABASE_URL"),
+                candidate_commit=_required_environment("WAREHOUSE_CANDIDATE_COMMIT"),
+            )
         return {
             "ready": True,
             **asdict(runtime_report),

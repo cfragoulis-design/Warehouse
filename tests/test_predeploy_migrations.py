@@ -59,8 +59,13 @@ def _clear(monkeypatch: pytest.MonkeyPatch) -> None:
         "WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256",
         "RAILWAY_PROJECT_ID",
         "RAILWAY_ENVIRONMENT_ID",
+        "RAILWAY_ENVIRONMENT_NAME",
+        "RAILWAY_ENVIRONMENT",
         "RAILWAY_SERVICE_ID",
         "RAILWAY_GIT_COMMIT_SHA",
+        "APP_ENV",
+        "ENVIRONMENT",
+        "WAREHOUSE_ENVIRONMENT",
         "DATABASE_URL",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -103,6 +108,11 @@ def test_disabled_migrations_do_not_resolve_target_or_database(
         warehouse_predeploy,
         "apply_pending_migrations",
         lambda **_kwargs: pytest.fail("database must not be contacted"),
+    )
+    monkeypatch.setattr(
+        warehouse_predeploy,
+        "_validate_production_target",
+        lambda **_kwargs: pytest.fail("Production validation must not run"),
     )
 
     assert warehouse_predeploy.run_predeploy()["migrations"] == "disabled"
@@ -362,8 +372,12 @@ def _production_environment(
     *,
     candidate_commit: str = "d" * 40,
     railway_commit: str | None = "d" * 40,
+    migrations_enabled: bool = True,
 ) -> None:
-    monkeypatch.setenv("WAREHOUSE_MIGRATIONS_ENABLED", "true")
+    monkeypatch.setenv(
+        "WAREHOUSE_MIGRATIONS_ENABLED",
+        "true" if migrations_enabled else "false",
+    )
     monkeypatch.setenv("WAREHOUSE_MIGRATION_TARGET", "production")
     monkeypatch.setenv("WAREHOUSE_PRODUCTION_MIGRATIONS_APPROVED", "true")
     monkeypatch.setenv("WAREHOUSE_MIGRATION_DATABASE", "railway")
@@ -391,6 +405,128 @@ def _production_environment(
     )
     if railway_commit is not None:
         monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", railway_commit)
+
+
+def test_production_disabled_migrations_still_verify_git_release_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _production_environment(monkeypatch, migrations_enabled=False)
+    monkeypatch.delenv("WAREHOUSE_MIGRATION_TARGET")
+    monkeypatch.delenv("WAREHOUSE_PRODUCTION_MIGRATIONS_APPROVED")
+    monkeypatch.setattr(
+        warehouse_predeploy,
+        "apply_pending_migrations",
+        lambda **_kwargs: pytest.fail("database must not be contacted"),
+    )
+
+    result = warehouse_predeploy.run_predeploy()
+
+    assert result["ready"] is True
+    assert result["migrations"] == "disabled"
+
+
+def test_production_disabled_migrations_verify_cli_release_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _production_environment(
+        monkeypatch,
+        migrations_enabled=False,
+        railway_commit=None,
+    )
+    monkeypatch.delenv("WAREHOUSE_MIGRATION_TARGET")
+    monkeypatch.delenv("WAREHOUSE_PRODUCTION_MIGRATIONS_APPROVED")
+    (tmp_path / "app.py").write_text("print('exact')\n", encoding="utf-8")
+    tree_hash, manifest_hash = _write_release_manifest(tmp_path, "d" * 40)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_TREE_SHA256", tree_hash)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256", manifest_hash)
+    monkeypatch.setattr(warehouse_predeploy, "PROJECT_ROOT", tmp_path)
+
+    result = warehouse_predeploy.run_predeploy()
+
+    assert result["migrations"] == "disabled"
+
+
+def test_production_disabled_migrations_reject_missing_release_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _production_environment(
+        monkeypatch,
+        migrations_enabled=False,
+        railway_commit=None,
+    )
+    monkeypatch.delenv("WAREHOUSE_MIGRATION_TARGET")
+    monkeypatch.delenv("WAREHOUSE_PRODUCTION_MIGRATIONS_APPROVED")
+    monkeypatch.setenv("WAREHOUSE_APPROVED_TREE_SHA256", "a" * 64)
+    monkeypatch.setenv("WAREHOUSE_APPROVED_RELEASE_MANIFEST_SHA256", "b" * 64)
+    monkeypatch.setattr(warehouse_predeploy, "PROJECT_ROOT", tmp_path)
+
+    with pytest.raises(RuntimeError, match="manifest is missing"):
+        warehouse_predeploy.run_predeploy()
+
+
+def test_production_disabled_migrations_reject_wrong_target_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _production_environment(monkeypatch, migrations_enabled=False)
+    monkeypatch.delenv("WAREHOUSE_MIGRATION_TARGET")
+    monkeypatch.delenv("WAREHOUSE_PRODUCTION_MIGRATIONS_APPROVED")
+    monkeypatch.setenv("RAILWAY_PROJECT_ID", "wrong")
+
+    with pytest.raises(RuntimeError, match="RAILWAY_PROJECT_ID"):
+        warehouse_predeploy.run_predeploy()
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("WAREHOUSE_APPROVED_CANDIDATE_COMMIT", "e" * 40, "Approved candidate"),
+        ("RAILWAY_GIT_COMMIT_SHA", "e" * 40, "Railway commit SHA"),
+    ],
+)
+def test_production_disabled_migrations_reject_unapproved_release(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: str,
+    message: str,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _production_environment(monkeypatch, migrations_enabled=False)
+    monkeypatch.delenv("WAREHOUSE_MIGRATION_TARGET")
+    monkeypatch.delenv("WAREHOUSE_PRODUCTION_MIGRATIONS_APPROVED")
+    monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        warehouse_predeploy,
+        "apply_pending_migrations",
+        lambda **_kwargs: pytest.fail("database must not be contacted"),
+    )
+
+    with pytest.raises(RuntimeError, match=message):
+        warehouse_predeploy.run_predeploy()
+
+
+def test_production_disabled_migrations_require_candidate_release_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear(monkeypatch)
+    _stub_runtime(monkeypatch)
+    _production_environment(monkeypatch, migrations_enabled=False)
+    monkeypatch.delenv("WAREHOUSE_MIGRATION_TARGET")
+    monkeypatch.delenv("WAREHOUSE_PRODUCTION_MIGRATIONS_APPROVED")
+    monkeypatch.delenv("WAREHOUSE_CANDIDATE_COMMIT")
+
+    with pytest.raises(RuntimeError, match="guarded Warehouse pre-deploy"):
+        warehouse_predeploy.run_predeploy()
 
 
 def test_production_git_release_accepts_only_exact_reviewed_target(
@@ -589,7 +725,10 @@ def test_release_manifest_verifier_rejects_invalid_root_virtualenv(
         except (NotImplementedError, OSError) as exc:
             pytest.skip(f"symbolic links are unavailable: {exc}")
 
-    with pytest.raises(RuntimeError, match="symlink|real directory"):
+    with pytest.raises(
+        RuntimeError,
+        match="symbolic links|symlink|real directory",
+    ):
         verify_release_manifest(
             tmp_path,
             expected_commit="d" * 40,
