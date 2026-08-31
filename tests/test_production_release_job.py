@@ -81,7 +81,7 @@ def _plan(*, runtime_exists: bool = True, create: bool = False):
         relations=(),
         functions=(),
         default_acls=(),
-        cluster_databases=("postgres", "railway"),
+        cluster_databases=("postgres", "railway", "warehouse_restore_verify"),
         global_acl_fingerprint="7" * 64,
         schema_fingerprint_version=(
             release_job.schema_migrations.SCHEMA_CONTRACT_FINGERPRINT_VERSION
@@ -113,7 +113,8 @@ def mutations_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
         release_job,
         "_validate_global_role_access",
         lambda *args, **kwargs: release_job.GlobalAclAudit(
-            databases=("postgres", "railway"), fingerprint="7" * 64
+            databases=("postgres", "railway", "warehouse_restore_verify"),
+            fingerprint="7" * 64,
         ),
     )
 
@@ -151,6 +152,12 @@ def test_target_is_exactly_production_and_has_no_target_override() -> None:
         "7a31254a-67e9-48ee-8cd4-77c64e087ad5"
     )
     assert release_job.PRODUCTION_DATABASE == "railway"
+    assert release_job.PRODUCTION_EVIDENCE_DATABASE == "warehouse_restore_verify"
+    assert release_job.PRODUCTION_CLUSTER_DATABASES == {
+        "postgres",
+        "railway",
+        "warehouse_restore_verify",
+    }
     assert release_job.PRODUCTION_DATABASE_HOST == (
         "postgres-4p5a.railway.internal"
     )

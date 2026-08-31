@@ -58,7 +58,8 @@ python scripts/warehouse_verified_restore_exercise.py plan `
 ```
 
 Save the one-line JSON result in the restricted release record. Stop unless it
-shows `database=railway`, `cluster_databases=[postgres,railway]`,
+shows `database=railway`,
+`cluster_databases=[postgres,railway,warehouse_restore_verify]`,
 `loopback_host=127.0.0.1`, `postgres_major=17`, `restore_cycles=2`, the exact
 release/backup evidence and the pinned prerequisite contract hash.
 
@@ -80,7 +81,7 @@ python scripts/warehouse_verified_restore_exercise.py exercise `
   --pg-bin-directory <REVIEWED-POSTGRESQL-17-BIN> `
   --work-directory <BACKUP-DIRECTORY> `
   --confirm-database railway `
-  --confirm-cluster-databases postgres,railway `
+  --confirm-cluster-databases postgres,railway,warehouse_restore_verify `
   --confirm-candidate-commit <PLAN-candidate_commit> `
   --confirm-release-tree-sha256 <PLAN-release_tree_sha256> `
   --confirm-release-manifest-sha256 <PLAN-release_manifest_sha256> `

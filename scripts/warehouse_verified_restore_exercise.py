@@ -30,9 +30,10 @@ PLAN_VERSION = 1
 RELEASE_MANIFEST_FILENAME = "warehouse_release_manifest.json"
 DATABASE = "railway"
 MAINTENANCE_DATABASE = "postgres"
+EVIDENCE_DATABASE = "warehouse_restore_verify"
 PRODUCTION_RESTORE_DATABASE = "warehouse_production_backup_restore_verify"
 ADMIN_ROLE = "postgres"
-EXPECTED_DATABASES = (MAINTENANCE_DATABASE, DATABASE)
+EXPECTED_DATABASES = (MAINTENANCE_DATABASE, DATABASE, EVIDENCE_DATABASE)
 EXPECTED_PENDING_VERSIONS = (
     "20260828_002",
     "20260830_002",
@@ -52,7 +53,7 @@ PREREQUISITE_CONTRACT_VERSION = "warehouse-verified-restore-prerequisites-v1"
 # Binds the exact Production constants consumed by _prerequisite_contract_payload().
 # A change requires review of this offline bridge before it may run again.
 PREREQUISITE_CONTRACT_SHA256 = (
-    "3fb019118df43cff5b0b3805edd80c17d78f8b0745e8f94e259d44b5d8c3096f"
+    "3467d79c0de41cbfecb84ae326f9930d5ce3e79a845611b7573a94e55fc79bf4"
 )
 
 PRODUCTION_RAILWAY_PROJECT_ID = "4cd318f3-41f9-43c5-8664-44ff7e581a6a"
@@ -934,6 +935,7 @@ def _prerequisite_contract_payload(release_job: ModuleType) -> dict[str, object]
             "reader": {
                 MAINTENANCE_DATABASE: [],
                 DATABASE: ["CONNECT"],
+                EVIDENCE_DATABASE: [],
             },
         },
         "reviewed_acl_contract_sha256": str(release_job.REVIEWED_ACL_CONTRACT_SHA256),
@@ -1578,9 +1580,14 @@ def _assert_cluster_topology(
     expected = (
         ((MAINTENANCE_DATABASE, True, ADMIN_ROLE),)
         if initialized
-        else (
-            (MAINTENANCE_DATABASE, True, ADMIN_ROLE),
-            (DATABASE, True, ADMIN_ROLE),
+        else tuple(
+            sorted(
+                (
+                    (MAINTENANCE_DATABASE, True, ADMIN_ROLE),
+                    (DATABASE, True, ADMIN_ROLE),
+                    (EVIDENCE_DATABASE, True, ADMIN_ROLE),
+                )
+            )
         )
     )
     if _cluster_database_state(connection) != expected:
@@ -1735,12 +1742,13 @@ def _create_restore_prerequisites(
             cluster=cluster,
             database=MAINTENANCE_DATABASE,
         )
-        maintenance.execute(
-            sql.SQL("CREATE DATABASE {} WITH TEMPLATE template0 OWNER {}").format(
-                sql.Identifier(DATABASE),
-                sql.Identifier(ADMIN_ROLE),
+        for database in (DATABASE, EVIDENCE_DATABASE):
+            maintenance.execute(
+                sql.SQL("CREATE DATABASE {} WITH TEMPLATE template0 OWNER {}").format(
+                    sql.Identifier(database),
+                    sql.Identifier(ADMIN_ROLE),
+                )
             )
-        )
     with _connect(cluster, DATABASE) as connection:
         _assert_cluster_identity(connection, cluster=cluster, database=DATABASE)
         _assert_cluster_topology(connection, initialized=False)

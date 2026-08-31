@@ -170,6 +170,11 @@ python scripts/warehouse_production_release_job.py plan `
 PLAN performs all catalog reads in a read-only transaction and always rolls
 back. Save its JSON result. It provides:
 
+The exact reviewed Production cluster topology is `postgres`, `railway` and
+the immutable evidence snapshot `warehouse_restore_verify`. The release gate
+must audit all three; the evidence database is never migrated or used by the
+Warehouse runtime role.
+
 - `source_database_owner`
 - `admin_role`
 - `runtime_role_action` (`existing`, `create`, or `missing`)
