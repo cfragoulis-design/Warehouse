@@ -981,6 +981,9 @@ def test_prerequisite_contract_is_currently_pinned() -> None:
     assert release_job.PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT == (
         "2b6c4ceda324b361f359c7959a5bb001e0a315551dbb32a75a3f1bac23149512"
     )
+    assert release_job.PRODUCTION_EXPECTED_POST_SCHEMA_FINGERPRINT == (
+        "20a6ac313ea62105cff3e56ebcc727461a81a8620377b8d56c5355411ee8f659"
+    )
     assert helper.EXPECTED_PENDING_VERSIONS == (
         "20260831_001",
         "20260831_002",
