@@ -35,15 +35,12 @@ PRODUCTION_RESTORE_DATABASE = "warehouse_production_backup_restore_verify"
 ADMIN_ROLE = "postgres"
 EXPECTED_DATABASES = (MAINTENANCE_DATABASE, DATABASE, EVIDENCE_DATABASE)
 EXPECTED_PENDING_VERSIONS = (
-    "20260828_002",
-    "20260830_002",
-    "20260830_003",
     "20260831_001",
     "20260831_002",
     "20260831_003",
     "20260831_004",
 )
-EXPECTED_LEDGER_RECONCILIATION = "deferred_20260828_002"
+EXPECTED_LEDGER_RECONCILIATION = "strict_prefix"
 EXERCISE_TOKEN = "EXERCISE-WAREHOUSE-VERIFIED-RESTORE"
 RESTORE_CYCLES = 2
 LOCAL_HOST = "127.0.0.1"
@@ -57,7 +54,7 @@ PREREQUISITE_CONTRACT_VERSION = "warehouse-verified-restore-prerequisites-v1"
 # Binds the exact Production constants consumed by _prerequisite_contract_payload().
 # A change requires review of this offline bridge before it may run again.
 PREREQUISITE_CONTRACT_SHA256 = (
-    "60df0df69952ecc0c408a23a822b11affcf3a0021bc355a906b2b968452cc997"
+    "91b1aebbbbe4bed2a13d6d3c1766b53af420860d4787545c210d073f4b7ff35b"
 )
 
 PRODUCTION_RAILWAY_PROJECT_ID = "4cd318f3-41f9-43c5-8664-44ff7e581a6a"

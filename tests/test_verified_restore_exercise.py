@@ -960,6 +960,16 @@ def test_owned_cluster_does_not_create_child_before_port_is_allocated(
 def test_prerequisite_contract_is_currently_pinned() -> None:
     from scripts import warehouse_production_release_job as release_job
 
+    assert release_job.PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT == (
+        "9f1e809ec680e998bd6dd9c304254ca6fe4be75557b17448bc2568bed9f483ce"
+    )
+    assert helper.EXPECTED_PENDING_VERSIONS == (
+        "20260831_001",
+        "20260831_002",
+        "20260831_003",
+        "20260831_004",
+    )
+    assert helper.EXPECTED_LEDGER_RECONCILIATION == "strict_prefix"
     assert (
         helper._sha256_payload(helper._prerequisite_contract_payload(release_job))
         == helper.PREREQUISITE_CONTRACT_SHA256
