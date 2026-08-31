@@ -1624,9 +1624,6 @@ def _additional_hardening_statements(
         f"REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM {reader}",
         f"REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM {reader}",
         f"REVOKE ALL PRIVILEGES ON ALL ROUTINES IN SCHEMA public FROM {reader}",
-        f"REVOKE ALL PRIVILEGES ON ALL TYPES IN SCHEMA public FROM {runtime}",
-        f"REVOKE ALL PRIVILEGES ON ALL TYPES IN SCHEMA public FROM {reader}",
-        "REVOKE ALL PRIVILEGES ON ALL TYPES IN SCHEMA public FROM PUBLIC",
         f"GRANT CONNECT ON DATABASE {database} TO {reader}",
         f"GRANT USAGE ON SCHEMA public TO {reader}",
     ])
@@ -1654,6 +1651,63 @@ def _additional_hardening_statements(
             f"REVOKE ALL ON SCHEMAS FROM {grantee}"
         )
     return tuple(statements)
+
+
+def _existing_public_type_names(
+    connection: psycopg.Connection[object],
+) -> tuple[str, ...]:
+    rows = connection.execute(
+        """
+        SELECT type_entry.typname
+        FROM pg_catalog.pg_type AS type_entry
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = type_entry.typnamespace
+        WHERE namespace.nspname = 'public'
+          AND type_entry.typrelid = 0
+          AND type_entry.typisdefined
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_depend AS dependency
+              WHERE dependency.classid = 'pg_type'::regclass
+                AND dependency.objid = type_entry.oid
+                AND dependency.deptype IN ('a', 'i')
+          )
+        ORDER BY type_entry.typname
+        """
+    ).fetchall()
+    return tuple(str(row[0]) for row in rows)
+
+
+def _existing_type_revoke_statements(
+    type_names: Sequence[str],
+) -> tuple[sql.Composed, ...]:
+    grantees: tuple[sql.Identifier | sql.SQL, ...] = (
+        sql.Identifier(PRODUCTION_RUNTIME_ROLE),
+        sql.Identifier(PRODUCTION_READER_ROLE),
+        sql.SQL("PUBLIC"),
+    )
+    statements = []
+    for type_name in sorted(set(type_names)):
+        for grantee in grantees:
+            statements.append(
+                sql.SQL(
+                    "REVOKE ALL PRIVILEGES ON TYPE {}.{} FROM {}"
+                ).format(
+                    sql.Identifier("public"),
+                    sql.Identifier(type_name),
+                    grantee,
+                )
+            )
+    return tuple(statements)
+
+
+def _revoke_existing_public_type_privileges(
+    connection: psycopg.Connection[object],
+) -> None:
+    for statement in _existing_type_revoke_statements(
+        _existing_public_type_names(connection)
+    ):
+        connection.execute(statement)
 
 
 def _validate_hardened_defaults(
@@ -2341,6 +2395,7 @@ def _execute_changes(
     acl_plan = _build_acl_plan(connection, plan)
     for statement in _additional_hardening_statements(acl_plan):
         connection.execute(statement)
+    _revoke_existing_public_type_privileges(connection)
     for statement in reviewed_acl._hardening_statements(acl_plan):
         connection.execute(statement)
     connection.execute(

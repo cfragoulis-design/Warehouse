@@ -573,7 +573,7 @@ def test_default_hardening_covers_global_and_public_scopes() -> None:
     assert (
         'REVOKE ALL PRIVILEGES ON DATABASE "railway" FROM PUBLIC' in rendered
     )
-    assert "REVOKE ALL PRIVILEGES ON ALL TYPES IN SCHEMA public" in rendered
+    assert "REVOKE ALL PRIVILEGES ON ALL TYPES IN SCHEMA public" not in rendered
     assert release_job.PRODUCTION_RUNTIME_ROLE in rendered
     assert "GRANT CONNECT ON DATABASE" in rendered
     assert "GRANT USAGE ON SCHEMA public" in rendered
@@ -584,6 +584,23 @@ def test_default_hardening_covers_global_and_public_scopes() -> None:
     assert not any(
         "ALTER SCHEMA public OWNER" in statement
         for statement in release_job.reviewed_acl._hardening_statements(acl_plan)
+    )
+
+
+def test_existing_type_revokes_use_valid_individual_type_syntax() -> None:
+    statements = release_job._existing_type_revoke_statements(
+        ("delivery_state", 'name_with_"_quote', "delivery_state")
+    )
+    rendered = tuple(statement.as_string() for statement in statements)
+    assert len(statements) == 6
+    assert all("ON ALL TYPES IN SCHEMA" not in statement for statement in rendered)
+    assert (
+        'REVOKE ALL PRIVILEGES ON TYPE "public"."delivery_state" '
+        'FROM "warehouse_production_app"'
+    ) in rendered
+    assert (
+        'REVOKE ALL PRIVILEGES ON TYPE "public"."name_with_""_quote" FROM PUBLIC'
+        in rendered
     )
 
 
