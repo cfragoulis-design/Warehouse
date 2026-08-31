@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.engine import make_url
 
 from app import schema_migrations
+from scripts import warehouse_production_backup_verify_job as backup_job
 from scripts import warehouse_production_release_job as release_job
 
 
@@ -68,6 +69,24 @@ def test_postgresql_transaction_failure_rolls_back_all_primitives() -> None:
             "SELECT to_regclass(%s)", (f"public.{table}",)
         ).fetchone() == (None,)
         verification.rollback()
+
+
+def test_backup_schema_inventory_queries_are_valid_postgresql_17_sql() -> None:
+    url = _restore_url()
+    with psycopg.connect(url, autocommit=False) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS public.warehouse_schema_migrations (
+                version text PRIMARY KEY,
+                checksum text NOT NULL
+            )
+            """
+        )
+        inspection = backup_job._inspection_from_connection(connection)
+        assert inspection.server_version_num >= 170000
+        assert dict(inspection.schema_entry_counts)["column"] >= 2
+        assert inspection.migration_columns == ("version", "checksum")
+        connection.rollback()
 
 
 def test_global_acl_inventory_observes_direct_public_and_default_acl_sources() -> None:

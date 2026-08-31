@@ -417,7 +417,7 @@ _SCHEMA_INVENTORY_QUERIES: tuple[tuple[str, str], ...] = (
                attribute.attidentity,
                attribute.attgenerated,
                COALESCE(pg_catalog.pg_get_expr(default_value.adbin, default_value.adrelid), ''),
-               COALESCE(collation.collname, ''),
+               COALESCE(collation_entry.collname, ''),
                COALESCE(attribute.attacl::text, ''),
                attribute.attcompression,
                attribute.attstattarget
@@ -427,7 +427,8 @@ _SCHEMA_INVENTORY_QUERIES: tuple[tuple[str, str], ...] = (
         LEFT JOIN pg_catalog.pg_attrdef AS default_value
           ON default_value.adrelid = attribute.attrelid
          AND default_value.adnum = attribute.attnum
-        LEFT JOIN pg_catalog.pg_collation AS collation ON collation.oid = attribute.attcollation
+        LEFT JOIN pg_catalog.pg_collation AS collation_entry
+          ON collation_entry.oid = attribute.attcollation
         WHERE namespace.nspname !~ '^pg_'
           AND namespace.nspname <> 'information_schema'
           AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
