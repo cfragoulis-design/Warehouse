@@ -83,6 +83,7 @@ class DatabaseInspection:
     schema_sha256: str
     schema_entry_counts: tuple[tuple[str, int], ...]
     schema_category_sha256: tuple[tuple[str, str], ...]
+    schema_entry_sha256: tuple[tuple[str, str, str], ...]
     migration_columns: tuple[str, ...]
     migration_rows: tuple[tuple[str | None, ...], ...]
     migration_ledger_sha256: str
@@ -748,11 +749,24 @@ def _inspection_from_connection(connection: ConnectionLike) -> DatabaseInspectio
     schema_inventory: list[tuple[str, tuple[object, ...]]] = []
     entry_counts: list[tuple[str, int]] = []
     category_hashes: list[tuple[str, str]] = []
+    entry_hashes: list[tuple[str, str, str]] = []
     for category, query in _SCHEMA_INVENTORY_QUERIES:
         rows = connection.execute(query).fetchall()
         normalized_rows = tuple(_normalized_row(row) for row in rows)
         entry_counts.append((category, len(normalized_rows)))
         category_hashes.append((category, _sha256_payload(normalized_rows)))
+        entry_hashes.extend(
+            (
+                category,
+                json.dumps(
+                    normalized_row[:4],
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                ),
+                _sha256_payload(normalized_row),
+            )
+            for normalized_row in normalized_rows
+        )
         schema_inventory.extend((category, row) for row in normalized_rows)
 
     tables = _user_tables(connection)
@@ -772,6 +786,7 @@ def _inspection_from_connection(connection: ConnectionLike) -> DatabaseInspectio
         schema_sha256=_sha256_payload(schema_inventory),
         schema_entry_counts=tuple(entry_counts),
         schema_category_sha256=tuple(category_hashes),
+        schema_entry_sha256=tuple(entry_hashes),
         migration_columns=migration_columns,
         migration_rows=migration_rows,
         migration_ledger_sha256=_sha256_payload(
@@ -1383,10 +1398,37 @@ def _perform_restore_cycle(
                 if differing_categories
                 else ""
             )
+            source_entries = {
+                (category, identity): digest
+                for category, identity, digest in (
+                    plan.source_inspection.schema_entry_sha256
+                )
+            }
+            restored_entries = {
+                (category, identity): digest
+                for category, identity, digest in restored.schema_entry_sha256
+            }
+            differing_entries = tuple(
+                key
+                for key in sorted(set(source_entries) | set(restored_entries))
+                if key[0] in differing_categories
+                and source_entries.get(key) != restored_entries.get(key)
+            )
+            entries_suffix = (
+                "; schema_entries="
+                + json.dumps(
+                    differing_entries[:20],
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                )
+                if differing_entries
+                else ""
+            )
             raise RuntimeError(
                 "Restored schema, migration ledger, or row counts differ from source: "
                 + ",".join(differing_fields)
                 + category_suffix
+                + entries_suffix
             )
         if not hmac.compare_digest(
             _sha256_file(temporary_dump), verified_backup_sha256

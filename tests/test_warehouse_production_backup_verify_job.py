@@ -155,6 +155,18 @@ def _inspection(*, suffix: str = "") -> backup_job.DatabaseInspection:
             ("table", hashlib.sha256(f"table{suffix}".encode()).hexdigest()),
             ("trigger", hashlib.sha256(f"trigger{suffix}".encode()).hexdigest()),
         ),
+        schema_entry_sha256=(
+            (
+                "table",
+                '["public","products"]',
+                hashlib.sha256(f"products{suffix}".encode()).hexdigest(),
+            ),
+            (
+                "trigger",
+                '["public","products","products_guard"]',
+                hashlib.sha256(f"guard{suffix}".encode()).hexdigest(),
+            ),
+        ),
         migration_columns=("version", "checksum", "applied_by_commit"),
         migration_rows=ledger_rows,
         migration_ledger_sha256=hashlib.sha256(
