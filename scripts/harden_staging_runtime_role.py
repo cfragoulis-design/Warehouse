@@ -830,6 +830,141 @@ def _bool_query(
     return row is not None and bool(row[0])
 
 
+def _validate_table_privilege_matrix(
+    connection: psycopg.Connection[object],
+    runtime_role: str,
+    checks: list[dict[str, object]],
+) -> None:
+    rows = connection.execute(
+        """
+        WITH checks AS (
+            SELECT *
+            FROM jsonb_to_recordset(%s::jsonb) AS item(
+                object_name text,
+                privilege text,
+                expected boolean
+            )
+        )
+        SELECT object_name,
+               privilege,
+               expected,
+               pg_catalog.has_table_privilege(%s, object_name, privilege),
+               pg_catalog.has_table_privilege(
+                   %s, object_name, privilege || ' WITH GRANT OPTION'
+               )
+        FROM checks
+        ORDER BY object_name, privilege
+        """,
+        (json.dumps(checks, separators=(",", ":")), runtime_role, runtime_role),
+    ).fetchall()
+    if len(rows) != len(checks):
+        raise RuntimeError("Warehouse runtime table privilege matrix is incomplete")
+    for _object_name, _privilege, expected, actual, grantable in rows:
+        if bool(actual) != bool(expected):
+            raise RuntimeError("Warehouse runtime table privilege matrix mismatch")
+        if bool(grantable):
+            raise RuntimeError("Warehouse runtime role holds a table grant option")
+
+
+def _validate_column_privilege_matrix(
+    connection: psycopg.Connection[object],
+    runtime_role: str,
+    checks: list[dict[str, object]],
+) -> None:
+    rows = connection.execute(
+        """
+        WITH checks AS (
+            SELECT *
+            FROM jsonb_to_recordset(%s::jsonb) AS item(
+                object_name text,
+                column_name text,
+                privilege text,
+                expected boolean
+            )
+        )
+        SELECT object_name,
+               column_name,
+               privilege,
+               expected,
+               pg_catalog.has_column_privilege(
+                   %s, object_name, column_name, privilege
+               ),
+               pg_catalog.has_column_privilege(
+                   %s,
+                   object_name,
+                   column_name,
+                   privilege || ' WITH GRANT OPTION'
+               )
+        FROM checks
+        ORDER BY object_name, column_name, privilege
+        """,
+        (json.dumps(checks, separators=(",", ":")), runtime_role, runtime_role),
+    ).fetchall()
+    if len(rows) != len(checks):
+        raise RuntimeError("Warehouse runtime column privilege matrix is incomplete")
+    for _object_name, _column, _privilege, expected, actual, grantable in rows:
+        if bool(actual) != bool(expected):
+            raise RuntimeError("Warehouse runtime column privilege matrix mismatch")
+        if bool(grantable):
+            raise RuntimeError("Warehouse runtime role holds a column grant option")
+
+
+def _validate_sequence_privilege_matrix(
+    connection: psycopg.Connection[object],
+    runtime_role: str,
+    checks: list[dict[str, object]],
+) -> None:
+    rows = connection.execute(
+        """
+        WITH checks AS (
+            SELECT *
+            FROM jsonb_to_recordset(%s::jsonb) AS item(
+                object_name text,
+                privilege text,
+                expected boolean
+            )
+        )
+        SELECT object_name,
+               privilege,
+               expected,
+               pg_catalog.has_sequence_privilege(%s, object_name, privilege),
+               pg_catalog.has_sequence_privilege(
+                   %s, object_name, privilege || ' WITH GRANT OPTION'
+               )
+        FROM checks
+        ORDER BY object_name, privilege
+        """,
+        (json.dumps(checks, separators=(",", ":")), runtime_role, runtime_role),
+    ).fetchall()
+    if len(rows) != len(checks):
+        raise RuntimeError("Warehouse runtime sequence privilege matrix is incomplete")
+    for _object_name, _privilege, expected, actual, grantable in rows:
+        if bool(actual) != bool(expected):
+            raise RuntimeError("Warehouse runtime sequence privilege matrix mismatch")
+        if bool(grantable):
+            raise RuntimeError("Warehouse runtime role holds a sequence grant option")
+
+
+def _validate_function_privilege_matrix(
+    connection: psycopg.Connection[object],
+    runtime_role: str,
+    signatures: list[str],
+) -> None:
+    rows = connection.execute(
+        """
+        SELECT signature,
+               pg_catalog.has_function_privilege(%s, signature, 'EXECUTE')
+        FROM jsonb_array_elements_text(%s::jsonb) AS item(signature)
+        ORDER BY signature
+        """,
+        (runtime_role, json.dumps(signatures, separators=(",", ":"))),
+    ).fetchall()
+    if len(rows) != len(signatures):
+        raise RuntimeError("Warehouse runtime function privilege matrix is incomplete")
+    if any(bool(can_execute) for _signature, can_execute in rows):
+        raise RuntimeError("Warehouse runtime role can execute a custom function")
+
+
 def _validate_post_state(
     connection: psycopg.Connection[object],
     plan: HardeningPlan,
@@ -920,6 +1055,8 @@ def _validate_post_state(
     ):
         raise RuntimeError("Warehouse runtime role holds a schema grant option")
 
+    table_checks: list[dict[str, object]] = []
+    column_checks: list[dict[str, object]] = []
     relations_by_name = {relation.name: relation for relation in plan.relations}
     for table, relation in relations_by_name.items():
         if relation.kind == "S":
@@ -928,23 +1065,13 @@ def _validate_post_state(
             continue
         policy = TABLE_POLICIES.get(table, TablePolicy())
         for privilege in _TABLE_PRIVILEGES:
-            actual = _bool_query(
-                connection,
-                "SELECT pg_catalog.has_table_privilege(%s, %s, %s)",
-                (plan.runtime_role, f"public.{table}", privilege),
+            table_checks.append(
+                {
+                    "object_name": f"public.{table}",
+                    "privilege": privilege,
+                    "expected": privilege in policy.table_privileges,
+                }
             )
-            if actual != (privilege in policy.table_privileges):
-                raise RuntimeError("Warehouse runtime table privilege matrix mismatch")
-            if _bool_query(
-                connection,
-                "SELECT pg_catalog.has_table_privilege(%s, %s, %s)",
-                (
-                    plan.runtime_role,
-                    f"public.{table}",
-                    f"{privilege} WITH GRANT OPTION",
-                ),
-            ):
-                raise RuntimeError("Warehouse runtime role holds a table grant option")
         all_columns = tuple(name for name, _acl in relation.columns)
         for column in all_columns:
             for privilege in _COLUMN_PRIVILEGES:
@@ -957,28 +1084,20 @@ def _validate_post_state(
                 expected = (
                     privilege in policy.table_privileges or column in allowed_columns
                 )
-                actual = _bool_query(
-                    connection,
-                    "SELECT pg_catalog.has_column_privilege(%s, %s, %s, %s)",
-                    (plan.runtime_role, f"public.{table}", column, privilege),
+                column_checks.append(
+                    {
+                        "object_name": f"public.{table}",
+                        "column_name": column,
+                        "privilege": privilege,
+                        "expected": expected,
+                    }
                 )
-                if actual != expected:
-                    raise RuntimeError("Warehouse runtime column privilege matrix mismatch")
-                if _bool_query(
-                    connection,
-                    "SELECT pg_catalog.has_column_privilege(%s, %s, %s, %s)",
-                    (
-                        plan.runtime_role,
-                        f"public.{table}",
-                        column,
-                        f"{privilege} WITH GRANT OPTION",
-                    ),
-                ):
-                    raise RuntimeError(
-                        "Warehouse runtime role holds a column grant option"
-                    )
+
+    _validate_table_privilege_matrix(connection, plan.runtime_role, table_checks)
+    _validate_column_privilege_matrix(connection, plan.runtime_role, column_checks)
 
     expected_sequences = set(plan.sequence_grants)
+    sequence_checks: list[dict[str, object]] = []
     for relation in plan.relations:
         if relation.kind != "S":
             continue
@@ -986,33 +1105,27 @@ def _validate_post_state(
         if sequence == plan.label_layout_sequence:
             continue
         for privilege in _SEQUENCE_PRIVILEGES:
-            actual = _bool_query(
-                connection,
-                "SELECT pg_catalog.has_sequence_privilege(%s, %s, %s)",
-                (plan.runtime_role, f"public.{relation.name}", privilege),
-            )
             expected = sequence in expected_sequences and privilege == "USAGE"
-            if actual != expected:
-                raise RuntimeError("Warehouse runtime sequence privilege matrix mismatch")
-            if _bool_query(
-                connection,
-                "SELECT pg_catalog.has_sequence_privilege(%s, %s, %s)",
-                (
-                    plan.runtime_role,
-                    f"public.{relation.name}",
-                    f"{privilege} WITH GRANT OPTION",
-                ),
-            ):
-                raise RuntimeError("Warehouse runtime role holds a sequence grant option")
+            sequence_checks.append(
+                {
+                    "object_name": f"public.{relation.name}",
+                    "privilege": privilege,
+                    "expected": expected,
+                }
+            )
 
-    for function in plan.functions:
-        signature = f"public.{function.name}({function.identity_arguments})"
-        if _bool_query(
-            connection,
-            "SELECT pg_catalog.has_function_privilege(%s, %s, 'EXECUTE')",
-            (plan.runtime_role, signature),
-        ):
-            raise RuntimeError("Warehouse runtime role can execute a custom function")
+    _validate_sequence_privilege_matrix(
+        connection, plan.runtime_role, sequence_checks
+    )
+
+    _validate_function_privilege_matrix(
+        connection,
+        plan.runtime_role,
+        [
+            f"public.{function.name}({function.identity_arguments})"
+            for function in plan.functions
+        ],
+    )
 
     if plan.label_layout_sequence is not None:
         _validate_label_layout_runtime_privileges(connection, plan.runtime_role)

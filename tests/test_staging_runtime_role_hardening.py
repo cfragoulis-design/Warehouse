@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,56 @@ class FakeConnection:
 
     def rollback(self) -> None:
         self.rollbacks += 1
+
+
+class MatrixResult:
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
+        self.rows = rows
+
+    def fetchall(self) -> list[tuple[object, ...]]:
+        return self.rows
+
+
+class MatrixConnection:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+    def execute(
+        self,
+        query: str,
+        parameters: tuple[object, ...],
+    ) -> MatrixResult:
+        self.calls.append((query, parameters))
+        if "jsonb_array_elements_text" in query:
+            signatures = json.loads(str(parameters[1]))
+            return MatrixResult([(signature, False) for signature in signatures])
+        checks = json.loads(str(parameters[0]))
+        if "has_column_privilege" in query:
+            return MatrixResult(
+                [
+                    (
+                        item["object_name"],
+                        item["column_name"],
+                        item["privilege"],
+                        item["expected"],
+                        item["expected"],
+                        False,
+                    )
+                    for item in checks
+                ]
+            )
+        return MatrixResult(
+            [
+                (
+                    item["object_name"],
+                    item["privilege"],
+                    item["expected"],
+                    item["expected"],
+                    False,
+                )
+                for item in checks
+            ]
+        )
 
 
 def _plan() -> hardener.HardeningPlan:
@@ -422,3 +473,43 @@ def test_postcheck_contract_includes_postgres_17_and_grant_option_guards() -> No
     assert "has_any_column_privilege" not in source  # checked per exact column
     assert "WAREHOUSE_STARTUP_MUTATIONS_ENABLED" in source
     assert "ALTER DEFAULT PRIVILEGES" in source
+
+
+def test_privilege_postchecks_are_set_based_not_per_cell_round_trips() -> None:
+    connection = MatrixConnection()
+    table_checks = [
+        {"object_name": "public.products", "privilege": "SELECT", "expected": True},
+        {"object_name": "public.products", "privilege": "DELETE", "expected": False},
+    ]
+    column_checks = [
+        {
+            "object_name": "public.products",
+            "column_name": "name",
+            "privilege": "UPDATE",
+            "expected": True,
+        }
+    ]
+    sequence_checks = [
+        {
+            "object_name": "public.products_id_seq",
+            "privilege": "USAGE",
+            "expected": True,
+        }
+    ]
+    hardener._validate_table_privilege_matrix(
+        connection, hardener.STAGING_RUNTIME_ROLE, table_checks  # type: ignore[arg-type]
+    )
+    hardener._validate_column_privilege_matrix(
+        connection, hardener.STAGING_RUNTIME_ROLE, column_checks  # type: ignore[arg-type]
+    )
+    hardener._validate_sequence_privilege_matrix(
+        connection, hardener.STAGING_RUNTIME_ROLE, sequence_checks  # type: ignore[arg-type]
+    )
+    hardener._validate_function_privilege_matrix(
+        connection,  # type: ignore[arg-type]
+        hardener.STAGING_RUNTIME_ROLE,
+        ["public.audit_guard()"],
+    )
+
+    assert len(connection.calls) == 4
+    assert all("jsonb_" in query for query, _parameters in connection.calls)
