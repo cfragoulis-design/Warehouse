@@ -379,9 +379,9 @@ def test_package_builder_rejects_a_stale_or_fake_source_commit():
 
 
 def test_staging_download_is_exact_secret_free_package():
-    assert STAGING_DOWNLOAD.stat().st_size == 27_281
+    assert STAGING_DOWNLOAD.stat().st_size == 1_048_626
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
-        "94e019d480f46f9c3aa097297a45cbcc05b94a1b1ccec15661620e5cb3bd970f"
+        "f47c0f3d9bb361a4e9f93ab885ab4ec555f12d2195a819a297e9c87b47a711ec"
     )
     with zipfile.ZipFile(STAGING_DOWNLOAD) as archive:
         expected_sources = {
@@ -410,7 +410,7 @@ def test_staging_download_is_exact_secret_free_package():
         "product": "Sklavounos Warehouse HPRT Agent",
         "version": "1.0.17-staging",
         "creator": "Christos Fragoulis",
-        "source_commit": "2d19158d60f9ca65855b343108e800f3873a14cc",
+        "source_commit": "bdd05b6f95976981e8454ca7b573e8e9ad19dc5c",
         "package": STAGING_DOWNLOAD.name,
         "package_sha256": hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest(),
         "contains_agent_token": False,
@@ -419,9 +419,9 @@ def test_staging_download_is_exact_secret_free_package():
 
 
 def test_production_download_is_exact_secret_free_and_targets_only_production():
-    assert PRODUCTION_DOWNLOAD.stat().st_size == 27_292
+    assert PRODUCTION_DOWNLOAD.stat().st_size == 1_048_642
     assert hashlib.sha256(PRODUCTION_DOWNLOAD.read_bytes()).hexdigest() == (
-        "315442ee8553785aed891cab6351d283249e2f98f3dea4a67823721fe8f97811"
+        "2ffc7e00502e2be2304516e6b625a3aa663de3883c3b9b9f1ce2eb66ac8461ed"
     )
     with zipfile.ZipFile(PRODUCTION_DOWNLOAD) as archive:
         expected_sources = {
@@ -450,7 +450,7 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
         "product": "Sklavounos Warehouse HPRT Agent",
         "version": "1.0.17",
         "creator": "Christos Fragoulis",
-        "source_commit": "2d19158d60f9ca65855b343108e800f3873a14cc",
+        "source_commit": "bdd05b6f95976981e8454ca7b573e8e9ad19dc5c",
         "package": PRODUCTION_DOWNLOAD.name,
         "package_sha256": hashlib.sha256(PRODUCTION_DOWNLOAD.read_bytes()).hexdigest(),
         "contains_agent_token": False,
