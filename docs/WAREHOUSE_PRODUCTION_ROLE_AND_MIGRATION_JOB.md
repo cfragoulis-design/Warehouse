@@ -175,6 +175,13 @@ the immutable evidence snapshot `warehouse_restore_verify`. The release gate
 must audit all three; the evidence database is never migrated or used by the
 Warehouse runtime role.
 
+During EXERCISE/APPLY, sibling object catalogs are checksum-audited in PRE.
+POST reuses those exact immutable surface fingerprints while the primary
+transaction validates the new cluster-level database ACLs. It must not open a
+new sibling connection after an uncommitted `REVOKE ... ON DATABASE`, because
+PostgreSQL authentication can otherwise wait on the transaction's own catalog
+lock.
+
 - `source_database_owner`
 - `admin_role`
 - `runtime_role_action` (`existing`, `create`, or `missing`)

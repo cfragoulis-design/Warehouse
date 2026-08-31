@@ -119,6 +119,7 @@ class ClusterDatabaseState:
 class GlobalAclAudit:
     databases: tuple[str, ...]
     fingerprint: str
+    sibling_surface_fingerprints: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1095,11 +1096,26 @@ def _validate_database_role_surface(
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _prevalidated_sibling_surface_map(
+    sibling_database_names: tuple[str, ...],
+    evidence: tuple[tuple[str, str], ...] | None,
+) -> dict[str, str]:
+    if evidence is None:
+        raise RuntimeError("POST audit requires PRE sibling database evidence")
+    if tuple(name for name, _fingerprint in evidence) != sibling_database_names or any(
+        not re.fullmatch(r"[0-9a-f]{64}", fingerprint)
+        for _name, fingerprint in evidence
+    ):
+        raise RuntimeError("POST sibling database evidence differs from PRE")
+    return dict(evidence)
+
+
 def _validate_global_role_access(
     connection: psycopg.Connection[object],
     *,
     admin_url: URL | None,
     phase: Literal["pre", "post"],
+    prevalidated_sibling_surfaces: tuple[tuple[str, str], ...] | None = None,
 ) -> GlobalAclAudit:
     if admin_url is None:
         raise RuntimeError("Cluster-wide Production ACL audit URL is required")
@@ -1164,6 +1180,20 @@ def _validate_global_role_access(
     if current_database is None or str(current_database[0]) != PRODUCTION_DATABASE:
         raise RuntimeError("Cluster ACL audit did not start in Production")
     surface_fingerprints: list[tuple[str, str]] = []
+    sibling_database_names = tuple(
+        database.name
+        for database in databases
+        if database.name != PRODUCTION_DATABASE
+    )
+    if phase == "pre" and prevalidated_sibling_surfaces is not None:
+        raise RuntimeError("PRE audit cannot reuse sibling database evidence")
+    sibling_surface_map = (
+        _prevalidated_sibling_surface_map(
+            sibling_database_names, prevalidated_sibling_surfaces
+        )
+        if phase == "post"
+        else {}
+    )
     for database in databases:
         if database.name == PRODUCTION_DATABASE:
             surface_fingerprints.append(
@@ -1172,6 +1202,20 @@ def _validate_global_role_access(
                     _validate_database_role_surface(
                         connection, database=database.name, phase=phase
                     ),
+                )
+            )
+            continue
+        if phase == "post":
+            # This transaction changes only cluster-level DATABASE ACL rows for
+            # sibling databases; it never changes their object catalogs. Opening
+            # a new sibling connection here can self-block during PostgreSQL
+            # authentication on the uncommitted pg_database ACL row. Reuse the
+            # exact PRE object-surface fingerprints while the current connection
+            # validates every database-level ACL in the same transaction.
+            surface_fingerprints.append(
+                (
+                    database.name,
+                    sibling_surface_map[database.name],
                 )
             )
             continue
@@ -1204,6 +1248,9 @@ def _validate_global_role_access(
     return GlobalAclAudit(
         databases=tuple(database.name for database in databases),
         fingerprint=hashlib.sha256(encoded).hexdigest(),
+        sibling_surface_fingerprints=tuple(
+            item for item in surface_fingerprints if item[0] != PRODUCTION_DATABASE
+        ),
     )
 
 
@@ -2585,7 +2632,12 @@ def run_operation(
             ),
         )
         _validate_global_role_access(
-            connection, admin_url=cluster_admin_url, phase="post"
+            connection,
+            admin_url=cluster_admin_url,
+            phase="post",
+            prevalidated_sibling_surfaces=(
+                global_acl_audit.sibling_surface_fingerprints
+            ),
         )
     except Exception:
         connection.rollback()

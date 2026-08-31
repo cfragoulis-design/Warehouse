@@ -167,6 +167,26 @@ def test_target_is_exactly_production_and_has_no_target_override() -> None:
     assert "runtime_password" not in destinations
 
 
+def test_post_sibling_surface_evidence_is_exact_and_checksum_pinned() -> None:
+    sibling_names = ("postgres", "warehouse_restore_verify")
+    evidence = (("postgres", "1" * 64), ("warehouse_restore_verify", "2" * 64))
+    assert release_job._prevalidated_sibling_surface_map(
+        sibling_names, evidence
+    ) == dict(evidence)
+
+    with pytest.raises(RuntimeError, match="requires PRE"):
+        release_job._prevalidated_sibling_surface_map(sibling_names, None)
+    with pytest.raises(RuntimeError, match="differs from PRE"):
+        release_job._prevalidated_sibling_surface_map(
+            sibling_names, tuple(reversed(evidence))
+        )
+    with pytest.raises(RuntimeError, match="differs from PRE"):
+        release_job._prevalidated_sibling_surface_map(
+            sibling_names,
+            (("postgres", "not-a-checksum"), ("warehouse_restore_verify", "2" * 64)),
+        )
+
+
 def test_environment_target_requires_all_fixed_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
