@@ -24,6 +24,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.release_manifest import verify_release_manifest  # noqa: E402
+from app.schema_migrations import (  # noqa: E402
+    canonicalize_constraint_definition,
+)
 
 
 PLAN_VERSION = 2
@@ -352,23 +355,6 @@ def _normalized_row(row: Sequence[object]) -> tuple[object, ...]:
     return tuple(normalized)
 
 
-_VARCHAR_LITERAL = r"'(?:''|[^'])*'::character varying"
-_VARCHAR_TEXT_ARRAY_CAST = re.compile(
-    rf"ARRAY\[(?P<items>{_VARCHAR_LITERAL}(?:,\s*{_VARCHAR_LITERAL})*)\]"
-    r"::text\[\]"
-)
-_VARCHAR_TEXT_ARRAY_ELEMENTS = re.compile(
-    rf"ARRAY\[(?P<items>{_VARCHAR_LITERAL}::text"
-    rf"(?:,\s*{_VARCHAR_LITERAL}::text)*)\]"
-)
-
-
-def _canonical_varchar_text_array(match: re.Match[str]) -> str:
-    items = match.group("items").replace("::character varying::text", "::text")
-    items = items.replace("::character varying", "::text")
-    return f"ARRAY[{items}]"
-
-
 def _canonical_schema_row(
     category: str,
     row: Sequence[object],
@@ -388,14 +374,7 @@ def _canonical_schema_row(
     definition = normalized[-1]
     if not isinstance(definition, str):
         return tuple(normalized)
-    canonical = _VARCHAR_TEXT_ARRAY_CAST.sub(
-        _canonical_varchar_text_array,
-        definition,
-    )
-    normalized[-1] = _VARCHAR_TEXT_ARRAY_ELEMENTS.sub(
-        _canonical_varchar_text_array,
-        canonical,
-    )
+    normalized[-1] = canonicalize_constraint_definition(definition)
     return tuple(normalized)
 
 

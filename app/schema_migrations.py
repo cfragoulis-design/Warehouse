@@ -16,7 +16,7 @@ from sqlalchemy.engine import URL, make_url
 MigrationTarget = Literal["restore", "staging", "production"]
 
 LEGACY_BASELINE_FINGERPRINT_VERSION = "warehouse-columns-v1"
-SCHEMA_CONTRACT_FINGERPRINT_VERSION = "warehouse-schema-contract-v2"
+SCHEMA_CONTRACT_FINGERPRINT_VERSION = "warehouse-schema-contract-v3"
 LEGACY_BASELINE_SCHEMA_FINGERPRINT = (
     "f3bfacf36afaa6832d8e8812d1c6f63110500077ad61253d18b699a74dea6466"
 )
@@ -31,7 +31,7 @@ _COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 _DATABASE_PATTERN = re.compile(r"[A-Za-z0-9_]+\Z")
 _ROLE_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}\Z")
 _MIGRATION_VERSION_PATTERN = re.compile(r"[0-9]{8}_[0-9]{3}\Z")
-_SCHEMA_CONTRACT_VERSION = 2
+_SCHEMA_CONTRACT_VERSION = 3
 _SCHEMA_FINGERPRINT_SESSION_SETTINGS = (
     ("search_path", "pg_catalog, public"),
     ("TimeZone", "UTC"),
@@ -42,6 +42,25 @@ _SCHEMA_FINGERPRINT_SESSION_SETTINGS = (
     ("standard_conforming_strings", "on"),
     ("quote_all_identifiers", "off"),
     ("client_encoding", "UTF8"),
+)
+_VARCHAR_LITERAL = r"'(?:''|[^'])*'::character varying"
+_PARENTHESIZED_VARCHAR_TEXT_ARRAY_ELEMENT = re.compile(
+    rf"\((?P<literal>{_VARCHAR_LITERAL})\)::text"
+)
+_PARENTHESIZED_VARCHAR_TEXT_ARRAY_CAST = re.compile(
+    rf"\(ARRAY\[(?P<items>{_VARCHAR_LITERAL}(?:,\s*{_VARCHAR_LITERAL})*)\]\)"
+    r"::text\[\]"
+)
+_VARCHAR_TEXT_ARRAY_CAST = re.compile(
+    rf"ARRAY\[(?P<items>{_VARCHAR_LITERAL}(?:,\s*{_VARCHAR_LITERAL})*)\]"
+    r"::text\[\]"
+)
+_VARCHAR_TEXT_ARRAY_ELEMENT = (
+    rf"(?:{_VARCHAR_LITERAL}::text|\({_VARCHAR_LITERAL}\)::text)"
+)
+_VARCHAR_TEXT_ARRAY_ELEMENTS = re.compile(
+    rf"ARRAY\[(?P<items>{_VARCHAR_TEXT_ARRAY_ELEMENT}"
+    rf"(?:,\s*{_VARCHAR_TEXT_ARRAY_ELEMENT})*)\]"
 )
 _PRODUCTION_DEFERRED_ONE_SSO_APPLIED = (
     (
@@ -699,6 +718,40 @@ def _restore_schema_fingerprint_session(
     )
 
 
+def _canonical_varchar_text_array(match: re.Match[str]) -> str:
+    items = _PARENTHESIZED_VARCHAR_TEXT_ARRAY_ELEMENT.sub(
+        lambda item_match: f"{item_match.group('literal')}::text",
+        match.group("items"),
+    ).replace(
+        "::character varying::text",
+        "::text",
+    )
+    items = items.replace("::character varying", "::text")
+    return f"ARRAY[{items}]"
+
+
+def canonicalize_constraint_definition(definition: str) -> str:
+    """Remove only a known PostgreSQL 17 CHECK deparse representation change.
+
+    A dump/restore round trip can render the same varchar-literal-to-text-array
+    expression either with one array cast or with a binary-compatible cast on
+    each element. No other casts or constraint syntax are rewritten.
+    """
+
+    canonical = _PARENTHESIZED_VARCHAR_TEXT_ARRAY_CAST.sub(
+        _canonical_varchar_text_array,
+        definition,
+    )
+    canonical = _VARCHAR_TEXT_ARRAY_CAST.sub(
+        _canonical_varchar_text_array,
+        canonical,
+    )
+    return _VARCHAR_TEXT_ARRAY_ELEMENTS.sub(
+        _canonical_varchar_text_array,
+        canonical,
+    )
+
+
 def _schema_contract_sections(
     connection: psycopg.Connection[object],
 ) -> tuple[tuple[str, tuple[tuple[str | None, ...], ...]], ...]:
@@ -760,8 +813,6 @@ def _schema_contract_sections(
                 attribute.attcompression::text,
                 attribute.attstattarget,
                 attribute.attndims,
-                attribute.atthasmissing,
-                COALESCE(attribute.attmissingval::text, ''),
                 COALESCE(
                     collation_namespace.nspname || '.' || collation_entry.collname,
                     ''
@@ -1070,6 +1121,11 @@ def _schema_contract_sections(
                 tuple(None if value is None else str(value) for value in row)
                 for row in rows
             ]
+            if name == "constraints":
+                normalized = [
+                    (*row[:-1], canonicalize_constraint_definition(row[-1] or ""))
+                    for row in normalized
+                ]
             normalized.sort(
                 key=lambda row: json.dumps(
                     row,

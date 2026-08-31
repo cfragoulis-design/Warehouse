@@ -328,11 +328,151 @@ def test_schema_contract_fingerprint_is_explicitly_versioned() -> None:
         ContractConnection(_empty_contract_sections())
     )
 
-    assert result.version == "warehouse-schema-contract-v2"
+    assert result.version == "warehouse-schema-contract-v3"
     assert len(result.sha256) == 64
     assert (
         schema_migrations.LEGACY_BASELINE_FINGERPRINT_VERSION
         == "warehouse-columns-v1"
+    )
+
+
+def test_schema_contract_canonicalizes_pg17_varchar_array_round_trip() -> None:
+    source = _empty_contract_sections()
+    source[2] = [
+        (
+            "products",
+            "ck_products_approval_profile",
+            "c",
+            "CHECK (approval_profile::text = ANY "
+            "(ARRAY['POULTRY'::character varying, "
+            "'RED_MEAT'::character varying]::text[]))",
+        )
+    ]
+    restored = _empty_contract_sections()
+    restored[2] = [
+        (
+            "products",
+            "ck_products_approval_profile",
+            "c",
+            "CHECK (approval_profile::text = ANY "
+            "(ARRAY['POULTRY'::character varying::text, "
+            "'RED_MEAT'::character varying::text]))",
+        )
+    ]
+
+    assert schema_migrations._schema_fingerprint(
+        ContractConnection(source)
+    ) == schema_migrations._schema_fingerprint(ContractConnection(restored))
+
+
+@pytest.mark.parametrize(
+    ("production", "restored"),
+    (
+        (
+            "CHECK (((((movement_type)::text = ANY "
+            "((ARRAY['IN'::character varying, "
+            "'OUT'::character varying])::text[])) AND "
+            "(qty > (0)::numeric)) OR (((movement_type)::text = "
+            "'ADJUST'::text) AND (qty <> (0)::numeric))))",
+            "CHECK (((((movement_type)::text = ANY "
+            "(ARRAY[('IN'::character varying)::text, "
+            "('OUT'::character varying)::text])) AND "
+            "(qty > (0)::numeric)) OR (((movement_type)::text = "
+            "'ADJUST'::text) AND (qty <> (0)::numeric))))",
+        ),
+        (
+            "CHECK (((movement_type)::text = ANY "
+            "((ARRAY['IN'::character varying, 'OUT'::character varying, "
+            "'ADJUST'::character varying])::text[])))",
+            "CHECK (((movement_type)::text = ANY "
+            "(ARRAY[('IN'::character varying)::text, "
+            "('OUT'::character varying)::text, "
+            "('ADJUST'::character varying)::text])))",
+        ),
+        (
+            "CHECK (((approval_profile)::text = ANY "
+            "((ARRAY['POULTRY'::character varying, "
+            "'RED_MEAT'::character varying, "
+            "'UNASSIGNED'::character varying])::text[])))",
+            "CHECK (((approval_profile)::text = ANY "
+            "(ARRAY[('POULTRY'::character varying)::text, "
+            "('RED_MEAT'::character varying)::text, "
+            "('UNASSIGNED'::character varying)::text])))",
+        ),
+        (
+            "CHECK (((movement_type)::text = ANY "
+            "((ARRAY['IN'::character varying, 'OUT'::character varying, "
+            "'ADJ+'::character varying, "
+            "'ADJ-'::character varying])::text[])))",
+            "CHECK (((movement_type)::text = ANY "
+            "(ARRAY[('IN'::character varying)::text, "
+            "('OUT'::character varying)::text, "
+            "('ADJ+'::character varying)::text, "
+            "('ADJ-'::character varying)::text])))",
+        ),
+    ),
+)
+def test_constraint_canonicalizer_matches_all_observed_pg17_round_trips(
+    production: str,
+    restored: str,
+) -> None:
+    assert schema_migrations.canonicalize_constraint_definition(
+        production
+    ) == schema_migrations.canonicalize_constraint_definition(restored)
+
+
+def test_column_contract_ignores_physical_missing_values_but_hashes_defaults() -> None:
+    baseline = _empty_contract_sections()
+    baseline[1] = [
+        (
+            "products",
+            "approval_profile",
+            "3",
+            "character varying(16)",
+            "True",
+            "",
+            "",
+            "x",
+            "",
+            "-1",
+            "0",
+            "pg_catalog.default",
+            "'UNASSIGNED'::character varying",
+        )
+    ]
+    changed_default = _empty_contract_sections()
+    changed_default[1] = [
+        (*baseline[1][0][:-1], "'POULTRY'::character varying")
+    ]
+    connection = ContractConnection(baseline)
+    baseline_fingerprint = schema_migrations._schema_fingerprint(connection)
+    column_query = next(
+        query for query in connection.queries if "pg_catalog.pg_attribute" in query
+    )
+
+    assert "atthasmissing" not in column_query
+    assert "attmissingval" not in column_query
+    assert "pg_catalog.pg_get_expr" in column_query
+    assert baseline_fingerprint != schema_migrations._schema_fingerprint(
+        ContractConnection(changed_default)
+    )
+
+
+def test_constraint_canonicalizer_keeps_other_casts_and_meaning_changes() -> None:
+    varchar = "CHECK (x::character varying = 'a'::character varying)"
+    text = "CHECK (x::text = 'a'::text)"
+    scalar_parenthesized = "CHECK (x::text = ('a'::character varying)::text)"
+    strict = "CHECK (x > 0)"
+    relaxed = "CHECK (x >= 0)"
+
+    assert schema_migrations.canonicalize_constraint_definition(varchar) == varchar
+    assert schema_migrations.canonicalize_constraint_definition(text) == text
+    assert (
+        schema_migrations.canonicalize_constraint_definition(scalar_parenthesized)
+        == scalar_parenthesized
+    )
+    assert schema_migrations.canonicalize_constraint_definition(strict) != (
+        schema_migrations.canonicalize_constraint_definition(relaxed)
     )
 
 

@@ -52,7 +52,7 @@ PREREQUISITE_CONTRACT_VERSION = "warehouse-verified-restore-prerequisites-v1"
 # Binds the exact Production constants consumed by _prerequisite_contract_payload().
 # A change requires review of this offline bridge before it may run again.
 PREREQUISITE_CONTRACT_SHA256 = (
-    "8fba224caeadca9ceb5839b4934c312cbd433441a1fc9d02dba700f1477d7008"
+    "3fb019118df43cff5b0b3805edd80c17d78f8b0745e8f94e259d44b5d8c3096f"
 )
 
 PRODUCTION_RAILWAY_PROJECT_ID = "4cd318f3-41f9-43c5-8664-44ff7e581a6a"
