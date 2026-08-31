@@ -54,7 +54,7 @@ PREREQUISITE_CONTRACT_VERSION = "warehouse-verified-restore-prerequisites-v1"
 # Binds the exact Production constants consumed by _prerequisite_contract_payload().
 # A change requires review of this offline bridge before it may run again.
 PREREQUISITE_CONTRACT_SHA256 = (
-    "91b1aebbbbe4bed2a13d6d3c1766b53af420860d4787545c210d073f4b7ff35b"
+    "2bb4c546c08400faea5515bb4b68d60af1f23ec4c672d3859d31022aee402b9f"
 )
 
 PRODUCTION_RAILWAY_PROJECT_ID = "4cd318f3-41f9-43c5-8664-44ff7e581a6a"
@@ -938,6 +938,11 @@ def _prerequisite_contract_payload(release_job: ModuleType) -> dict[str, object]
                 DATABASE: ["CONNECT"],
                 EVIDENCE_DATABASE: [],
             },
+            "runtime": {
+                MAINTENANCE_DATABASE: [],
+                DATABASE: ["CONNECT"],
+                EVIDENCE_DATABASE: [],
+            },
         },
         "reviewed_acl_contract_sha256": str(release_job.REVIEWED_ACL_CONTRACT_SHA256),
         "pre_schema_fingerprint": str(
@@ -1659,11 +1664,38 @@ def _assert_reader_prerequisites(
     )
 
 
+def _assert_runtime_prerequisites(
+    connection: psycopg.Connection[object],
+    release_job: ModuleType,
+) -> None:
+    runtime = str(release_job.PRODUCTION_RUNTIME_ROLE)
+    row = connection.execute(
+        "SELECT rolcanlogin, rolinherit, rolsuper, rolcreaterole, rolcreatedb, "
+        "rolreplication, rolbypassrls, rolpassword IS NULL "
+        "FROM pg_catalog.pg_authid WHERE rolname = %s",
+        (runtime,),
+    ).fetchone()
+    if row is None or tuple(bool(item) for item in row) != (
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        True,
+    ):
+        raise RuntimeError("Offline runtime role attributes differ from the contract")
+    release_job._validate_runtime_role_metadata(connection, runtime)
+    release_job._validate_runtime_has_no_external_ownership(connection, runtime)
+
+
 def _assert_database_acl_prerequisites(
     connection: psycopg.Connection[object],
     release_job: ModuleType,
 ) -> None:
     reader = str(release_job.PRODUCTION_READER_ROLE)
+    runtime = str(release_job.PRODUCTION_RUNTIME_ROLE)
     rows = connection.execute(
         "SELECT database_entry.datname, "
         "COALESCE(grantee_role.rolname, 'PUBLIC'), "
@@ -1675,16 +1707,23 @@ def _assert_database_acl_prerequisites(
         "LEFT JOIN pg_catalog.pg_roles AS grantee_role "
         "ON grantee_role.oid = privilege.grantee "
         "WHERE NOT database_entry.datistemplate "
-        "AND (privilege.grantee = 0 OR grantee_role.rolname = %s) "
+        "AND (privilege.grantee = 0 OR grantee_role.rolname = ANY(%s)) "
         "ORDER BY database_entry.datname, "
         "COALESCE(grantee_role.rolname, 'PUBLIC'), privilege.privilege_type",
-        (reader,),
+        ([reader, runtime],),
     ).fetchall()
     observed = tuple(
         (str(database), str(grantee), str(privilege), bool(grantable))
         for database, grantee, privilege, grantable in rows
     )
-    expected = ((DATABASE, reader, "CONNECT", False),)
+    expected = tuple(
+        sorted(
+            (
+                (DATABASE, reader, "CONNECT", False),
+                (DATABASE, runtime, "CONNECT", False),
+            )
+        )
+    )
     if observed != expected:
         raise RuntimeError("Offline global database ACL differs from the contract")
 
@@ -1695,6 +1734,7 @@ def _create_restore_prerequisites(
 ) -> None:
     release_job = modules.release_job
     reader = str(release_job.PRODUCTION_READER_ROLE)
+    runtime = str(release_job.PRODUCTION_RUNTIME_ROLE)
     with _connect(cluster, MAINTENANCE_DATABASE) as connection:
         _assert_cluster_identity(
             connection,
@@ -1704,12 +1744,13 @@ def _create_restore_prerequisites(
         _assert_cluster_topology(connection, initialized=True)
         if _non_system_roles(connection) != (ADMIN_ROLE,):
             raise RuntimeError("Fresh cluster contains an unexpected login role")
-        connection.execute(
-            sql.SQL(
-                "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
-                "NOINHERIT NOREPLICATION NOBYPASSRLS"
-            ).format(sql.Identifier(reader))
-        )
+        for role in (runtime, reader):
+            connection.execute(
+                sql.SQL(
+                    "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+                    "NOINHERIT NOREPLICATION NOBYPASSRLS"
+                ).format(sql.Identifier(role))
+            )
         settings: dict[str, str] = {}
         for encoded in release_job.PRODUCTION_READER_SETTINGS:
             database_oid, setting = str(encoded).split(":", 1)
@@ -1799,20 +1840,26 @@ def _reconstruct_reader_acl(
 ) -> None:
     release_job = modules.release_job
     reader = str(release_job.PRODUCTION_READER_ROLE)
+    runtime = str(release_job.PRODUCTION_RUNTIME_ROLE)
     with _connect(cluster, MAINTENANCE_DATABASE) as connection:
         for database in EXPECTED_DATABASES:
-            for grantee in (sql.Identifier(reader), sql.SQL("PUBLIC")):
+            for grantee in (
+                sql.Identifier(runtime),
+                sql.Identifier(reader),
+                sql.SQL("PUBLIC"),
+            ):
                 connection.execute(
                     sql.SQL("REVOKE ALL PRIVILEGES ON DATABASE {} FROM {}").format(
                         sql.Identifier(database), grantee
                     )
                 )
-        connection.execute(
-            sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
-                sql.Identifier(DATABASE),
-                sql.Identifier(reader),
+        for grantee in (runtime, reader):
+            connection.execute(
+                sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+                    sql.Identifier(DATABASE),
+                    sql.Identifier(grantee),
+                )
             )
-        )
         connection.commit()
     with _connect(cluster, DATABASE) as connection:
         _assert_cluster_identity(connection, cluster=cluster, database=DATABASE)
@@ -2001,7 +2048,13 @@ def _one_restore_cycle(
         _reconstruct_reader_acl(cluster, modules)
         release_job = modules.release_job
         expected_roles = tuple(
-            sorted((ADMIN_ROLE, str(release_job.PRODUCTION_READER_ROLE)))
+            sorted(
+                (
+                    ADMIN_ROLE,
+                    str(release_job.PRODUCTION_READER_ROLE),
+                    str(release_job.PRODUCTION_RUNTIME_ROLE),
+                )
+            )
         )
         provenance = _release_provenance(release, release_job)
         with _connect(cluster, DATABASE) as before_connection:
@@ -2013,13 +2066,7 @@ def _one_restore_cycle(
             _assert_cluster_topology(before_connection, initialized=False)
             if _non_system_roles(before_connection) != expected_roles:
                 raise RuntimeError("Offline restore contains an unexpected global role")
-            if release_job._role_exists(
-                before_connection,
-                release_job.PRODUCTION_RUNTIME_ROLE,
-            ):
-                raise RuntimeError(
-                    "Offline restore unexpectedly contains the runtime role"
-                )
+            _assert_runtime_prerequisites(before_connection, release_job)
             _assert_reader_prerequisites(before_connection, release_job)
             _assert_database_acl_prerequisites(before_connection, release_job)
             _assert_portable_restore_parity(
@@ -2038,11 +2085,11 @@ def _one_restore_cycle(
                     connection_host=LOCAL_HOST,
                     connection_port=cluster.port,
                     connection_transport="verified_restore_loopback",
-                    create_runtime_role_requested=True,
+                    create_runtime_role_requested=False,
                 )
                 if (
                     before.status != "ready_for_exercise"
-                    or before.runtime_role_action != "create"
+                    or before.runtime_role_action != "existing"
                     or before.ledger_reconciliation != EXPECTED_LEDGER_RECONCILIATION
                     or tuple(before.pending_versions) != EXPECTED_PENDING_VERSIONS
                 ):
@@ -2057,8 +2104,7 @@ def _one_restore_cycle(
                     connection_host=LOCAL_HOST,
                     connection_port=cluster.port,
                     connection_transport="verified_restore_loopback",
-                    create_runtime_role_requested=True,
-                    runtime_password=secrets.token_urlsafe(48),
+                    create_runtime_role_requested=False,
                     confirmed_database=before.database,
                     confirmed_runtime_role=before.runtime_role,
                     confirmed_current_owner=before.source_database_owner,
@@ -2080,7 +2126,7 @@ def _one_restore_cycle(
                 )
             exact_exercise = (
                 exercise.status == "validated_rollback",
-                exercise.runtime_role_action == "create",
+                exercise.runtime_role_action == "existing",
                 tuple(exercise.pending_versions) == EXPECTED_PENDING_VERSIONS,
                 tuple(exercise.applied_versions) == EXPECTED_PENDING_VERSIONS,
                 exercise.baseline_schema_fingerprint
@@ -2102,11 +2148,7 @@ def _one_restore_cycle(
             _assert_cluster_topology(after_connection, initialized=False)
             if _non_system_roles(after_connection) != expected_roles:
                 raise RuntimeError("Offline global roles changed after rollback")
-            if release_job._role_exists(
-                after_connection,
-                release_job.PRODUCTION_RUNTIME_ROLE,
-            ):
-                raise RuntimeError("Runtime role survived the mandatory rollback")
+            _assert_runtime_prerequisites(after_connection, release_job)
             _assert_reader_prerequisites(after_connection, release_job)
             _assert_database_acl_prerequisites(after_connection, release_job)
             _assert_portable_restore_parity(
@@ -2125,7 +2167,7 @@ def _one_restore_cycle(
                     connection_host=LOCAL_HOST,
                     connection_port=cluster.port,
                     connection_transport="verified_restore_loopback",
-                    create_runtime_role_requested=True,
+                    create_runtime_role_requested=False,
                 )
         if asdict(before) != asdict(after):
             raise RuntimeError("Release EXERCISE changed PRE state after rollback")

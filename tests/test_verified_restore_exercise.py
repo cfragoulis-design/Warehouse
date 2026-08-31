@@ -479,13 +479,31 @@ def test_global_database_acl_prerequisite_is_exact() -> None:
     from scripts import warehouse_production_release_job as release_job
 
     reader = release_job.PRODUCTION_READER_ROLE
-    exact = _TopologyConnection([(helper.DATABASE, reader, "CONNECT", False)])
+    runtime = release_job.PRODUCTION_RUNTIME_ROLE
+    exact = _TopologyConnection(
+        sorted(
+            (
+                (helper.DATABASE, reader, "CONNECT", False),
+                (helper.DATABASE, runtime, "CONNECT", False),
+            )
+        )
+    )
     helper._assert_database_acl_prerequisites(exact, release_job)  # type: ignore[arg-type]
+
+    missing_runtime = _TopologyConnection(
+        [(helper.DATABASE, reader, "CONNECT", False)]
+    )
+    with pytest.raises(RuntimeError, match="global database ACL"):
+        helper._assert_database_acl_prerequisites(  # type: ignore[arg-type]
+            missing_runtime,
+            release_job,
+        )
 
     inherited_public = _TopologyConnection(
         [
             (helper.MAINTENANCE_DATABASE, "PUBLIC", "CONNECT", False),
             (helper.DATABASE, reader, "CONNECT", False),
+            (helper.DATABASE, runtime, "CONNECT", False),
         ]
     )
     with pytest.raises(RuntimeError, match="global database ACL"):
@@ -961,7 +979,7 @@ def test_prerequisite_contract_is_currently_pinned() -> None:
     from scripts import warehouse_production_release_job as release_job
 
     assert release_job.PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT == (
-        "9f1e809ec680e998bd6dd9c304254ca6fe4be75557b17448bc2568bed9f483ce"
+        "2b6c4ceda324b361f359c7959a5bb001e0a315551dbb32a75a3f1bac23149512"
     )
     assert helper.EXPECTED_PENDING_VERSIONS == (
         "20260831_001",
@@ -970,8 +988,14 @@ def test_prerequisite_contract_is_currently_pinned() -> None:
         "20260831_004",
     )
     assert helper.EXPECTED_LEDGER_RECONCILIATION == "strict_prefix"
+    payload = helper._prerequisite_contract_payload(release_job)
+    assert payload["global_database_acl"]["runtime"] == {
+        helper.MAINTENANCE_DATABASE: [],
+        helper.DATABASE: ["CONNECT"],
+        helper.EVIDENCE_DATABASE: [],
+    }
     assert (
-        helper._sha256_payload(helper._prerequisite_contract_payload(release_job))
+        helper._sha256_payload(payload)
         == helper.PREREQUISITE_CONTRACT_SHA256
     )
 
