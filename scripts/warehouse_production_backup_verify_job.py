@@ -10,7 +10,7 @@ import subprocess
 import sys
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -1361,8 +1361,15 @@ def _perform_restore_cycle(
         )
         restored = inspector(RESTORE_DATABASE)
         if restored != plan.source_inspection:
+            differing_fields = tuple(
+                field.name
+                for field in fields(DatabaseInspection)
+                if getattr(restored, field.name)
+                != getattr(plan.source_inspection, field.name)
+            )
             raise RuntimeError(
-                "Restored schema, migration ledger, or row counts differ from source"
+                "Restored schema, migration ledger, or row counts differ from source: "
+                + ",".join(differing_fields)
             )
         if not hmac.compare_digest(
             _sha256_file(temporary_dump), verified_backup_sha256
