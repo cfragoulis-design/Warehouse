@@ -102,9 +102,39 @@ def test_stock_desktop_actions_wrap_without_forcing_horizontal_overflow() -> Non
     assert "max-width:1760px" in template
     assert "table-layout:fixed" in template
     assert "flex-wrap:wrap;min-width:0;width:100%" in template
-    assert "flex:1 1 100%" in template
+    assert "flex:1 1 320px" in template
+    assert "grid-template-columns:minmax(126px,1fr) max-content 46px" in template
     assert ".labelPreservation{width:100%;min-width:0;max-width:none" in template
     assert '<div class="actionGroup">' in template
+
+
+def test_stock_desktop_quantity_columns_are_compact_and_actions_gain_space() -> None:
+    template = (ROOT / "app" / "templates" / "stock.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert '<th style="width:4%">Κεντρικό</th>' in template
+    assert '<th style="width:4%">Εργαστήριο</th>' in template
+    assert '<th style="width:5%">Προς συμπλήρωση' in template
+    assert '<th style="width:4%">Οφειλόμενα' in template
+    assert '<th style="width:46%">Ενέργειες</th>' in template
+    assert "th,td{padding:8px 8px" in template
+
+
+def test_stock_categories_have_accessible_expand_collapse_controls() -> None:
+    template = (ROOT / "app" / "templates" / "stock.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'class="categoryToggle"' in template
+    assert 'data-category-toggle' in template
+    assert 'aria-expanded="true"' in template
+    assert 'aria-controls="{% for it in items %}stock-row-{{ it.id }}' in template
+    assert 'id="stock-row-{{ it.id }}"' in template
+    assert '.categoryToggle[aria-expanded="false"]::before{content:"+"}' in template
+    assert '[hidden]{display:none!important}' in template
+    assert 'button.setAttribute("aria-expanded", nextExpanded ? "true" : "false")' in template
+    assert 'if (row) row.hidden = !nextExpanded' in template
 
 
 def test_label_center_uses_full_width_cards_and_compact_readiness() -> None:

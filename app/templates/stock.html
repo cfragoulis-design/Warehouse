@@ -30,7 +30,7 @@
     select{min-width:160px}
     input[type=text]{min-width:260px}
     table{width:100%;min-width:1180px;table-layout:fixed;border-collapse:collapse}
-    th,td{padding:10px 10px;border-bottom:1px solid rgba(36,48,85,.65);text-align:left;vertical-align:middle}
+    th,td{padding:8px 8px;border-bottom:1px solid rgba(36,48,85,.65);text-align:left;vertical-align:middle}
     th{font-size:12px;color:#c9d1ea;letter-spacing:.6px;text-transform:none}
     .catrow td{
       padding:14px 12px 14px 18px;
@@ -54,6 +54,38 @@
       background:rgba(47,124,246,.85);
       border-radius:6px;
     }
+    .categoryToggle{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      width:100%;
+      padding:0;
+      border:0;
+      background:none;
+      color:inherit;
+      font:inherit;
+      font-weight:inherit;
+      letter-spacing:inherit;
+      text-align:left;
+      cursor:pointer;
+    }
+    .categoryToggle::before{
+      content:"−";
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:26px;
+      height:26px;
+      flex:0 0 26px;
+      border:1px solid rgba(138,180,255,.55);
+      border-radius:8px;
+      color:#8ab4ff;
+      background:rgba(11,16,32,.45);
+    }
+    .categoryToggle[aria-expanded="false"]::before{content:"+"}
+    .categoryToggle:focus-visible{outline:2px solid #8ab4ff;outline-offset:4px}
+    .categoryCount{margin-left:auto;font-size:12px;color:var(--muted);letter-spacing:0}
+    [hidden]{display:none!important}
     .prod{font-weight:800}
     .prodRow{
   display:flex;
@@ -87,29 +119,29 @@
     .btnBlue{background:var(--blue);color:#fff}
     .btnGhost{background:rgba(11,16,32,.45);border:1px solid rgba(36,48,85,.9);color:var(--text)}
     .btnTiny{padding:6px 8px;border-radius:10px;font-size:12px}
-    .pm{display:inline-flex;gap:5px;align-items:center}
-    .pm button{width:34px;height:34px;border-radius:10px;font-weight:900}
+    .pm{display:inline-flex;gap:4px;align-items:center}
+    .pm button{width:30px;height:30px;border-radius:9px;font-weight:900}
     .pm .minus{background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2}
     .pm .plus{background:rgba(255,255,255,.04);border:1px solid rgba(36,48,85,.9);color:#dfe6ff}
-    .pmQty{width:52px;min-width:52px;height:34px;text-align:center;padding:5px 4px;border-radius:10px;font-weight:800}
+    .pmQty{width:46px;min-width:46px;height:30px;text-align:center;padding:4px;border-radius:9px;font-weight:800}
     .pmQty:focus{outline:2px solid rgba(47,124,246,.55);outline-offset:1px}
-    .transferBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(47,124,246,.15); border:1px solid rgba(47,124,246,.45);color:#8ab4ff;cursor:pointer;}.transferBtn:hover{
+    .transferBtn{width:30px;height:30px;border-radius:9px;font-weight:900;background:rgba(47,124,246,.15); border:1px solid rgba(47,124,246,.45);color:#8ab4ff;cursor:pointer;}.transferBtn:hover{
       filter:brightness(1.1);}
-    .actions{display:flex;gap:6px;align-items:center;align-content:center;flex-wrap:wrap;min-width:0;width:100%}
-    .actionGroup{display:inline-flex;gap:5px;align-items:center;min-width:0}
+    .actions{display:flex;gap:5px;align-items:center;align-content:center;flex-wrap:wrap;min-width:0;width:100%}
+    .actionGroup{display:inline-flex;gap:4px;align-items:center;min-width:0}
     .tag{color:var(--muted);font-size:12px;min-width:14px;text-align:center}
     .targetBox{display:flex;gap:8px;align-items:center}
     .targetInput{width:72px;min-width:72px;text-align:center;padding:8px 10px;border-radius:12px}
     .pendingForm{display:inline}
-  .needForm{display:inline-flex;align-items:center;gap:6px;margin-left:6px}
-  .needQty{width:54px;min-width:54px;text-align:center;padding:6px 8px;border-radius:10px}
-  .needBtn{width:34px;height:34px;border-radius:10px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
+  .needForm{display:inline-flex;align-items:center;gap:4px;margin-left:4px}
+  .needQty{width:46px;min-width:46px;height:30px;text-align:center;padding:4px;border-radius:9px}
+  .needBtn{width:30px;height:30px;border-radius:9px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
-    .directLabelForm{display:grid;grid-template-columns:minmax(126px,1fr) 54px minmax(78px,auto);align-items:center;gap:5px;flex:1 1 100%;width:100%;min-width:0;padding:6px 0 0;border-left:0;border-top:1px solid rgba(202,162,74,.28)}
-    .labelCopies{width:100%;min-width:0;height:34px;padding:5px 4px;text-align:center;border-radius:10px;font-weight:900}
-    .labelPreservation{width:100%;min-width:0;max-width:none;height:34px;padding:4px 7px;border-radius:10px;font-weight:800;background:rgba(11,16,32,.72);color:var(--text);border:1px solid rgba(202,162,74,.38)}
-    .labelExpiry{grid-column:1 / -1;min-width:0;color:var(--muted);font-size:10px;font-weight:800;line-height:1.15;text-align:left}
-    .labelBtn{display:inline-flex;align-items:center;justify-content:center;width:100%;min-width:0;height:34px;padding:0 10px;border-radius:10px;font-weight:900;cursor:pointer;border:1px solid transparent}
+    .directLabelForm{display:grid;grid-template-columns:minmax(126px,1fr) max-content 46px minmax(74px,auto);align-items:center;gap:4px;flex:1 1 320px;width:auto;min-width:320px;padding:0;border:0}
+    .labelCopies{grid-column:3;width:46px;min-width:0;height:30px;padding:4px;text-align:center;border-radius:9px;font-weight:900}
+    .labelPreservation{grid-column:1;width:100%;min-width:0;max-width:none;height:30px;padding:4px 7px;border-radius:9px;font-weight:800;background:rgba(11,16,32,.72);color:var(--text);border:1px solid rgba(202,162,74,.38)}
+    .labelExpiry{grid-column:2;min-width:0;white-space:nowrap;color:var(--muted);font-size:9px;font-weight:800;line-height:1;text-align:left}
+    .labelBtn{grid-column:4;display:inline-flex;align-items:center;justify-content:center;width:100%;min-width:0;height:30px;padding:0 8px;border-radius:9px;font-weight:900;cursor:pointer;border:1px solid transparent}
     .labelBtn.workshop{background:rgba(202,162,74,.16);border-color:rgba(202,162,74,.45);color:#f1d694}
     .labelBtn:hover{filter:brightness(1.08)}
     .readyBanner{
@@ -191,6 +223,8 @@
       .pmQty,.needQty,.labelCopies{width:44px;min-width:44px;height:30px}
       .labelPreservation{width:100%;min-width:0;max-width:none;height:30px;font-size:11px}
       .labelBtn{min-width:66px;height:30px;padding:0 7px}
+      .actions .directLabelForm{min-width:0}
+      .actions .labelExpiry{grid-column:1 / -1}
       .targetInput{width:60px;min-width:60px;padding:6px}
     }
 
@@ -340,22 +374,36 @@
       <table>
         <thead>
           <tr>
-            <th style="width:20%">Προϊόν</th>
-            <th style="width:6%">Κατάσταση</th>
-            <th style="width:5%">Μονάδα</th>
-            <th style="width:6%">Κεντρικό</th>
-            <th style="width:6%">Εργαστήριο</th>
-            <th style="width:10%">Στόχος Κεντρικού<span class="tt" data-tip="Η επιθυμητή ποσότητα που ορίζεται για το Κεντρικό.">i</span></th>
-            <th style="width:8%">Προς συμπλήρωση<span class="tt" data-tip="Στόχος Κεντρικού μείον το τρέχον απόθεμα Κεντρικού.">i</span></th>
-            <th style="width:7%">Οφειλόμενα<span class="tt" data-tip="Παλαιότερη έλλειψη του Εργαστηρίου που οφείλεται ακόμη στο Κεντρικό.">i</span></th>
-            <th style="width:32%">Ενέργειες</th>
+            <th style="width:19%">Προϊόν</th>
+            <th style="width:5%">Κατάσταση</th>
+            <th style="width:4%">Μονάδα</th>
+            <th style="width:4%">Κεντρικό</th>
+            <th style="width:4%">Εργαστήριο</th>
+            <th style="width:9%">Στόχος Κεντρικού<span class="tt" data-tip="Η επιθυμητή ποσότητα που ορίζεται για το Κεντρικό.">i</span></th>
+            <th style="width:5%">Προς συμπλήρωση<span class="tt" data-tip="Στόχος Κεντρικού μείον το τρέχον απόθεμα Κεντρικού.">i</span></th>
+            <th style="width:4%">Οφειλόμενα<span class="tt" data-tip="Παλαιότερη έλλειψη του Εργαστηρίου που οφείλεται ακόμη στο Κεντρικό.">i</span></th>
+            <th style="width:46%">Ενέργειες</th>
           </tr>
         </thead>
         <tbody>
         {% for cat, items in grouped.items() %}
-          <tr class="catrow category-row"><td colspan="9">{{ cat }}</td></tr>
+          <tr class="catrow category-row">
+            <td colspan="9">
+              <button
+                class="categoryToggle"
+                type="button"
+                data-category-toggle
+                aria-expanded="true"
+                aria-controls="{% for it in items %}stock-row-{{ it.id }}{% if not loop.last %} {% endif %}{% endfor %}"
+                title="Ελαχιστοποίηση κατηγορίας"
+              >
+                <span>{{ cat }}</span>
+                <span class="categoryCount" aria-hidden="true">{{ items|length }}</span>
+              </button>
+            </td>
+          </tr>
           {% for it in items %}
-            <tr data-product-id="{{ it.id }}" data-pending="{{ it.pending }}" class="stock-row {% if it.is_low %}rowLow {% endif %}{% if it.pending > 0 %}rowPending{% endif %}">
+            <tr id="stock-row-{{ it.id }}" data-product-id="{{ it.id }}" data-pending="{{ it.pending }}" class="stock-row {% if it.is_low %}rowLow {% endif %}{% if it.pending > 0 %}rowPending{% endif %}">
               <td class="productCell">
                 <div class="prodRow">
                   {% if user and user.role == 'admin' %}
@@ -600,6 +648,28 @@ document.querySelectorAll(".js-label-print-form").forEach(form => {
     submitLabelFormAjax(form);
   });
 });
+
+  // Category groups stay expanded on every fresh search/filter result. The
+  // hidden state is independent from the Workshop pending-only filter, so a
+  // live refresh never reopens a category the user has collapsed.
+  document.querySelectorAll("[data-category-toggle]").forEach(button => {
+    button.addEventListener("click", () => {
+      const isExpanded = button.getAttribute("aria-expanded") === "true";
+      const nextExpanded = !isExpanded;
+      button.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+      button.title = nextExpanded
+        ? "Ελαχιστοποίηση κατηγορίας"
+        : "Άνοιγμα κατηγορίας";
+
+      const rowIds = (button.getAttribute("aria-controls") || "")
+        .split(/\s+/)
+        .filter(Boolean);
+      rowIds.forEach(id => {
+        const row = document.getElementById(id);
+        if (row) row.hidden = !nextExpanded;
+      });
+    });
+  });
 
 
   // ----
