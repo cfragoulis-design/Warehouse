@@ -59,6 +59,7 @@ def test_updated_templates_parse_and_shell_routes_are_registered() -> None:
     for name in (
         "_warehouse_shell.html",
         "dashboard.html",
+        "labels_center.html",
         "stock.html",
         "movements_list.html",
         "login.html",
@@ -91,6 +92,34 @@ def test_stock_keeps_familiar_list_on_tablets_and_uses_cards_only_on_phones() ->
     assert "tr.stock-row{display:grid" in template
     assert 'class="productCell"' in template
     assert 'data-label="Ενέργειες"' in template
+
+
+def test_stock_desktop_actions_wrap_without_forcing_horizontal_overflow() -> None:
+    template = (ROOT / "app" / "templates" / "stock.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "max-width:1760px" in template
+    assert "table-layout:fixed" in template
+    assert "flex-wrap:wrap;min-width:0;width:100%" in template
+    assert "flex:1 1 100%" in template
+    assert ".labelPreservation{width:100%;min-width:0;max-width:none" in template
+    assert '<div class="actionGroup">' in template
+
+
+def test_label_center_uses_full_width_cards_and_compact_readiness() -> None:
+    template = (
+        ROOT / "app" / "templates" / "labels_center.html"
+    ).read_text(encoding="utf-8")
+
+    assert ".layout{display:grid;grid-template-columns:minmax(0,1fr)" in template
+    assert '<table class="productsTable">' in template
+    assert ".productsTable{min-width:1120px;table-layout:fixed}" in template
+    assert ".panel{padding:14px 16px;overflow-x:auto}" in template
+    assert ".row{min-width:1320px}" not in template
+    assert "⚠ Λείπουν ${missing.length} πεδία" in template
+    assert "readiness.setAttribute('aria-label', missingDetail)" in template
+    assert "cell.dataset.label = options.label || ''" in template
 
 
 def test_consumables_mobile_navigation_wraps_without_hiding_actions() -> None:

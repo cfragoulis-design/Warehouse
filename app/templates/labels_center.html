@@ -14,8 +14,8 @@
     .top{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;background:linear-gradient(180deg,#0b1020 0%, #0b1020 20%, rgba(11,16,32,0) 100%)}
     .brand{font-weight:900;font-size:26px}
     .sub{color:var(--muted);font-size:12px;margin-top:2px}
-    .nav{display:flex;gap:16px;align-items:center}
-    .wrap{max-width:1320px;margin:0 auto;padding:0 16px 24px}
+    .nav{display:flex;gap:16px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+    .wrap{width:100%;max-width:1720px;margin:0 auto;padding:0 18px 24px}
     .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0 14px}
     .toolbar input,.toolbar select,.toolbar button{background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:10px 12px;border-radius:12px;outline:none}
     .toolbar input{min-width:260px}
@@ -25,13 +25,24 @@
     .toolbar .download{padding:10px 12px;border-radius:12px;border:1px solid rgba(47,124,246,.7);background:rgba(47,124,246,.16);color:#b9d3ff;font-size:13px;font-weight:900}
     .toolbar .download.disabled{border-color:rgba(167,176,199,.35);background:rgba(167,176,199,.08);color:var(--muted)}
     .stationBadge{padding:10px 12px;border-radius:12px;border:1px solid rgba(46,204,113,.45);background:rgba(46,204,113,.1);color:#9cf0bf;font-size:12px;font-weight:900;letter-spacing:.04em}
-    .layout{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
-    .card{background:rgba(17,25,54,.75);border:1px solid rgba(36,48,85,.75);border-radius:16px;box-shadow:0 12px 45px rgba(0,0,0,.35);overflow:hidden}
+    .layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+    .card{min-width:0;background:rgba(17,25,54,.75);border:1px solid rgba(36,48,85,.75);border-radius:16px;box-shadow:0 12px 45px rgba(0,0,0,.35);overflow:hidden}
     .card h2{margin:0;padding:14px 16px;border-bottom:1px solid rgba(36,48,85,.75);background:rgba(15,22,45,.55);font-size:16px}
-    .tableWrap{max-height:70vh;overflow:auto}
+    .tableWrap{max-height:62vh;overflow:auto;overscroll-behavior:contain}
     table{width:100%;border-collapse:collapse}
     th,td{padding:10px 12px;border-bottom:1px solid rgba(36,48,85,.65);text-align:left;vertical-align:middle}
     th{font-size:12px;color:#c9d1ea}
+    thead th{position:sticky;top:0;z-index:2;background:#0f162d}
+    .productsTable{min-width:1120px;table-layout:fixed}
+    .productsTable th:nth-child(1){width:18%}
+    .productsTable th:nth-child(2){width:14%}
+    .productsTable th:nth-child(3){width:14%}
+    .productsTable th:nth-child(4){width:12%}
+    .productsTable th:nth-child(5){width:14%}
+    .productsTable th:nth-child(6){width:12%}
+    .productsTable th:nth-child(7){width:8%}
+    .productsTable th:nth-child(8){width:8%}
+    .productsTable td{overflow-wrap:break-word}
     .prod{font-weight:800}
     .muted{color:var(--muted);font-size:12px}
     .qtyBox{display:flex;gap:8px;align-items:center}
@@ -40,8 +51,8 @@
     .btnMini{padding:8px 10px;border-radius:10px;border:1px solid rgba(36,48,85,.9);background:rgba(11,16,32,.45);color:var(--text);font-weight:800;cursor:pointer}
     .btnMini.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45);color:#8ab4ff}
     .btnMini.danger{background:rgba(255,107,107,.12);border-color:rgba(255,107,107,.45);color:#ffb2b2}
-    .panel{padding:14px 16px}
-    .row{display:grid;grid-template-columns:1.2fr 124px 72px 130px 120px 115px 104px 104px 54px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(36,48,85,.45)}
+    .panel{padding:14px 16px;overflow-x:auto}
+    .row{display:grid;grid-template-columns:minmax(180px,1.25fr) minmax(150px,.9fr) 82px minmax(130px,.9fr) minmax(130px,.9fr) 105px 105px 105px 54px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(36,48,85,.45)}
     .row.header{font-size:12px;color:#c9d1ea;font-weight:800}
     .row input,.row select{width:100%;background:rgba(11,16,32,.65);border:1px solid rgba(36,48,85,.9);color:var(--text);padding:8px 10px;border-radius:10px}
     .empty{padding:18px;color:var(--muted)}
@@ -50,11 +61,31 @@
     .toast.ok{border-color:rgba(46,204,113,.55);color:#d8ffe9}
     .toast.err{border-color:rgba(255,107,107,.55);color:#ffd2d2}
     .ready{color:#79e6ae}.notReady{color:#ffb2b2}
+    .readinessStatus{display:inline-flex;align-items:center;white-space:nowrap;font-weight:800}
     .legalNotice{margin:0 0 14px;padding:11px 13px;border-radius:12px;border:1px solid rgba(202,162,74,.45);background:rgba(202,162,74,.1);color:#ffe6a8;font-size:13px}
     .creator{padding:18px 4px 0;display:flex;justify-content:flex-end}
     .creator img{width:108px;height:108px;object-fit:contain;border-radius:12px}
     .queueCard{margin-top:16px}.queueTable{max-height:360px;overflow:auto}.status{font-weight:900}.status.QUEUED{color:#f1d694}.status.CLAIMED{color:#8ab4ff}.status.PRINTED{color:#79e6ae}.status.ERROR,.status.CANCELLED{color:#ffb2b2}.jobActions{display:flex;gap:6px;flex-wrap:wrap}.errorReason{color:#ffb2b2;font-size:12px;max-width:340px;overflow-wrap:anywhere}
-    @media (max-width: 1200px){.layout{grid-template-columns:1fr}.tableWrap{max-height:none}.panel{overflow:auto}.row{min-width:1320px}}
+    @media (max-width: 900px){
+      .top{align-items:flex-start;gap:14px;flex-direction:column}
+      .nav{justify-content:flex-start}
+      .toolbar>*{flex:1 1 220px;min-width:0!important}
+      .tableWrap{max-height:none}
+      .row.header{display:none}
+      .row{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px;padding:12px;border:1px solid rgba(36,48,85,.75);border-radius:12px}
+      .row > div{min-width:0}
+      .row > div::before{content:attr(data-label);display:block;margin-bottom:5px;color:var(--muted);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+      .row > div:first-child{grid-column:1 / -1}
+      .row input,.row select{min-height:42px}
+      .sum{align-items:flex-start;gap:14px;flex-direction:column}
+    }
+    @media (max-width: 560px){
+      .wrap{padding-left:12px;padding-right:12px}
+      .toolbar>*{flex-basis:100%}
+      .row{grid-template-columns:1fr}
+      .row > div:first-child{grid-column:1}
+      .toast{left:12px;right:12px;max-width:none}
+    }
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
@@ -95,7 +126,7 @@
       <div class="card">
         <h2>Προϊόντα με ενεργό labeling</h2>
         <div class="tableWrap">
-          <table>
+          <table class="productsTable">
             <thead>
               <tr>
                 <th>Προϊόν</th>
@@ -180,6 +211,7 @@ function textElement(tag, className, value){
 
 function appendInputCell(row, value, key, options={}){
   const cell = document.createElement('div');
+  cell.dataset.label = options.label || '';
   const input = document.createElement('input');
   input.type = options.type || 'text';
   if (options.min != null) input.min = String(options.min);
@@ -207,6 +239,7 @@ function preservationDays(product, profile){
 
 function appendPreservationCell(row, product, item){
   const cell = document.createElement('div');
+  cell.dataset.label = 'Συσκευασία';
   const select = document.createElement('select');
   select.className = 'preservationSelect';
   select.dataset.k = 'preservation_profile';
@@ -285,12 +318,17 @@ function renderProducts(){
     tr.appendChild(textElement('td', '', product.category || 'Διάφορα'));
 
     const readinessCell = document.createElement('td');
+    const missingSummary = missing.length ? `⚠ Λείπουν ${missing.length} πεδία` : '⚠ Μη έτοιμο';
     const readiness = textElement(
       'span',
-      ready ? 'ready' : 'notReady',
-      ready ? '✓ Έτοιμο' : `Λείπουν: ${missing.join(', ')}`
+      `readinessStatus ${ready ? 'ready' : 'notReady'}`,
+      ready ? '✓ Έτοιμο' : missingSummary
     );
-    if (!ready) readiness.title = missing.join(', ');
+    if (!ready) {
+      const missingDetail = missing.length ? `Λείπουν: ${missing.join(', ')}` : 'Το προϊόν δεν είναι έτοιμο για labeling.';
+      readiness.title = missingDetail;
+      readiness.setAttribute('aria-label', missingDetail);
+    }
     readinessCell.appendChild(readiness);
     tr.appendChild(readinessCell);
     const lifeSummary = Number(product.vacuum_shelf_life_days || 0) > 0
@@ -323,6 +361,7 @@ function renderProducts(){
     quantityInput.min = '1';
     quantityInput.step = '1';
     quantityInput.value = '1';
+    quantityInput.setAttribute('aria-label', `Αντίτυπα για ${product.name}`);
     quantityInput.dataset.qtyFor = String(product.id);
     quantityBox.appendChild(quantityInput);
     quantityCell.appendChild(quantityBox);
@@ -396,18 +435,20 @@ function renderBatch(){
     const row = document.createElement('div');
     row.className = 'row';
     const productCell = document.createElement('div');
+    productCell.dataset.label = 'Προϊόν';
     productCell.appendChild(textElement('div', 'prod', item.name));
     productCell.appendChild(textElement('div', 'muted', item.sku));
     row.appendChild(productCell);
     const product = PRODUCTS.find(candidate => Number(candidate.id) === Number(item.product_id));
     appendPreservationCell(row, product, item);
-    appendInputCell(row, item.copies, 'copies', {type:'number', min:1, step:1});
-    appendInputCell(row, item.source_lot_code || '', 'source_lot_code');
-    appendInputCell(row, item.label_origin_override || '', 'label_origin_override');
-    appendInputCell(row, item.lot_code, 'lot_code');
-    appendInputCell(row, item.production_date, 'production_date', {disabled:true});
-    appendInputCell(row, item.expiry_date, 'expiry_date', {disabled:true});
+    appendInputCell(row, item.copies, 'copies', {type:'number', min:1, step:1, label:'Copies'});
+    appendInputCell(row, item.source_lot_code || '', 'source_lot_code', {label:'Παρτίδα πηγής'});
+    appendInputCell(row, item.label_origin_override || '', 'label_origin_override', {label:'Προέλευση'});
+    appendInputCell(row, item.lot_code, 'lot_code', {label:'Lot'});
+    appendInputCell(row, item.production_date, 'production_date', {disabled:true, label:'Παραγωγή'});
+    appendInputCell(row, item.expiry_date, 'expiry_date', {disabled:true, label:'Ανάλωση έως'});
     const removeCell = document.createElement('div');
+    removeCell.dataset.label = 'Αφαίρεση';
     const removeButton = textElement('button', 'btnMini danger', '✕');
     removeButton.type = 'button';
     removeButton.dataset.remove = String(item.uid);
