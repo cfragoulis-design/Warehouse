@@ -113,10 +113,10 @@ def test_stock_desktop_quantity_columns_are_compact_and_actions_gain_space() -> 
         encoding="utf-8"
     )
 
-    assert '<th style="width:4%">Κεντρικό</th>' in template
-    assert '<th style="width:4%">Εργαστήριο</th>' in template
+    assert '<th style="width:4%" title="Κεντρικό απόθεμα"' in template
+    assert '<th style="width:4%" title="Απόθεμα Εργαστηρίου"' in template
     assert '<th style="width:5%">Προς συμπλήρωση' in template
-    assert '<th style="width:4%">Οφειλόμενα' in template
+    assert '<th style="width:4%" title="Οφειλόμενα">Οφειλές' in template
     assert '<th style="width:46%">Ενέργειες</th>' in template
     assert "th,td{padding:8px 8px" in template
 
