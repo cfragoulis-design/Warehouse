@@ -343,7 +343,9 @@ function Add-NutritionTable {
         for ($i = 0; $i -lt $entries.Count; $i++) {
             $column = $i % 2
             $row = [Math]::Floor($i / 2)
-            $rect = New-Object Drawing.RectangleF((14 + ($column * $cellWidth)), ($Y + $Layout.nutrition_heading_height_px + ($row * $cellHeight)), $cellWidth, $cellHeight)
+            $isUnpairedLastEntry = (($entries.Count % 2) -eq 1) -and ($i -eq ($entries.Count - 1))
+            $rectWidth = if ($isUnpairedLastEntry) { 372 } else { $cellWidth }
+            $rect = New-Object Drawing.RectangleF((14 + ($column * $cellWidth)), ($Y + $Layout.nutrition_heading_height_px + ($row * $cellHeight)), $rectWidth, $cellHeight)
             $Graphics.DrawRectangle($pen, [single]$rect.X, [single]$rect.Y, [single]$rect.Width, [single]$rect.Height)
             $inner = New-Object Drawing.RectangleF(($rect.X + 4), $rect.Y, ($rect.Width - 8), $rect.Height)
             Add-LabelText -Graphics $Graphics -Text $entries[$i] -Rectangle $inner -MaximumFontPixels $Layout.nutrition_cell_font_px -MinimumFontPixels 8 -Alignment Center -NoWrap

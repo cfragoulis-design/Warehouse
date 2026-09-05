@@ -597,10 +597,12 @@ function renderPreview() {
     nutrition.forEach((entry, index) => {
       const column = index % 2;
       const row = Math.floor(index / 2);
+      const isUnpairedLastEntry = nutrition.length % 2 === 1 && index === nutrition.length - 1;
+      const cellWidth = isUnpairedLastEntry ? 372 : 186;
       const x = 14 + column * 186;
       const cellY = y + row * rowHeight;
-      ctx.strokeRect(x, cellY, 186, rowHeight);
-      drawFittedText(entry, { x: x + 4, y: cellY, width: 178, height: rowHeight }, {
+      ctx.strokeRect(x, cellY, cellWidth, rowHeight);
+      drawFittedText(entry, { x: x + 4, y: cellY, width: cellWidth - 8, height: rowHeight }, {
         maximum: setting("nutrition_cell_font_px", 11), minimum: minimumFor("nutrition_cell_font_px"), noWrap: true, label: `Διατροφικό στοιχείο ${index + 1}`,
       }, failures);
     });

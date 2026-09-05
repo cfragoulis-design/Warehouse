@@ -16,6 +16,7 @@ CREATOR = "Christos Fragoulis"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
 COMMON_FILES = {
+    "creator-signature.png": "creator-signature.png",
     "company-logo-sklavounos.png": "company-logo-sklavounos.png",
     "Diagnose-WarehouseHprtAgent.ps1": "Diagnose-WarehouseHprtAgent.ps1",
     "favicon-64.png": "favicon-64.png",
@@ -139,9 +140,9 @@ def build(source_commit: str) -> tuple[Path, Path]:
     if _sha256(company_logo) != "41633fd9bf9fc15c885c1c6b39ddfb9211c85a330bf07bc4465c1de3d357eeff":
         raise RuntimeError("Approved company logo hash is unexpected")
 
-    if staging_manifest.get("version") != "1.0.17-staging":
+    if staging_manifest.get("version") != "1.0.18-staging":
         raise RuntimeError("Unexpected staging Agent version")
-    if production_manifest.get("version") != "1.0.17":
+    if production_manifest.get("version") != "1.0.18":
         raise RuntimeError("Unexpected production Agent version")
     if staging_manifest.get("environment") != "staging":
         raise RuntimeError("Staging package manifest must target staging")
@@ -170,8 +171,8 @@ def build(source_commit: str) -> tuple[Path, Path]:
     if production_origin not in production_setup or staging_origin in production_setup:
         raise RuntimeError("Production setup does not target only the production Warehouse")
 
-    staging = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.17-STAGING.zip"
-    production = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.17.zip"
+    staging = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18-STAGING.zip"
+    production = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18.zip"
     _build_zip(
         staging,
         {
@@ -190,14 +191,14 @@ def build(source_commit: str) -> tuple[Path, Path]:
     )
     _write_release_manifest(
         DOWNLOADS / "HPRT-AGENT-RELEASE-MANIFEST.json",
-        version="1.0.17-staging",
+        version="1.0.18-staging",
         source_commit=source_commit,
         package=staging,
         production=False,
     )
     _write_release_manifest(
         DOWNLOADS / "HPRT-AGENT-PRODUCTION-RELEASE-MANIFEST.json",
-        version="1.0.17",
+        version="1.0.18",
         source_commit=source_commit,
         package=production,
         production=True,
