@@ -504,8 +504,15 @@ function minimumFor(field) {
 }
 
 function splitNutrition(value) {
-  const clean = String(value || "").replace(/^\s*Ανά\s+100\s*g\s*:\s*/iu, "");
-  return clean.split(/,\s+(?=[^0-9])/u).map((entry) => entry.trim()).filter(Boolean).slice(0, 8);
+  let clean = String(value || "").trim();
+  const heading = /^\s*(?:(?:Ανά|Per)\s*100\s*g\s*:?\s*|Θερμίδες\s+και\s+Συστατικά\s*\(\s*ανά\s*100\s*g\s*\)\s*:?\s*)/iu;
+  while (heading.test(clean)) clean = clean.replace(heading, "");
+  // Consume the complete label so a shorter name inside it is not split twice.
+  // No word boundary: existing entries may contain "kcalΠρωτεΐνη" or "gΛιπαρά".
+  const nutrient = /(?:Ενεργειακή\s+αξία|Ενέργεια|Θερμίδες|Energy|Εκ\s+των\s+οποίων\s+κορεσμένα|of\s+which\s+saturates|Κορεσμένα|Εκ\s+των\s+οποίων\s+σάκχαρα|of\s+which\s+sugars|Σάκχαρα|Υδατάνθρακες|Carbohydrates?|Πρωτεΐνες|Πρωτεΐνη|Proteins?|Εδώδιμες\s+ίνες|Φυτικές\s+ίνες|Fibre|Fiber|Ίνες|Λιπαρά|Λίπη|Fat|Αλάτι|Salt)(?=\s*:?\s*[0-9])/giu;
+  clean = clean.replace(nutrient, "\n$&");
+  return clean.split(/(?:\r\n|[\r\n\u0085\u2028\u2029;|])|,\s*(?=\p{L})/u)
+    .map((entry) => entry.trim()).filter(Boolean);
 }
 
 function approvalParts(value) {
@@ -587,26 +594,32 @@ function renderPreview() {
   }
 
   const nutrition = splitNutrition(sample.nutrition);
+  if (sample.nutrition && !nutrition.length) failures.push("Δεν υπάρχουν διατροφικά στοιχεία μετά την επικεφαλίδα");
+  if (nutrition.length > 8) failures.push("Η διατροφική δήλωση ξεπερνά τις 8 σειρές");
   if (nutrition.length) {
     const headingHeight = setting("nutrition_heading_height_px", 19);
     drawFittedText("ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ ΑΝΑ 100 g", { x: 14, y, width: 372, height: headingHeight }, {
       maximum: setting("nutrition_heading_font_px", 12), minimum: minimumFor("nutrition_heading_font_px"), bold: true, noWrap: true, label: "Επικεφαλίδα διατροφικής δήλωσης",
     }, failures);
     y += headingHeight;
-    const rowHeight = setting("nutrition_row_height_px", 22);
+    const trailingHeight = setting("dates_height_px", 24) + setting("lot_height_px", 23)
+      + setting("storage_height_px", 28) + setting("origin_height_px", 21)
+      + (sample.sourceLot ? setting("source_lot_height_px", 20) : 0)
+      + (sample.usage ? setting("usage_height_px", 33) : 0);
+    const rowBudget = 449 - y - setting("nutrition_gap_after_px", 4) - trailingHeight;
+    const fittedRowHeight = Math.min(setting("nutrition_row_height_px", 22), Math.floor(rowBudget / nutrition.length));
+    if (fittedRowHeight < 14) failures.push("Οι διατροφικές σειρές δεν χωρούν χωρίς να καλύψουν τα υπόλοιπα στοιχεία");
+    const rowHeight = Math.max(14, fittedRowHeight);
     nutrition.forEach((entry, index) => {
-      const column = index % 2;
-      const row = Math.floor(index / 2);
-      const isUnpairedLastEntry = nutrition.length % 2 === 1 && index === nutrition.length - 1;
-      const cellWidth = isUnpairedLastEntry ? 372 : 186;
-      const x = 14 + column * 186;
-      const cellY = y + row * rowHeight;
+      const cellWidth = 372;
+      const x = 14;
+      const cellY = y + index * rowHeight;
       ctx.strokeRect(x, cellY, cellWidth, rowHeight);
       drawFittedText(entry, { x: x + 4, y: cellY, width: cellWidth - 8, height: rowHeight }, {
         maximum: setting("nutrition_cell_font_px", 11), minimum: minimumFor("nutrition_cell_font_px"), noWrap: true, label: `Διατροφικό στοιχείο ${index + 1}`,
       }, failures);
     });
-    y += Math.ceil(nutrition.length / 2) * rowHeight + setting("nutrition_gap_after_px", 4);
+    y += nutrition.length * rowHeight + setting("nutrition_gap_after_px", 4);
   }
 
   drawSection(`ΠΑΡΑΓΩΓΗ: ${sample.productionDate}     ΑΝΑΛΩΣΗ ΕΩΣ: ${sample.useByDate}`, "dates_font_px", "dates_height_px", { bold: true, noWrap: true, height: 24, maximum: 13, label: "Ημερομηνίες" });
@@ -616,6 +629,8 @@ function renderPreview() {
   drawSection(`ΠΡΟΕΛΕΥΣΗ: ${sample.origin}`, "origin_font_px", "origin_height_px", { noWrap: true, height: 21, maximum: 11, label: "Προέλευση" });
   if (sample.usage) drawSection(sample.usage, "usage_font_px", "usage_height_px", { height: 33, maximum: 11, label: "Οδηγίες χρήσης" });
 
+  // Keep the stored v1 layout reservation compatible with existing snapshots.
+  // Actual one-per-row nutrition capacity is checked against the footer above.
   const protectedWorstCaseBottom = 7
     + setting("title_height_px", 42)
     + setting("legal_name_height_px", 29)

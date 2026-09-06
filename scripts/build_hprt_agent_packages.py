@@ -140,9 +140,9 @@ def build(source_commit: str) -> tuple[Path, Path]:
     if _sha256(company_logo) != "41633fd9bf9fc15c885c1c6b39ddfb9211c85a330bf07bc4465c1de3d357eeff":
         raise RuntimeError("Approved company logo hash is unexpected")
 
-    if staging_manifest.get("version") != "1.0.18-staging":
+    if staging_manifest.get("version") != "1.0.19-staging":
         raise RuntimeError("Unexpected staging Agent version")
-    if production_manifest.get("version") != "1.0.18":
+    if production_manifest.get("version") != "1.0.19":
         raise RuntimeError("Unexpected production Agent version")
     if staging_manifest.get("environment") != "staging":
         raise RuntimeError("Staging package manifest must target staging")
@@ -171,8 +171,8 @@ def build(source_commit: str) -> tuple[Path, Path]:
     if production_origin not in production_setup or staging_origin in production_setup:
         raise RuntimeError("Production setup does not target only the production Warehouse")
 
-    staging = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18-STAGING.zip"
-    production = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18.zip"
+    staging = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19-STAGING.zip"
+    production = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19.zip"
     _build_zip(
         staging,
         {
@@ -191,14 +191,14 @@ def build(source_commit: str) -> tuple[Path, Path]:
     )
     _write_release_manifest(
         DOWNLOADS / "HPRT-AGENT-RELEASE-MANIFEST.json",
-        version="1.0.18-staging",
+        version="1.0.19-staging",
         source_commit=source_commit,
         package=staging,
         production=False,
     )
     _write_release_manifest(
         DOWNLOADS / "HPRT-AGENT-PRODUCTION-RELEASE-MANIFEST.json",
-        version="1.0.18",
+        version="1.0.19",
         source_commit=source_commit,
         package=production,
         production=True,

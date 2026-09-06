@@ -323,36 +323,51 @@ function Add-LabelText {
     finally { $format.Dispose() }
 }
 
+function Get-NutritionEntries {
+    param([AllowEmptyString()][string]$Nutrition)
+    $text = Get-LabelText -Value $Nutrition
+    # Remove only recognized duplicated headings at the start. Nutrient
+    # spelling, amounts, ranges and order remain exactly as supplied.
+    $headingPattern = '^\s*(?:(?:Ανά|Per)\s*100\s*g\s*:?\s*|Θερμίδες\s+και\s+Συστατικά\s*\(\s*ανά\s*100\s*g\s*\)\s*:?\s*)'
+    do {
+        $previous = $text
+        $text = [regex]::Replace($text, $headingPattern, '', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    } while ($text -cne $previous)
+    if (-not $text) { return @() }
+
+    # Consume the full recognized label before inserting a break. A preceding
+    # word boundary would miss pasted text such as "kcalΠρωτεΐνη" or "gΛιπαρά".
+    $nutrientPattern = '(?:Ενεργειακή\s+αξία|Ενέργεια|Θερμίδες|Energy|Εκ\s+των\s+οποίων\s+κορεσμένα|of\s+which\s+saturates|Κορεσμένα|Εκ\s+των\s+οποίων\s+σάκχαρα|of\s+which\s+sugars|Σάκχαρα|Υδατάνθρακες|Carbohydrates?|Πρωτεΐνες|Πρωτεΐνη|Proteins?|Εδώδιμες\s+ίνες|Φυτικές\s+ίνες|Fibre|Fiber|Ίνες|Λιπαρά|Λίπη|Fat|Αλάτι|Salt)(?=\s*:?\s*[0-9])'
+    $text = [regex]::Replace($text, $nutrientPattern, ([string][char]10 + '$&'), [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $entries = @($text -split '(?:\r\n|[\r\n\u0085\u2028\u2029;|])|,\s*(?=\p{L})' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($entries.Count -gt 8) { throw 'Nutrition declaration is too large for the 50x70 label.' }
+    return $entries
+}
+
 function Add-NutritionTable {
     param(
         [Parameter(Mandatory)][Drawing.Graphics]$Graphics,
         [Parameter(Mandatory)][string]$Nutrition,
         [Parameter(Mandatory)][int]$Y,
-        [Parameter(Mandatory)][object]$Layout
+        [Parameter(Mandatory)][object]$Layout,
+        [Parameter(Mandatory)][int]$AvailableBodyHeight
     )
-    $text = (Get-LabelText -Value $Nutrition) -replace '^\s*Ανά\s+100\s*g\s*:\s*', ''
-    if (-not $text) { return 0 }
-    $entries = @($text -split ',\s+(?=[^0-9])' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-    if ($entries.Count -gt 8) { throw 'Nutrition declaration is too large for the 50x70 label.' }
+    $entries = @(Get-NutritionEntries -Nutrition $Nutrition)
+    if ($entries.Count -eq 0) { throw 'Nutrition declaration does not fit the 50x70 layout: no nutrient entries were supplied.' }
+    $cellHeight = [int][Math]::Min([int]$Layout.nutrition_row_height_px, [Math]::Floor($AvailableBodyHeight / [double]$entries.Count))
+    if ($cellHeight -lt 14) { throw 'Dynamic label content does not fit the 50x70 layout.' }
     Add-LabelText -Graphics $Graphics -Text 'ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ ΑΝΑ 100 g' -Rectangle (New-Object Drawing.RectangleF(14, $Y, 372, $Layout.nutrition_heading_height_px)) -MaximumFontPixels $Layout.nutrition_heading_font_px -MinimumFontPixels 9 -Style Bold -NoWrap
-    $rows = [Math]::Ceiling($entries.Count / 2.0)
-    $cellWidth = 186
-    $cellHeight = [int]$Layout.nutrition_row_height_px
     $pen = New-Object Drawing.Pen([Drawing.Color]::Black, 1)
     try {
         for ($i = 0; $i -lt $entries.Count; $i++) {
-            $column = $i % 2
-            $row = [Math]::Floor($i / 2)
-            $isUnpairedLastEntry = (($entries.Count % 2) -eq 1) -and ($i -eq ($entries.Count - 1))
-            $rectWidth = if ($isUnpairedLastEntry) { 372 } else { $cellWidth }
-            $rect = New-Object Drawing.RectangleF((14 + ($column * $cellWidth)), ($Y + $Layout.nutrition_heading_height_px + ($row * $cellHeight)), $rectWidth, $cellHeight)
+            $rect = New-Object Drawing.RectangleF(14, ($Y + $Layout.nutrition_heading_height_px + ($i * $cellHeight)), 372, $cellHeight)
             $Graphics.DrawRectangle($pen, [single]$rect.X, [single]$rect.Y, [single]$rect.Width, [single]$rect.Height)
             $inner = New-Object Drawing.RectangleF(($rect.X + 4), $rect.Y, ($rect.Width - 8), $rect.Height)
             Add-LabelText -Graphics $Graphics -Text $entries[$i] -Rectangle $inner -MaximumFontPixels $Layout.nutrition_cell_font_px -MinimumFontPixels 8 -Alignment Center -NoWrap
         }
     }
     finally { $pen.Dispose() }
-    return [int]($Layout.nutrition_heading_height_px + ($rows * $cellHeight))
+    return [int]($Layout.nutrition_heading_height_px + ($entries.Count * $cellHeight))
 }
 
 function Add-ApprovedCompanyLogo {
@@ -585,8 +600,14 @@ function New-UnifiedLabelBitmap {
         }
 
         $nutritionHeight = 0
+        $source = Get-LabelText $Payload.traceability.source_lot 96
+        $usage = Get-LabelText $Payload.product.usage_instructions 500
         if ($nutritionText) {
-            $nutritionHeight = Add-NutritionTable -Graphics $graphics -Nutrition $nutritionText -Y $y -Layout $layout
+            $trailingHeight = $layout.dates_height_px + $layout.lot_height_px + $layout.storage_height_px + $layout.origin_height_px
+            if ($source) { $trailingHeight += $layout.source_lot_height_px }
+            if ($usage) { $trailingHeight += $layout.usage_height_px }
+            $nutritionBodyHeight = 449 - $y - $layout.nutrition_heading_height_px - $layout.nutrition_gap_after_px - $trailingHeight
+            $nutritionHeight = Add-NutritionTable -Graphics $graphics -Nutrition $nutritionText -Y $y -Layout $layout -AvailableBodyHeight $nutritionBodyHeight
         }
         if ($nutritionHeight -gt 0) { $y += $nutritionHeight + $layout.nutrition_gap_after_px }
 
@@ -596,7 +617,6 @@ function New-UnifiedLabelBitmap {
         $lotLine = 'LOT: {0}' -f (Get-LabelText $Payload.traceability.internal_lot 64)
         Add-LabelText -Graphics $graphics -Text $lotLine -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.lot_height_px)) -MaximumFontPixels $layout.lot_font_px -MinimumFontPixels 8 -NoWrap
         $y += $layout.lot_height_px
-        $source = Get-LabelText $Payload.traceability.source_lot 96
         if ($source) {
             Add-LabelText -Graphics $graphics -Text ("ΠΑΡΤΙΔΑ ΠΗΓΗΣ: $source") -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.source_lot_height_px)) -MaximumFontPixels $layout.source_lot_font_px -MinimumFontPixels 8 -NoWrap
             $y += $layout.source_lot_height_px
@@ -606,7 +626,6 @@ function New-UnifiedLabelBitmap {
         $origin = 'ΠΡΟΕΛΕΥΣΗ: ' + (Get-LabelText $Payload.product.origin 255)
         Add-LabelText -Graphics $graphics -Text $origin -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.origin_height_px)) -MaximumFontPixels $layout.origin_font_px -MinimumFontPixels 8 -NoWrap
         $y += $layout.origin_height_px
-        $usage = Get-LabelText $Payload.product.usage_instructions 500
         if ($usage) {
             Add-LabelText -Graphics $graphics -Text $usage -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.usage_height_px)) -MaximumFontPixels $layout.usage_font_px -MinimumFontPixels 8
             $y += $layout.usage_height_px
