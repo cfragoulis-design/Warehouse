@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" role="img" aria-labelledby="title desc">
+<title id="title">CF — Raw Logic. Real Systems.</title>
+<desc id="desc">Circuit-inspired CF creator mark by Christos Fragoulis.</desc>
+
+<defs>
+  <linearGradient id="upper" gradientUnits="userSpaceOnUse" x1="130" y1="570" x2="890" y2="330">
+    <stop offset="0" stop-color="#A6ABB1"/><stop offset=".28" stop-color="#F4F4F4"/>
+    <stop offset=".52" stop-color="#D0D0D2"/><stop offset=".70" stop-color="#4BBDF9"/>
+    <stop offset="1" stop-color="#4BBDF9"/>
+  </linearGradient>
+  <linearGradient id="lower" gradientUnits="userSpaceOnUse" x1="570" y1="820" x2="850" y2="500">
+    <stop offset="0" stop-color="#0B6DCE"/><stop offset=".55" stop-color="#1996EF"/>
+    <stop offset="1" stop-color="#4BBDF9"/>
+  </linearGradient>
+</defs>
+
+<g fill="none" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision">
+  <path d="M650 240H385C230 240 130 352 130 500S242 760 390 760c84 0 140-56 140-135V495c0-86 58-145 145-145h130" stroke="url(#upper)" stroke-width="52"/>
+  <circle cx="850" cy="350" r="33" stroke="url(#upper)" stroke-width="24"/>
+  <path d="M755 555h-50c-84 0-130 51-130 130v140" stroke="url(#lower)" stroke-width="52"/>
+  <circle cx="800" cy="555" r="32" stroke="url(#lower)" stroke-width="24"/>
+</g>
+</svg>

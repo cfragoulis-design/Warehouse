@@ -20,6 +20,7 @@
     a.btn:hover { filter: brightness(1.08); }
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
+  <link rel="stylesheet" href="/static/creator-signature.css?v=1" />
 </head>
 <body>
   <div class="overlay" role="dialog" aria-modal="true" aria-labelledby="ttl">
@@ -36,6 +37,7 @@
         <a class="btn" href="/stock">Επιστροφή στο Stock</a>
         <a class="btn primary" href="{{ next_url or '/dashboard' }}">OK</a>
       </div>
+      {% include "_creator_footer.html" %}
     </div>
   </div>
 </body>

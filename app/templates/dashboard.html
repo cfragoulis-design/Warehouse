@@ -23,6 +23,7 @@
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
   <link rel="stylesheet" href="/static/warehouse-shell.css" />
+  <link rel="stylesheet" href="/static/creator-signature.css?v=1" />
 </head>
 <body>
   {% set shell_title = "Κέντρο βάρδιας" %}
@@ -61,5 +62,6 @@
     {% if user.role == "admin" %}<section class="adminBox"><h2>Μήνυμα στο Εργαστήριο</h2><p>Παραμένει στην οθόνη του Εργαστηρίου μέχρι να επιβεβαιωθεί.</p><form method="post" action="/admin/workshop-message"><input name="title" placeholder="Τίτλος (προαιρετικός)" /><textarea name="body" required rows="2" placeholder="Γράψε τη σαφή οδηγία..."></textarea><button class="btn" type="submit">Αποστολή</button></form></section>{% endif %}
   </main>
   {% include "_workshop_message_modal.html" %}
+  {% include "_creator_footer.html" %}
 </body>
 </html>

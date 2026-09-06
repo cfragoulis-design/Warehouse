@@ -10,6 +10,7 @@
   <script src="/static/js/datetime.js" defer></script>
   <script id="label-designer-bootstrap" type="application/json">{{ {"products": product_samples, "company_logo_url": "/static/logo-icon.png", "english_logo_url": "/static/company-logo-sklavounos-english.png"} | tojson }}</script>
   <script src="/static/label-designer.js" defer></script>
+  <link rel="stylesheet" href="/static/creator-signature.css?v=1" />
 </head>
 <body>
   <header class="designer-header">
@@ -113,14 +114,6 @@
 
   <div id="designerToast" class="designer-toast" role="status" aria-live="polite"></div>
 
-  <footer class="creator-credit">
-    <a href="https://rawlogic.gr" target="_blank" rel="noopener" aria-label="RAW LOGIC. REAL SYSTEMS. — Created by Christos Fragoulis">
-      <img src="/static/brand/cf-logo-stacked-dark.svg" alt="" width="40" height="40" />
-      <span class="creator-credit-text">
-      <span>RAW LOGIC. REAL SYSTEMS.</span>
-      <strong>Created by Christos Fragoulis</strong>
-      </span>
-    </a>
-  </footer>
+  {% include "_creator_footer.html" %}
 </body>
 </html>

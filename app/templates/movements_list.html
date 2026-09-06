@@ -26,6 +26,7 @@
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
   <link rel="stylesheet" href="/static/warehouse-shell.css" />
+  <link rel="stylesheet" href="/static/creator-signature.css?v=1" />
 </head>
 <body>
   {% set shell_title = "Κινήσεις αποθέματος" %}
@@ -55,5 +56,6 @@
     </tbody></table></div>
     <nav class="pagination" aria-label="Σελίδες κινήσεων">{% if previous_page_url %}<a class="btn secondary" href="{{ previous_page_url }}">← Προηγούμενη</a>{% endif %}<span class="muted">Σελίδα {{ page }} από {{ total_pages }}</span>{% if next_page_url %}<a class="btn secondary" href="{{ next_page_url }}">Επόμενη →</a>{% endif %}</nav>
   </main>
+  {% include "_creator_footer.html" %}
 </body>
 </html>

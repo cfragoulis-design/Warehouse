@@ -1,0 +1,75 @@
+/* Canonical signature-system/v1: secondary authorship, never operational print content. */
+.creator-footer {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1760px;
+  margin: 24px auto 0;
+  padding: 16px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #1e293b;
+  text-align: center;
+}
+
+.creator-footer .creator-signature {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  min-height: 44px;
+  color: #f8f7f3;
+  font-family: "Segoe UI", Arial, sans-serif;
+  line-height: 1.3;
+  text-decoration: none;
+  text-align: left;
+}
+
+.creator-footer .creator-signature__mark {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  object-fit: contain;
+}
+
+.creator-footer .creator-signature__copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.creator-footer .creator-signature__brand {
+  color: #55b9ed;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.creator-footer .creator-signature__byline {
+  color: #aab8c2;
+  font-size: 13px;
+}
+
+.creator-footer .creator-signature__byline strong {
+  color: #f8f7f3;
+  font-weight: 700;
+}
+
+.creator-footer .creator-signature:hover .creator-signature__byline strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.creator-footer .creator-signature:focus-visible {
+  border-radius: 4px;
+  outline: 3px solid #55b9ed;
+  outline-offset: 4px;
+}
+
+@media (max-width: 420px) {
+  .creator-footer { padding-left: 8px; padding-right: 8px; }
+  .creator-footer .creator-signature { gap: 8px; }
+  .creator-footer .creator-signature__brand { font-size: 9px; letter-spacing: .08em; }
+  .creator-footer .creator-signature__byline { font-size: 12px; }
+}
+
+@media print {
+  .creator-footer { display: none !important; }
+}
