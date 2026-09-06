@@ -1,5 +1,10 @@
 # Warehouse Production role and migration job
 
+For the current `20260906_001`-only existing-role upgrade, use
+`WAREHOUSE_PROFILES_PRODUCTION_UPGRADE_20260906.md`. The older provisioning,
+PRE/POST and first schema7 rollout instructions below are historical and do not
+authorize role recreation, privilege changes or existing feature-flag changes.
+
 This runbook defines the only reviewed CLI surface for provisioning and
 hardening the Warehouse Production runtime role and applying the Warehouse
 migration catalog. It is code and documentation only: its existence is **not**

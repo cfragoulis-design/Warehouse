@@ -53,6 +53,11 @@
 .warehouse-shell__pill.is-active{border-color:rgba(47,124,246,.75);background:rgba(47,124,246,.20);color:#dceaff!important}
 .warehouse-shell__pill--primary{margin-left:auto;background:var(--warehouse-shell-accent);border-color:var(--warehouse-shell-accent);color:#fff!important}
 .warehouse-shell__logout{display:inline-flex;margin:0}
+.warehouse-shell__credits{flex:none}
+.warehouse-shell__credits summary{list-style:none}
+.warehouse-shell__credits summary::-webkit-details-marker{display:none}
+.warehouse-shell__credit-card{position:absolute;left:16px;top:100%;z-index:100;display:flex;align-items:center;gap:10px;padding:16px;max-width:calc(100vw - 32px);border:1px solid var(--warehouse-shell-line);border-radius:14px;background:#101827;color:var(--warehouse-shell-text)!important;text-decoration:none!important;font-size:12px;line-height:1.6;box-shadow:0 12px 30px #0006}
+@media print{.warehouse-shell__credits{display:none!important}}
 @media(max-width:760px){
   .warehouse-shell{position:sticky;padding-top:max(9px,env(safe-area-inset-top))}
   .warehouse-shell__inner{align-items:flex-start}

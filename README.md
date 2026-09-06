@@ -1,5 +1,9 @@
 # Sklavounos Warehouse (Railway + Postgres)
 
+RAW LOGIC. REAL SYSTEMS.
+
+Created by Christos Fragoulis
+
 ## What this repo contains
 - FastAPI app with session-based login (admin PIN)
 - SQLAlchemy + Postgres (Railway)

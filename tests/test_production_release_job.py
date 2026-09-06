@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import SimpleNamespace
 import base64
 import hashlib
 import hmac
@@ -86,17 +87,16 @@ def _plan(*, runtime_exists: bool = True, create: bool = False):
         schema_fingerprint_version=(
             release_job.schema_migrations.SCHEMA_CONTRACT_FINGERPRINT_VERSION
         ),
-        schema_fingerprint="b" * 64,
+        schema_fingerprint=release_job.PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT,
         ledger_reconciliation="strict_prefix",
         expected_post_schema_fingerprint_version=(
             release_job.schema_migrations.SCHEMA_CONTRACT_FINGERPRINT_VERSION
         ),
         expected_post_schema_fingerprint="2" * 64,
-        applied_migrations=(("20260830_001", "c" * 64),),
-        pending_migrations=(
-            ("20260830_002", "d" * 64),
-            ("20260830_003", "e" * 64),
+        applied_migrations=tuple(
+            (version, "c" * 64) for version in release_job.PRODUCTION_UPGRADE_PRE_VERSIONS
         ),
+        pending_migrations=release_job.PRODUCTION_UPGRADE_MIGRATIONS,
         migration_catalog_sha256="f" * 64,
         label_privilege_migration_sha256="1" * 64,
         reviewed_acl_contract_sha256=release_job.REVIEWED_ACL_CONTRACT_SHA256,
@@ -417,7 +417,7 @@ def test_plan_is_read_only_and_always_rolls_back(
     assert connection.commits == 0
 
 
-def test_missing_role_requires_explicit_create_request(
+def test_successor_rejects_missing_runtime_role_before_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     plan = _plan(runtime_exists=False, create=False)
@@ -428,7 +428,7 @@ def test_missing_role_requires_explicit_create_request(
         "_execute_changes",
         lambda *args, **kwargs: pytest.fail("must not mutate"),
     )
-    with pytest.raises(RuntimeError, match="--create-runtime-role"):
+    with pytest.raises(RuntimeError, match="existing Production runtime role"):
         release_job.run_operation(
             connection,
             mode="exercise",
@@ -835,6 +835,140 @@ def test_apply_rejects_unpinned_post_before_mutation(
         )
     assert connection.rollbacks == 1
     assert connection.commits == 0
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"runtime_role_exists": False},
+        {"create_runtime_role_requested": True},
+        {"ledger_reconciliation": "deferred_20260828_002"},
+        {"schema_fingerprint": "0" * 64},
+        {"pending_migrations": ()},
+        {"pending_migrations": (("20260906_001", "0" * 64),)},
+        {"pending_migrations": release_job.PRODUCTION_UPGRADE_MIGRATIONS + (("20260907_001", "0" * 64),)},
+        {"applied_migrations": (("20260831_004", "c" * 64),)},
+    ],
+)
+def test_successor_rejects_every_non_exact_upgrade_boundary(changes: dict) -> None:
+    with pytest.raises(RuntimeError):
+        release_job._validate_upgrade_boundary(
+            replace(_plan(), **changes), allow_applied=False
+        )
+
+
+def test_successor_migration_checksum_is_bound_to_exact_reviewed_sql() -> None:
+    catalog = release_job.schema_migrations.migration_catalog()
+    assert tuple(item.version for item in catalog[:-1]) == release_job.PRODUCTION_UPGRADE_PRE_VERSIONS
+    assert ((catalog[-1].version, catalog[-1].checksum),) == release_job.PRODUCTION_UPGRADE_MIGRATIONS
+
+
+def test_successor_allows_exact_post_for_read_only_reconciliation_only() -> None:
+    pre = _plan()
+    post = replace(
+        pre,
+        applied_migrations=pre.applied_migrations + release_job.PRODUCTION_UPGRADE_MIGRATIONS,
+        pending_migrations=(),
+        schema_fingerprint=pre.expected_post_schema_fingerprint,
+    )
+    release_job._validate_upgrade_boundary(post, allow_applied=True)
+    with pytest.raises(RuntimeError, match="exact approved upgrade PRE/POST"):
+        release_job._validate_upgrade_boundary(post, allow_applied=False)
+    with pytest.raises(RuntimeError, match="exact approved upgrade PRE/POST"):
+        release_job._validate_upgrade_boundary(
+            replace(post, expected_post_schema_fingerprint="PENDING_VERIFIED_VALUE"),
+            allow_applied=True,
+        )
+
+
+@pytest.mark.parametrize("transport,host", [("railway_private", "postgres-4p5a.railway.internal"), ("railway_tcp_proxy", "tramway.proxy.rlwy.net")])
+def test_unpinned_post_discovery_is_refused_outside_verified_restore(
+    monkeypatch: pytest.MonkeyPatch, transport: str, host: str
+) -> None:
+    plan = replace(_plan(), expected_post_schema_fingerprint="PENDING_VERIFIED_VALUE")
+    connection = FakeConnection()
+    monkeypatch.setattr(release_job, "_build_plan", lambda *args, **kwargs: plan)
+    monkeypatch.setattr(release_job, "_execute_changes", lambda *args, **kwargs: pytest.fail("must not mutate"))
+    with pytest.raises(RuntimeError, match="verified loopback restore EXERCISE"):
+        release_job.run_operation(
+            connection, mode="exercise", provenance=_provenance(),
+            connection_host=host, connection_port=5432, connection_transport=transport,
+            create_runtime_role_requested=False,
+            operation_token=release_job.EXERCISE_TOKEN, **_confirmations(plan),
+        )
+    assert connection.rollbacks == 1 and connection.commits == 0
+
+
+def test_verified_loopback_discovers_post_with_rollback_without_pinning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = replace(_plan(), expected_post_schema_fingerprint="PENDING_VERIFIED_VALUE")
+    connection = FakeConnection()
+    monkeypatch.setattr(release_job, "_build_plan", lambda *args, **kwargs: plan)
+
+    def execute(*args, **kwargs):
+        assert kwargs["allow_post_fingerprint_discovery"] is True
+        return (("20260906_001",), plan.schema_fingerprint, "2" * 64, "existing")
+
+    monkeypatch.setattr(release_job, "_execute_changes", execute)
+    result = release_job.run_operation(
+        connection, mode="exercise", provenance=_provenance(),
+        connection_host="127.0.0.1", connection_port=54329,
+        connection_transport="verified_restore_loopback",
+        create_runtime_role_requested=False,
+        operation_token=release_job.EXERCISE_TOKEN, **_confirmations(plan),
+    )
+    assert result.status == "validated_rollback"
+    assert result.post_schema_fingerprint == "2" * 64
+    assert result.expected_post_schema_fingerprint == "PENDING_VERIFIED_VALUE"
+    assert connection.rollbacks == 1 and connection.commits == 0
+
+
+@pytest.mark.parametrize("acl_drift", [False, True])
+def test_successor_never_regrants_permissions_and_rejects_acl_drift(
+    monkeypatch: pytest.MonkeyPatch, acl_drift: bool
+) -> None:
+    plan = _plan()
+    acl_plans = iter([
+        SimpleNamespace(plan_fingerprint="a" * 64),
+        SimpleNamespace(plan_fingerprint=("b" if acl_drift else "a") * 64),
+    ])
+    monkeypatch.setattr(release_job, "_build_acl_plan", lambda *args: next(acl_plans))
+    monkeypatch.setattr(release_job, "_validate_production_post_state", lambda *args: None)
+    monkeypatch.setattr(release_job, "_apply_pending_in_transaction", lambda *args: (("20260906_001",), plan.schema_fingerprint, "2" * 64))
+    monkeypatch.setattr(release_job.schema_migrations, "schema_contract_fingerprint", lambda *args: SimpleNamespace(version=plan.schema_fingerprint_version, sha256="2" * 64))
+    for name in ("_create_runtime_role", "_additional_hardening_statements", "_revoke_existing_public_type_privileges", "_label_privilege_migration"):
+        monkeypatch.setattr(release_job, name, lambda *args, **kwargs: pytest.fail("privileges and roles must remain unchanged"))
+    monkeypatch.setattr(release_job.reviewed_acl, "_hardening_statements", lambda *args: pytest.fail("must not regrant"))
+    if acl_drift:
+        with pytest.raises(RuntimeError, match="ACL or ownership state"):
+            release_job._execute_changes(FakeConnection(), plan, runtime_password=None)
+    else:
+        result = release_job._execute_changes(FakeConnection(), plan, runtime_password=None)
+        assert result == (("20260906_001",), plan.schema_fingerprint, "2" * 64, "existing")
+
+
+def test_successor_global_acl_drift_rolls_back_before_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    connection = FakeConnection()
+    audits = iter([
+        release_job.GlobalAclAudit(databases=plan.cluster_databases, fingerprint="7" * 64),
+        release_job.GlobalAclAudit(databases=plan.cluster_databases, fingerprint="8" * 64),
+    ])
+    monkeypatch.setattr(release_job, "_validate_global_role_access", lambda *args, **kwargs: next(audits))
+    monkeypatch.setattr(release_job, "_build_plan", lambda *args, **kwargs: plan)
+    monkeypatch.setattr(release_job, "_execute_changes", lambda *args, **kwargs: (("20260906_001",), plan.schema_fingerprint, "2" * 64, "existing"))
+    with pytest.raises(RuntimeError, match="global database or role ACL state"):
+        release_job.run_operation(
+            connection, mode="apply", provenance=_provenance(),
+            connection_host=release_job.PRODUCTION_DATABASE_HOST,
+            connection_port=5432, connection_transport="railway_private",
+            create_runtime_role_requested=False,
+            operation_token=release_job.APPLY_TOKEN, **_confirmations(plan),
+        )
+    assert connection.rollbacks == 1 and connection.commits == 0
 
 
 def test_every_confirmation_is_required() -> None:

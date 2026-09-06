@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import hmac
 import importlib
@@ -26,20 +27,21 @@ from psycopg import sql
 from sqlalchemy.engine import URL
 
 
-PLAN_VERSION = 1
+PLAN_VERSION = 3
 RELEASE_MANIFEST_FILENAME = "warehouse_release_manifest.json"
+# Immutable backup-source release; target verifier/pinned-POST commits are
+# independently attested and must retain this exact migration file inventory.
+BACKUP_SOURCE_CANDIDATE_COMMIT = "f0577e4c638cb3c2ebcf3ba4a084565275d7fd50"
+BACKUP_SOURCE_TREE_SHA256 = "0b2615cf9b5b7b4fc5bad87efc0d496d839ac15b74114476ca00cbefd7d0800e"
+BACKUP_SOURCE_MANIFEST_SHA256 = "21f57bcbbbf5acc44bb42d268a089ab13cae847674f6805e28a3fec88bf5b7af"
+BACKUP_SOURCE_FILE_COUNT = 229
 DATABASE = "railway"
 MAINTENANCE_DATABASE = "postgres"
 EVIDENCE_DATABASE = "warehouse_restore_verify"
 PRODUCTION_RESTORE_DATABASE = "warehouse_production_backup_restore_verify"
 ADMIN_ROLE = "postgres"
 EXPECTED_DATABASES = (MAINTENANCE_DATABASE, DATABASE, EVIDENCE_DATABASE)
-EXPECTED_PENDING_VERSIONS = (
-    "20260831_001",
-    "20260831_002",
-    "20260831_003",
-    "20260831_004",
-)
+EXPECTED_PENDING_VERSIONS = ("20260906_001",)
 EXPECTED_LEDGER_RECONCILIATION = "strict_prefix"
 EXERCISE_TOKEN = "EXERCISE-WAREHOUSE-VERIFIED-RESTORE"
 RESTORE_CYCLES = 2
@@ -50,11 +52,11 @@ MIN_BACKUP_BYTES = 1
 MAX_BACKUP_BYTES = 64 * 1024 * 1024 * 1024
 OWNED_DIRECTORY_PREFIX = "warehouse-verified-restore-"
 OWNERSHIP_MARKER = ".warehouse-verified-restore-owned.json"
-PREREQUISITE_CONTRACT_VERSION = "warehouse-verified-restore-prerequisites-v1"
+PREREQUISITE_CONTRACT_VERSION = "warehouse-verified-restore-profiles-v2"
 # Binds the exact Production constants consumed by _prerequisite_contract_payload().
 # A change requires review of this offline bridge before it may run again.
 PREREQUISITE_CONTRACT_SHA256 = (
-    "2bb4c546c08400faea5515bb4b68d60af1f23ec4c672d3859d31022aee402b9f"
+    "b61b87976b5c5c60b0336fd45ba014cf43bc00f8b3d9f9722c9ee47b50b8850e"
 )
 
 PRODUCTION_RAILWAY_PROJECT_ID = "4cd318f3-41f9-43c5-8664-44ff7e581a6a"
@@ -192,6 +194,7 @@ class BackupEvidence:
     release_file_count: int
     production_plan_fingerprint: str
     source_inspection: InspectionEvidence
+    source_release: ReleaseEvidence
 
 
 @dataclass(frozen=True)
@@ -214,6 +217,11 @@ class OfflineExercisePlan:
     release_tree_sha256: str
     release_manifest_sha256: str
     release_file_count: int
+    backup_source_candidate_commit: str
+    backup_source_tree_sha256: str
+    backup_source_manifest_sha256: str
+    backup_source_file_count: int
+    migration_files_sha256: str
     backup_sha256: str
     catalog_sha256: str
     backup_manifest_sha256: str
@@ -250,6 +258,11 @@ class OfflineExerciseResult:
     candidate_commit: str
     release_tree_sha256: str
     release_manifest_sha256: str
+    backup_source_candidate_commit: str
+    backup_source_tree_sha256: str
+    backup_source_manifest_sha256: str
+    backup_source_file_count: int
+    migration_files_sha256: str
     backup_sha256: str
     backup_manifest_sha256: str
     source_schema_sha256: str
@@ -487,6 +500,72 @@ def _string(value: object, *, label: str) -> str:
     if not isinstance(value, str) or not value:
         raise RuntimeError(f"Backup manifest {label} is invalid")
     return value
+
+
+def _verify_backup_source_release(root: Path) -> ReleaseEvidence:
+    source = verify_release_evidence(
+        root,
+        candidate_commit=BACKUP_SOURCE_CANDIDATE_COMMIT,
+        expected_tree_sha256=BACKUP_SOURCE_TREE_SHA256,
+        expected_manifest_sha256=BACKUP_SOURCE_MANIFEST_SHA256,
+    )
+    if source.file_count != BACKUP_SOURCE_FILE_COUNT:
+        raise RuntimeError("Backup source release file count differs from the fixed pin")
+    return source
+
+
+def _migration_file_inventory(release: ReleaseEvidence) -> tuple[tuple[str, str, str], ...]:
+    paths = sorted(
+        path.as_posix() for path in _release_files(release.root)
+        if path.as_posix().startswith("app/migrations/")
+        or path.as_posix() == "app/schema_migrations.py"
+    )
+    if "app/schema_migrations.py" not in paths or len(paths) < 2:
+        raise RuntimeError("Canonical release is missing its migration file inventory")
+    return tuple(
+        (
+            relative,
+            _sha256_file(release.root / relative),
+            hashlib.sha256((release.root / relative).read_text(encoding="utf-8").encode("utf-8")).hexdigest(),
+        )
+        for relative in paths
+    )
+
+
+def _identical_migration_files(source: ReleaseEvidence, target: ReleaseEvidence) -> str:
+    source_files = _migration_file_inventory(source)
+    if source_files != _migration_file_inventory(target):
+        raise RuntimeError("Backup source and target migration files/checksums differ")
+    source_catalog = _literal_migration_catalog(source)
+    if source_catalog != _literal_migration_catalog(target):
+        raise RuntimeError("Backup source and target ordered migration catalogs differ")
+    return _sha256_payload({"files": source_files, "catalog": source_catalog})
+
+
+def _literal_migration_catalog(release: ReleaseEvidence) -> tuple[tuple[str, str, str], ...]:
+    # Read each canonical artifact independently, without importing either module
+    # or allowing Python's module cache to substitute the other release's catalog.
+    tree = ast.parse((release.root / "app/schema_migrations.py").read_text(encoding="utf-8"))
+    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "migration_catalog"]
+    assignments = [node for node in functions[0].body if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "entries" for target in node.targets)] if len(functions) == 1 else []
+    if len(assignments) != 1:
+        raise RuntimeError("Canonical migration catalog has no exact literal entries")
+    entries = ast.literal_eval(assignments[0].value)
+    if not isinstance(entries, tuple) or not entries:
+        raise RuntimeError("Canonical migration catalog is invalid")
+    catalog: list[tuple[str, str, str]] = []
+    for item in entries:
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise RuntimeError("Canonical migration catalog entry is invalid")
+        version, filename = item
+        if not isinstance(version, str) or not re.fullmatch(r"[0-9]{8}_[0-9]{3}", version) or not isinstance(filename, str) or Path(filename).name != filename or not filename.startswith(version + "_") or not filename.endswith(".sql"):
+            raise RuntimeError("Canonical migration catalog identity is invalid")
+        digest = hashlib.sha256((release.root / "app/migrations" / filename).read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+        catalog.append((version, filename, digest))
+    versions = tuple(item[0] for item in catalog)
+    if versions != tuple(sorted(set(versions))):
+        raise RuntimeError("Canonical migration catalog ordering is invalid")
+    return tuple(catalog)
 
 
 def _sha(value: object, *, label: str) -> str:
@@ -732,6 +811,7 @@ def verify_backup_evidence(
         release_file_count=release.file_count,
         production_plan_fingerprint=production_plan_fingerprint,
         source_inspection=inspection,
+        source_release=release,
     )
 
 
@@ -928,6 +1008,14 @@ def _prerequisite_contract_payload(release_job: ModuleType) -> dict[str, object]
         "cluster_databases": sorted(release_job.PRODUCTION_CLUSTER_DATABASES),
         "admin_role": str(release_job.PRODUCTION_ADMIN_ROLE),
         "runtime_role": str(release_job.PRODUCTION_RUNTIME_ROLE),
+        "runtime_role_action": "existing",
+        "acl_mutations": False,
+        "backup_source_provenance": {
+            "candidate_commit": BACKUP_SOURCE_CANDIDATE_COMMIT,
+            "tree_sha256": BACKUP_SOURCE_TREE_SHA256,
+            "manifest_sha256": BACKUP_SOURCE_MANIFEST_SHA256,
+            "file_count": BACKUP_SOURCE_FILE_COUNT,
+        },
         "reader_role": str(release_job.PRODUCTION_READER_ROLE),
         "reader_tables": sorted(release_job.PRODUCTION_READER_TABLES),
         "reader_settings": sorted(release_job.PRODUCTION_READER_SETTINGS),
@@ -950,6 +1038,8 @@ def _prerequisite_contract_payload(release_job: ModuleType) -> dict[str, object]
         ),
         "ledger_reconciliation": EXPECTED_LEDGER_RECONCILIATION,
         "pending_versions": list(EXPECTED_PENDING_VERSIONS),
+        "pre_applied_versions": list(release_job.PRODUCTION_UPGRADE_PRE_VERSIONS),
+        "upgrade_migrations": [list(item) for item in release_job.PRODUCTION_UPGRADE_MIGRATIONS],
     }
 
 
@@ -1089,6 +1179,7 @@ def _with_plan_fingerprint(plan: OfflineExercisePlan) -> OfflineExercisePlan:
 def build_plan(
     *,
     release_root: Path,
+    backup_source_release_root: Path,
     candidate_commit: str,
     release_tree_sha256: str,
     release_manifest_sha256: str,
@@ -1108,12 +1199,14 @@ def build_plan(
         expected_tree_sha256=release_tree_sha256,
         expected_manifest_sha256=release_manifest_sha256,
     )
+    backup_source = _verify_backup_source_release(backup_source_release_root)
+    migration_files_sha256 = _identical_migration_files(backup_source, release)
     backup = verify_backup_evidence(
         dump_path=dump_path,
         catalog_path=catalog_path,
         manifest_path=backup_manifest_path,
         manifest_checksum_path=backup_manifest_checksum_path,
-        release=release,
+        release=backup_source,
     )
     tools = _tool_evidence(
         pg_bin_directory,
@@ -1161,6 +1254,11 @@ def build_plan(
         release_tree_sha256=release.tree_sha256,
         release_manifest_sha256=release.manifest_sha256,
         release_file_count=release.file_count,
+        backup_source_candidate_commit=backup_source.candidate_commit,
+        backup_source_tree_sha256=backup_source.tree_sha256,
+        backup_source_manifest_sha256=backup_source.manifest_sha256,
+        backup_source_file_count=backup_source.file_count,
+        migration_files_sha256=migration_files_sha256,
         backup_sha256=backup.backup_sha256,
         catalog_sha256=backup.catalog_sha256,
         backup_manifest_sha256=backup.manifest_sha256,
@@ -1195,12 +1293,22 @@ def _revalidate_artifact_evidence(
     )
     if current_release != release:
         raise RuntimeError("Canonical release evidence changed after PLAN")
+    current_source = _verify_backup_source_release(backup.source_release.root)
+    if current_source != backup.source_release or (
+        current_source.candidate_commit != plan.backup_source_candidate_commit
+        or current_source.tree_sha256 != plan.backup_source_tree_sha256
+        or current_source.manifest_sha256 != plan.backup_source_manifest_sha256
+        or current_source.file_count != plan.backup_source_file_count
+        or _identical_migration_files(current_source, current_release)
+        != plan.migration_files_sha256
+    ):
+        raise RuntimeError("Backup-source/target provenance changed after PLAN")
     current_backup = verify_backup_evidence(
         dump_path=backup.dump_path,
         catalog_path=backup.catalog_path,
         manifest_path=backup.manifest_path,
         manifest_checksum_path=backup.manifest_checksum_path,
-        release=current_release,
+        release=current_source,
     )
     if current_backup != backup:
         raise RuntimeError("Verified backup evidence changed after PLAN")
@@ -2320,6 +2428,11 @@ def exercise_verified_restore(
         candidate_commit=plan.candidate_commit,
         release_tree_sha256=plan.release_tree_sha256,
         release_manifest_sha256=plan.release_manifest_sha256,
+        backup_source_candidate_commit=plan.backup_source_candidate_commit,
+        backup_source_tree_sha256=plan.backup_source_tree_sha256,
+        backup_source_manifest_sha256=plan.backup_source_manifest_sha256,
+        backup_source_file_count=plan.backup_source_file_count,
+        migration_files_sha256=plan.migration_files_sha256,
         backup_sha256=plan.backup_sha256,
         backup_manifest_sha256=plan.backup_manifest_sha256,
         source_schema_sha256=plan.source_schema_sha256,
@@ -2346,6 +2459,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("mode", choices=("plan", "exercise"))
     parser.add_argument("--release-root", type=Path, required=True)
+    parser.add_argument("--backup-source-release-root", type=Path, required=True)
     parser.add_argument("--candidate-commit", required=True)
     parser.add_argument("--release-tree-sha256", required=True)
     parser.add_argument("--release-manifest-sha256", required=True)
@@ -2388,6 +2502,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = _parser().parse_args(argv)
         plan, release, backup, modules = build_plan(
             release_root=args.release_root,
+            backup_source_release_root=args.backup_source_release_root,
             candidate_commit=args.candidate_commit,
             release_tree_sha256=args.release_tree_sha256,
             release_manifest_sha256=args.release_manifest_sha256,

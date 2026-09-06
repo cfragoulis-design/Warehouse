@@ -1,5 +1,11 @@
 # Warehouse verified-backup offline release exercise
 
+For the current `20260906_001`-only existing-role upgrade, use
+`WAREHOUSE_PROFILES_PRODUCTION_UPGRADE_20260906.md` for the exact current PRE,
+pending suffix and POST-discovery/pinning boundary. The CLI argument templates
+below remain applicable; older role-creation and 20260831 release assumptions
+are historical, not the current executable contract.
+
 This is the reviewed bridge between a successfully verified Production backup
 and the Warehouse role/migration release gate. It does **not** connect to
 Production and does not authorize a Production migration. It restores the
@@ -59,6 +65,7 @@ directory.
 ```powershell
 python scripts/warehouse_verified_restore_exercise.py plan `
   --release-root <CANONICAL-RELEASE-ARTIFACT> `
+  --backup-source-release-root <PINNED-f0577e4-SOURCE-ARTIFACT> `
   --candidate-commit <FULL-CANDIDATE-SHA> `
   --release-tree-sha256 <APPROVED-RELEASE-TREE-SHA256> `
   --release-manifest-sha256 <APPROVED-RELEASE-MANIFEST-SHA256> `
@@ -84,6 +91,7 @@ literally from the saved PLAN:
 ```powershell
 python scripts/warehouse_verified_restore_exercise.py exercise `
   --release-root <CANONICAL-RELEASE-ARTIFACT> `
+  --backup-source-release-root <PINNED-f0577e4-SOURCE-ARTIFACT> `
   --candidate-commit <FULL-CANDIDATE-SHA> `
   --release-tree-sha256 <PLAN-release_tree_sha256> `
   --release-manifest-sha256 <PLAN-release_manifest_sha256> `

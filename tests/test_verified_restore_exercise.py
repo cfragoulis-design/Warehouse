@@ -84,6 +84,10 @@ def _candidate_module_release(tmp_path: Path) -> helper.ReleaseEvidence:
             f"{current_release_job.REVIEWED_ACL_CONTRACT_SHA256!r}",
             "PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT = "
             f"{current_release_job.PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT!r}",
+            "PRODUCTION_UPGRADE_PRE_VERSIONS = "
+            f"{current_release_job.PRODUCTION_UPGRADE_PRE_VERSIONS!r}",
+            "PRODUCTION_UPGRADE_MIGRATIONS = "
+            f"{current_release_job.PRODUCTION_UPGRADE_MIGRATIONS!r}",
             "",
         )
     )
@@ -238,6 +242,87 @@ def test_release_and_backup_evidence_are_bound_end_to_end(tmp_path: Path) -> Non
     assert evidence.candidate_commit == CANDIDATE
     assert evidence.backup_sha256 == helper._sha256_file(paths["dump"])
     assert evidence.source_inspection.total_rows == 1
+
+
+def test_backup_keeps_original_source_provenance_not_target_labels(tmp_path: Path) -> None:
+    source = _release_tree(tmp_path)
+    paths = _backup_artifacts(tmp_path, source)
+    target = replace(source, candidate_commit="d" * 40, tree_sha256="e" * 64)
+    evidence = _verify_artifacts(paths, source)
+    assert evidence.source_release == source
+    assert evidence.candidate_commit != target.candidate_commit
+    with pytest.raises(RuntimeError, match="provenance differs from release"):
+        _verify_artifacts(paths, target)
+
+
+def test_backup_source_pin_is_fixed_and_requires_exact_file_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+    source = helper.ReleaseEvidence(
+        tmp_path, helper.BACKUP_SOURCE_CANDIDATE_COMMIT,
+        helper.BACKUP_SOURCE_TREE_SHA256, helper.BACKUP_SOURCE_MANIFEST_SHA256,
+        helper.BACKUP_SOURCE_FILE_COUNT,
+    )
+
+    def verify(root, **kwargs):
+        calls.append((root, kwargs))
+        return source
+
+    monkeypatch.setattr(helper, "verify_release_evidence", verify)
+    assert helper._verify_backup_source_release(tmp_path) == source
+    assert calls == [(tmp_path, {
+        "candidate_commit": helper.BACKUP_SOURCE_CANDIDATE_COMMIT,
+        "expected_tree_sha256": helper.BACKUP_SOURCE_TREE_SHA256,
+        "expected_manifest_sha256": helper.BACKUP_SOURCE_MANIFEST_SHA256,
+    })]
+    source = replace(source, file_count=source.file_count + 1)
+    with pytest.raises(RuntimeError, match="file count"):
+        helper._verify_backup_source_release(tmp_path)
+
+
+def _migration_source(root: Path) -> helper.ReleaseEvidence:
+    (root / "app/migrations").mkdir(parents=True)
+    (root / "app/migrations/20260906_001_profiles.sql").write_text("SELECT 1;\n", encoding="utf-8", newline="\n")
+    (root / "app/migrations/001_historical.sql").write_text("SELECT 2;\n", encoding="utf-8", newline="\n")
+    (root / "app/schema_migrations.py").write_text(
+        "def migration_catalog():\n    entries = ((\"20260906_001\", \"20260906_001_profiles.sql\"),)\n    return entries\n",
+        encoding="utf-8", newline="\n",
+    )
+    return helper.ReleaseEvidence(root, CANDIDATE, SHA, SHA, 3)
+
+
+@pytest.mark.parametrize("change", ["sql", "catalog", "extra", "missing", "newline"])
+def test_source_target_migration_inventory_rejects_any_difference(
+    tmp_path: Path, change: str,
+) -> None:
+    source = _migration_source(tmp_path / "source")
+    target = replace(_migration_source(tmp_path / "target"), candidate_commit="d" * 40)
+    assert helper._identical_migration_files(source, target)
+    target_sql = target.root / "app/migrations/20260906_001_profiles.sql"
+    if change == "sql":
+        target_sql.write_text("SELECT 3;\n", encoding="utf-8")
+    elif change == "catalog":
+        (target.root / "app/schema_migrations.py").write_text("def migration_catalog():\n    entries = ()\n", encoding="utf-8")
+    elif change == "extra":
+        (target.root / "app/migrations/extra.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    elif change == "missing":
+        (target.root / "app/migrations/001_historical.sql").unlink()
+    else:
+        target_sql.write_bytes(b"SELECT 1;\r\n")
+    with pytest.raises(RuntimeError, match="migration files/checksums differ"):
+        helper._identical_migration_files(source, target)
+
+
+def test_offline_plan_fingerprint_binds_source_and_target_independently(tmp_path: Path) -> None:
+    plan = _offline_plan(tmp_path)
+    for field in (
+        "candidate_commit", "release_tree_sha256", "release_manifest_sha256",
+        "backup_source_candidate_commit", "backup_source_tree_sha256",
+        "backup_source_manifest_sha256", "migration_files_sha256",
+    ):
+        changed = replace(plan, **{field: "0" * len(getattr(plan, field))})
+        assert helper._with_plan_fingerprint(changed).plan_fingerprint != plan.plan_fingerprint
 
 
 @pytest.mark.parametrize("directory_name", (".venv", "__pycache__"))
@@ -654,6 +739,11 @@ def _offline_plan(tmp_path: Path) -> helper.OfflineExercisePlan:
         release_tree_sha256="4" * 64,
         release_manifest_sha256="5" * 64,
         release_file_count=2,
+        backup_source_candidate_commit=helper.BACKUP_SOURCE_CANDIDATE_COMMIT,
+        backup_source_tree_sha256=helper.BACKUP_SOURCE_TREE_SHA256,
+        backup_source_manifest_sha256=helper.BACKUP_SOURCE_MANIFEST_SHA256,
+        backup_source_file_count=helper.BACKUP_SOURCE_FILE_COUNT,
+        migration_files_sha256="d" * 64,
         backup_sha256="6" * 64,
         catalog_sha256="7" * 64,
         backup_manifest_sha256="8" * 64,
@@ -979,19 +1069,17 @@ def test_prerequisite_contract_is_currently_pinned() -> None:
     from scripts import warehouse_production_release_job as release_job
 
     assert release_job.PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT == (
-        "2b6c4ceda324b361f359c7959a5bb001e0a315551dbb32a75a3f1bac23149512"
-    )
-    assert release_job.PRODUCTION_EXPECTED_POST_SCHEMA_FINGERPRINT == (
         "20a6ac313ea62105cff3e56ebcc727461a81a8620377b8d56c5355411ee8f659"
     )
-    assert helper.EXPECTED_PENDING_VERSIONS == (
-        "20260831_001",
-        "20260831_002",
-        "20260831_003",
-        "20260831_004",
-    )
+    assert helper.EXPECTED_PENDING_VERSIONS == ("20260906_001",)
     assert helper.EXPECTED_LEDGER_RECONCILIATION == "strict_prefix"
     payload = helper._prerequisite_contract_payload(release_job)
+    assert payload["runtime_role_action"] == "existing"
+    assert payload["acl_mutations"] is False
+    assert payload["pre_applied_versions"][-1] == "20260831_004"
+    assert payload["upgrade_migrations"] == [
+        ["20260906_001", "50794141f4fa2120918b90e905e3e91294b9ba33a717fc6ac4ba64fa560c8f79"]
+    ]
     assert payload["global_database_acl"]["runtime"] == {
         helper.MAINTENANCE_DATABASE: [],
         helper.DATABASE: ["CONNECT"],
@@ -1068,6 +1156,7 @@ def test_real_verified_backup_runs_two_clean_rollback_cycles() -> None:
         name: os.environ.get(name, "").strip()
         for name in (
             "WAREHOUSE_VERIFIED_RESTORE_RELEASE_ROOT",
+            "WAREHOUSE_VERIFIED_RESTORE_BACKUP_SOURCE_RELEASE_ROOT",
             "WAREHOUSE_VERIFIED_RESTORE_BACKUP_DIRECTORY",
             "WAREHOUSE_VERIFIED_RESTORE_BACKUP_STEM",
             "WAREHOUSE_VERIFIED_RESTORE_CANDIDATE_COMMIT",
@@ -1093,6 +1182,7 @@ def test_real_verified_backup_runs_two_clean_rollback_cycles() -> None:
     }
     plan, release, backup, modules = helper.build_plan(
         release_root=release_root,
+        backup_source_release_root=Path(required["WAREHOUSE_VERIFIED_RESTORE_BACKUP_SOURCE_RELEASE_ROOT"]),
         candidate_commit=required["WAREHOUSE_VERIFIED_RESTORE_CANDIDATE_COMMIT"],
         release_tree_sha256=str(release_manifest["tree_sha256"]),
         release_manifest_sha256=helper._sha256_file(release_manifest_path),

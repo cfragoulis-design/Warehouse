@@ -28,6 +28,13 @@
     <a class="warehouse-shell__pill" href="/movements/new">Νέα κίνηση</a>
     <a class="warehouse-shell__pill" href="/admin/labels">Ετικέτες</a>
     <a class="warehouse-shell__pill" href="/products">Προϊόντα</a>
+    <details class="warehouse-shell__credits">
+      <summary class="warehouse-shell__pill">Σχετικά</summary>
+      <a class="warehouse-shell__credit-card" href="https://rawlogic.gr" target="_blank" rel="noopener" aria-label="RAW LOGIC. REAL SYSTEMS. — Created by Christos Fragoulis">
+        <img src="/static/brand/cf-logo-stacked-dark.svg" alt="" width="40" height="40" />
+        <span><strong>RAW LOGIC. REAL SYSTEMS.</strong><br />Created by Christos Fragoulis</span>
+      </a>
+    </details>
     {% if shell_primary_href and shell_primary_label %}
       <a class="warehouse-shell__pill warehouse-shell__pill--primary" href="{{ shell_primary_href }}">{{ shell_primary_label }}</a>
     {% endif %}

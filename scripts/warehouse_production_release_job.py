@@ -79,12 +79,22 @@ NONE_PENDING = "NONE"
 REVIEWED_ACL_CONTRACT_SHA256 = (
     "c325caabfa5b55267c90c727a99b3bfa76ad9bbf2a0c4a38537bf88a76c716ca"
 )
-PLAN_VERSION = 2
+PLAN_VERSION = 3
 PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT = (
-    "2b6c4ceda324b361f359c7959a5bb001e0a315551dbb32a75a3f1bac23149512"
-)
-PRODUCTION_EXPECTED_POST_SCHEMA_FINGERPRINT = (
     "20a6ac313ea62105cff3e56ebcc727461a81a8620377b8d56c5355411ee8f659"
+)
+PRODUCTION_EXPECTED_POST_SCHEMA_FINGERPRINT = "PENDING_VERIFIED_VALUE"
+PRODUCTION_UPGRADE_PRE_VERSIONS = (
+    "20260803_001", "20260823_001", "20260827_001", "20260828_001",
+    "20260828_002", "20260829_001", "20260830_001", "20260830_002",
+    "20260830_003", "20260831_001", "20260831_002", "20260831_003",
+    "20260831_004",
+)
+PRODUCTION_UPGRADE_MIGRATIONS = (
+    (
+        "20260906_001",
+        "50794141f4fa2120918b90e905e3e91294b9ba33a717fc6ac4ba64fa560c8f79",
+    ),
 )
 _COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 _PRODUCTION_LOCK_KEY = 907_541_063_337_221_121
@@ -2078,6 +2088,39 @@ def _runtime_role_action(plan: ProductionPlan) -> str:
     return "missing"
 
 
+def _validate_upgrade_boundary(plan: ProductionPlan, *, allow_applied: bool) -> None:
+    """Allow only this existing-role, CHECK-only successor and exact reconciliation."""
+    if not plan.runtime_role_exists or plan.create_runtime_role_requested:
+        raise RuntimeError("This upgrade requires the existing Production runtime role")
+    if plan.ledger_reconciliation != "strict_prefix":
+        raise RuntimeError("This upgrade requires the complete strict-prefix ledger")
+    applied_versions = tuple(version for version, _ in plan.applied_migrations)
+    if (
+        applied_versions == PRODUCTION_UPGRADE_PRE_VERSIONS
+        and plan.pending_migrations == PRODUCTION_UPGRADE_MIGRATIONS
+        and hmac.compare_digest(
+            plan.schema_fingerprint, PRODUCTION_RECONCILIATION_PRE_SCHEMA_FINGERPRINT
+        )
+    ):
+        return
+    post_versions = PRODUCTION_UPGRADE_PRE_VERSIONS + tuple(
+        version for version, _ in PRODUCTION_UPGRADE_MIGRATIONS
+    )
+    if (
+        allow_applied
+        and applied_versions == post_versions
+        and not plan.pending_migrations
+        and _SHA256.fullmatch(plan.expected_post_schema_fingerprint)
+        and hmac.compare_digest(
+            plan.schema_fingerprint, plan.expected_post_schema_fingerprint
+        )
+        and plan.applied_migrations[-len(PRODUCTION_UPGRADE_MIGRATIONS):]
+        == PRODUCTION_UPGRADE_MIGRATIONS
+    ):
+        return
+    raise RuntimeError("Production state differs from the exact approved upgrade PRE/POST")
+
+
 def _validate_confirmation(
     plan: ProductionPlan,
     *,
@@ -2434,34 +2477,25 @@ def _execute_changes(
     runtime_password: str | None,
     allow_post_fingerprint_discovery: bool = False,
 ) -> tuple[tuple[str, ...], str, str, str]:
-    role_action = _runtime_role_action(plan)
-    if role_action == "missing":
-        raise RuntimeError("Production runtime role is missing")
-    if role_action == "create":
-        _create_runtime_role(
-            connection, password=_validate_runtime_password(runtime_password)
-        )
+    _validate_upgrade_boundary(plan, allow_applied=False)
+    if runtime_password is not None:
+        raise RuntimeError("This existing-role upgrade must not receive a runtime password")
+    role_action = "existing"
+    # This successor changes one CHECK and its ledger row, not role privileges.
+    # Validate the existing exact ACL contract before any SQL, then prove the
+    # same ACL/ownership/default-ACL fingerprint after the migration.
+    before_acl = _build_acl_plan(connection, plan)
+    _validate_production_post_state(connection, plan, before_acl)
     applied, baseline, _post_migration = _apply_pending_in_transaction(
         connection, plan
     )
+    if applied != tuple(version for version, _ in PRODUCTION_UPGRADE_MIGRATIONS):
+        raise RuntimeError("Upgrade applied an unexpected migration set")
     acl_plan = _build_acl_plan(connection, plan)
-    for statement in _additional_hardening_statements(acl_plan):
-        connection.execute(statement)
-    _revoke_existing_public_type_privileges(connection)
-    for statement in reviewed_acl._hardening_statements(acl_plan):
-        connection.execute(statement)
-    connection.execute(
-        "SELECT set_config('warehouse.runtime_role', %s, true)",
-        (PRODUCTION_RUNTIME_ROLE,),
-    )
-    label_sql, label_digest = _label_privilege_migration()
     if not hmac.compare_digest(
-        label_digest, plan.label_privilege_migration_sha256
+        before_acl.plan_fingerprint, acl_plan.plan_fingerprint
     ):
-        raise RuntimeError("Label-layout privilege migration changed after PLAN")
-    # The latest label-content privilege migration is intentionally re-run after
-    # the broad revoke so its exact column-scoped contract is the final grant.
-    connection.execute(label_sql)
+        raise RuntimeError("Upgrade changed runtime/reader ACL or ownership state")
     _validate_production_post_state(connection, plan, acl_plan)
     post_contract = schema_migrations.schema_contract_fingerprint(connection)
     if post_contract.version != plan.expected_post_schema_fingerprint_version:
@@ -2567,6 +2601,7 @@ def run_operation(
                 connection_transport=connection_transport,
                 create_runtime_role_requested=create_runtime_role_requested,
             )
+            _validate_upgrade_boundary(plan, allow_applied=True)
         finally:
             connection.rollback()
         return _result_from_plan(plan)
@@ -2596,6 +2631,7 @@ def run_operation(
             connection_transport=connection_transport,
             create_runtime_role_requested=create_runtime_role_requested,
         )
+        _validate_upgrade_boundary(plan, allow_applied=False)
         _validate_confirmation(
             plan,
             confirmed_database=confirmed_database,
@@ -2623,6 +2659,12 @@ def run_operation(
         )
         if mode == "apply" and not post_fingerprint_is_pinned:
             raise RuntimeError("APPLY requires the compiled expected POST fingerprint")
+        if not post_fingerprint_is_pinned and (
+            mode != "exercise"
+            or connection_transport != "verified_restore_loopback"
+            or connection_host != "127.0.0.1"
+        ):
+            raise RuntimeError("POST discovery requires a verified loopback restore EXERCISE")
         applied, baseline, post_schema, role_action = _execute_changes(
             connection,
             plan,
@@ -2631,6 +2673,13 @@ def run_operation(
                 mode == "exercise" and not post_fingerprint_is_pinned
             ),
         )
+        unchanged_acl_audit = _validate_global_role_access(
+            connection, admin_url=cluster_admin_url, phase="pre"
+        )
+        if not hmac.compare_digest(
+            unchanged_acl_audit.fingerprint, global_acl_audit.fingerprint
+        ):
+            raise RuntimeError("Upgrade changed global database or role ACL state")
         _validate_global_role_access(
             connection,
             admin_url=cluster_admin_url,
