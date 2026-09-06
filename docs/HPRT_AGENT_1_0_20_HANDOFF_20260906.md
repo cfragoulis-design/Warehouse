@@ -17,6 +17,11 @@ Automated and visual checks were performed locally with synthetic data.
 - Production-targeted ZIP: `app/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20.zip`
 - Exact source commit and SHA256 are recorded by the deterministic builder in
   `app/static/downloads/HPRT-AGENT-PRODUCTION-RELEASE-MANIFEST.json`.
+- Source commit: `e5e77773a857c3412f2b2036050c4238a7043933`.
+- Production ZIP: 1,086,168 bytes; SHA256
+  `f733592b9e4fd6c432e06d7713b87fe331ef5ef678dcfe7cb2fb0c39772cf475`.
+- Staging ZIP: 1,086,156 bytes; SHA256
+  `bd87a14faecac5cb108ec35e4d61b25030fe818d1388e87d06a814c54943e2b0`.
 - Existing 1.0.19 ZIPs are retained unchanged for compatibility evidence/rollback.
 
 ## Implemented
