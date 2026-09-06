@@ -75,20 +75,21 @@ def test_rendered_footer_is_live_accessible_text_with_project_local_mark(name: s
     assert link["aria-label"] == "RAW LOGIC. REAL SYSTEMS. — Created by Christos Fragoulis"
     assert {"author", "noopener"} <= set(link["rel"].split())
     mark = next(attrs for tag, attrs in parser.tags if tag == "img")
-    assert mark["src"] == "/static/brand/cf-mark-dark.svg"
+    assert mark["src"] == "/static/brand/raw-logic-rl-original-symbol.svg"
     assert mark["alt"] == "" and mark["aria-hidden"] == "true"
 
 
 def test_canonical_mark_is_copied_and_footer_never_overlays_or_prints() -> None:
-    # Normalized SVG extracted unchanged from signature-system/v1 compact-on-dark.
-    asset = (ROOT / "app/static/brand/cf-mark-dark.svg").read_bytes()
+    # Approved original B/RL from brand/web-pilot/2026-09-06/rl-original, unchanged.
+    asset = (ROOT / "app/static/brand/raw-logic-rl-original-symbol.svg").read_bytes()
     assert sha256(asset.replace(b"\r\n", b"\n")).hexdigest() == (
-        "ead5a77bc8309feff8bff5b2d04d05648ce36218cd5d9cc4a7e0370c0bb842be"
+        "5fbe4c683267af9658d24b7097f865e2db6c654cc5c2a000a50c390dc133ea18"
     )
     css = (ROOT / "app/static/creator-signature.css").read_text(encoding="utf-8")
     assert "@media print {\n  .creator-footer { display: none !important; }" in css
     assert "position: fixed" not in css and "position: sticky" not in css
     assert ":focus-visible" in css and "max-width: 100%" in css
+    assert "object-fit: contain" in css
     printed = (TEMPLATES / "stock_print_a4.html").read_text(encoding="utf-8")
     assert "_creator_footer" not in printed
     assert "RAW LOGIC" not in printed and "rawlogic.gr" not in printed

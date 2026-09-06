@@ -37,7 +37,7 @@ def test_core_warehouse_views_use_the_shared_responsive_shell() -> None:
         encoding="utf-8"
     )
     assert "Κύρια πλοήγηση αποθήκης" in shell
-    assert "/static/brand/cf-logo-stacked-dark.svg" in shell
+    assert "/static/brand/raw-logic-rl-original-symbol.svg" in shell
     assert "overflow-x:auto" in css
     assert "env(safe-area-inset" in css
 
@@ -46,11 +46,12 @@ def test_login_and_shell_use_the_optimized_canonical_brand_asset() -> None:
     login = (ROOT / "app" / "templates" / "login.html").read_text(
         encoding="utf-8"
     )
-    asset = ROOT / "app" / "static" / "brand" / "cf-logo-stacked-dark.svg"
+    asset = ROOT / "app" / "static" / "brand" / "raw-logic-rl-original-symbol.svg"
 
     assert asset.is_file()
     assert asset.stat().st_size < 10_000
-    assert "/static/brand/cf-logo-stacked-dark.svg" in login
+    assert "/static/brand/raw-logic-rl-original-symbol.svg" in login
+    assert "cf-logo-stacked-dark.svg" not in login
     assert "/static/logo-full.png" not in login
 
 
