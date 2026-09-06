@@ -30,8 +30,8 @@ STOCK_PAGE = ROOT / "app" / "templates" / "stock.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18-STAGING.zip"
-PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19-STAGING.zip"
+PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19.zip"
 STAGING_RELEASE_MANIFEST = ROOT / "app" / "static" / "downloads" / "HPRT-AGENT-RELEASE-MANIFEST.json"
 PRODUCTION_RELEASE_MANIFEST = (
     ROOT / "app" / "static" / "downloads" / "HPRT-AGENT-PRODUCTION-RELEASE-MANIFEST.json"
@@ -278,7 +278,7 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert "https://sklavounoswh.up.railway.app" in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     assert "staging-characterization" not in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     production_manifest = json.loads(PRODUCTION_PACKAGE_MANIFEST.read_text(encoding="utf-8-sig"))
-    assert production_manifest["version"] == "1.0.18"
+    assert production_manifest["version"] == "1.0.19"
     assert production_manifest["environment"] == "production"
     assert production_manifest["label_payload_schemas"] == [3, 4, 5, 6, 7]
     assert production_manifest["contains_agent_token"] is False
@@ -379,9 +379,9 @@ def test_package_builder_rejects_a_stale_or_fake_source_commit():
 
 
 def test_staging_download_is_exact_secret_free_package():
-    assert STAGING_DOWNLOAD.stat().st_size == 1_074_752
+    assert STAGING_DOWNLOAD.stat().st_size == 1_075_816
     assert hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest() == (
-        "052e3b73580859c6d339ed013ccf430b22a6c8891aebc63e567d1fe667638f17"
+        "2010002dbcc342705fc0027c9a586a0fa1e918f44973da596ae0132d7ffc0b7b"
     )
     with zipfile.ZipFile(STAGING_DOWNLOAD) as archive:
         expected_sources = {
@@ -396,7 +396,7 @@ def test_staging_download_is_exact_secret_free_package():
         assert "warehouse-full-ui-staging-characterization.up.railway.app" in setup
         assert "https://sklavounoswh.up.railway.app" not in setup
         manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
-        assert manifest["version"] == "1.0.18-staging"
+        assert manifest["version"] == "1.0.19-staging"
         assert manifest["environment"] == "staging"
         assert manifest["label_payload_schemas"] == [3, 4, 5, 6, 7]
         assert manifest["contains_agent_token"] is False
@@ -408,9 +408,9 @@ def test_staging_download_is_exact_secret_free_package():
     release_manifest = json.loads(STAGING_RELEASE_MANIFEST.read_text(encoding="utf-8"))
     assert release_manifest == {
         "product": "Sklavounos Warehouse HPRT Agent",
-        "version": "1.0.18-staging",
+        "version": "1.0.19-staging",
         "creator": "Christos Fragoulis",
-        "source_commit": "4bd0e3c2159abbc94829ecaa1996608d253840d7",
+        "source_commit": "8d25f81888f01600e2441c480dafec6552bcf185",
         "package": STAGING_DOWNLOAD.name,
         "package_sha256": hashlib.sha256(STAGING_DOWNLOAD.read_bytes()).hexdigest(),
         "contains_agent_token": False,
@@ -419,9 +419,9 @@ def test_staging_download_is_exact_secret_free_package():
 
 
 def test_production_download_is_exact_secret_free_and_targets_only_production():
-    assert PRODUCTION_DOWNLOAD.stat().st_size == 1_074_767
+    assert PRODUCTION_DOWNLOAD.stat().st_size == 1_075_831
     assert hashlib.sha256(PRODUCTION_DOWNLOAD.read_bytes()).hexdigest() == (
-        "92fe492e94e911b6eae0897024b20c0323c891bb8d9db02c51326bcc42c768ab"
+        "1c48975796a27fcbddd2b4607453b9dc53acdc377f14678c964fbb6c0b46b217"
     )
     with zipfile.ZipFile(PRODUCTION_DOWNLOAD) as archive:
         expected_sources = {
@@ -438,7 +438,7 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
         manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
         assert manifest["environment"] == "production"
         assert manifest["contains_agent_token"] is False
-        assert manifest["version"] == "1.0.18"
+        assert manifest["version"] == "1.0.19"
         assert manifest["label_payload_schemas"] == [3, 4, 5, 6, 7]
         readme = archive.read("README.txt").decode("utf-8-sig").replace("\r\n", "\n")
         assert "RAW LOGIC. REAL SYSTEMS.\nCreated by Christos Fragoulis" in readme
@@ -448,9 +448,9 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
     release_manifest = json.loads(PRODUCTION_RELEASE_MANIFEST.read_text(encoding="utf-8"))
     assert release_manifest == {
         "product": "Sklavounos Warehouse HPRT Agent",
-        "version": "1.0.18",
+        "version": "1.0.19",
         "creator": "Christos Fragoulis",
-        "source_commit": "4bd0e3c2159abbc94829ecaa1996608d253840d7",
+        "source_commit": "8d25f81888f01600e2441c480dafec6552bcf185",
         "package": PRODUCTION_DOWNLOAD.name,
         "package_sha256": hashlib.sha256(PRODUCTION_DOWNLOAD.read_bytes()).hexdigest(),
         "contains_agent_token": False,
@@ -1065,8 +1065,8 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     services = (ROOT / "app" / "services.py").read_text(encoding="utf-8")
     assert 'request.url.hostname or ""' not in services
     assert "load_hprt_agent_release_settings" in services
-    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18.zip" in services
-    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18-STAGING.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19-STAGING.zip" in services
 
 
 def test_label_center_agent_download_does_not_depend_on_request_hostname(
@@ -1080,14 +1080,14 @@ def test_label_center_agent_download_does_not_depend_on_request_hostname(
     monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "production")
     production_url, production_label = services._hprt_agent_download()
     assert production_url == (
-        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18.zip"
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19.zip"
     )
     assert "Production" in production_label
 
     monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "staging")
     staging_url, staging_label = services._hprt_agent_download()
     assert staging_url == (
-        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18-STAGING.zip"
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19-STAGING.zip"
     )
     assert "Staging" in staging_label
 

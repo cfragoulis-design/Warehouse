@@ -1233,13 +1233,13 @@ def _hprt_agent_download() -> tuple[str | None, str]:
     release = load_hprt_agent_release_settings()
     if release.channel == "production":
         return (
-            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18.zip",
-            "↓ Λήψη HPRT Agent v1.0.18 · Production",
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19.zip",
+            "↓ Λήψη HPRT Agent v1.0.19 · Production",
         )
     if release.channel == "staging":
         return (
-            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.18-STAGING.zip",
-            "↓ Λήψη HPRT Agent v1.0.18 · Staging",
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19-STAGING.zip",
+            "↓ Λήψη HPRT Agent v1.0.19 · Staging",
         )
     return None, "Η λήψη HPRT Agent είναι απενεργοποιημένη"
 
