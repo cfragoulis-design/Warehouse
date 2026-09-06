@@ -18,7 +18,13 @@ connection, deployment, feature activation, installation or print by itself.
   `50794141f4fa2120918b90e905e3e91294b9ba33a717fc6ac4ba64fa560c8f79`.
   This is the migration catalog's UTF-8 text hash after newline normalization,
   not a platform-dependent raw-file checksum.
-- POST starts as `PENDING_VERIFIED_VALUE`. Do not guess or copy a prior POST.
+- POST verified on 6 September 2026 in two independent PostgreSQL 17 restore
+  cycles, with identical rollback and cleanup:
+  `1e4ef98eb053effd750c5a7ee7e78b344ab4e32e7b5fde0f7cf42a84132534c4`.
+  Discovery source: `809c36ef4e1d8d156f35e4625f141f64587a6302`;
+  evidence: `output/warehouse-designer-offline-discovery-20260906.json` in the
+  parent operations workspace. The final pinned artifact must still pass the
+  same two-cycle proof before Production use.
 
 The new CHECK permits layout contract versions 1 and 2. No application row,
 active-layout pointer or queued payload is updated; the sole expected row change
