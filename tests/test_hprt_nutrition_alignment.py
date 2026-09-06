@@ -272,7 +272,8 @@ def test_too_little_space_fails_instead_of_reducing_rows_below_fourteen_pixels(t
 
 
 @pytest.mark.parametrize("count", range(1, 9))
-def test_browser_preview_uses_matching_cell_and_text_geometry(count):
+@pytest.mark.parametrize("profile_layout", [False, True])
+def test_browser_preview_uses_matching_cell_and_text_geometry(count, profile_layout):
     node = shutil.which("node")
     if node is None:
         pytest.skip("Requires Node.js for the browser preview geometry check")
@@ -285,6 +286,7 @@ def test_browser_preview_uses_matching_cell_and_text_geometry(count):
 const nutrition = Array({count}).fill("test");
 const y = {NUTRITION_TOP};
 const rowHeight = {row_height};
+const profileLayout = {json.dumps(profile_layout)};
 const failures = [];
 const cells = [];
 const text = [];

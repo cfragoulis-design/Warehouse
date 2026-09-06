@@ -18,6 +18,7 @@ ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 COMMON_FILES = {
     "creator-signature.png": "creator-signature.png",
     "company-logo-sklavounos.png": "company-logo-sklavounos.png",
+    "company-logo-sklavounos-english.png": "company-logo-sklavounos-english.png",
     "Diagnose-WarehouseHprtAgent.ps1": "Diagnose-WarehouseHprtAgent.ps1",
     "favicon-64.png": "favicon-64.png",
     "HprtLpq80Print.ps1": "HprtLpq80Print.ps1",
@@ -140,9 +141,16 @@ def build(source_commit: str) -> tuple[Path, Path]:
     if _sha256(company_logo) != "41633fd9bf9fc15c885c1c6b39ddfb9211c85a330bf07bc4465c1de3d357eeff":
         raise RuntimeError("Approved company logo hash is unexpected")
 
-    if staging_manifest.get("version") != "1.0.19-staging":
+    english_logo = SOURCE / "company-logo-sklavounos-english.png"
+    approved_english_hash = "10b90d45e04b37da5caf29fbecc05066f934f5a7457e11eec5b306e6a98603ad"
+    if _sha256(english_logo) != approved_english_hash or _sha256(
+        ROOT / "app" / "static" / english_logo.name
+    ) != approved_english_hash:
+        raise RuntimeError("English shop logo must match the approved PDF-derived asset")
+
+    if staging_manifest.get("version") != "1.0.20-staging":
         raise RuntimeError("Unexpected staging Agent version")
-    if production_manifest.get("version") != "1.0.19":
+    if production_manifest.get("version") != "1.0.20":
         raise RuntimeError("Unexpected production Agent version")
     if staging_manifest.get("environment") != "staging":
         raise RuntimeError("Staging package manifest must target staging")
@@ -151,12 +159,18 @@ def build(source_commit: str) -> tuple[Path, Path]:
     if production_manifest.get("base_url") != "https://sklavounoswh.up.railway.app":
         raise RuntimeError("Production package manifest has an unexpected base URL")
     for manifest in (staging_manifest, production_manifest):
-        if manifest.get("label_payload_schemas") != [3, 4, 5, 6, 7]:
-            raise RuntimeError("Agent package must explicitly support schemas 3 through 7")
+        if manifest.get("label_payload_schemas") != [3, 4, 5, 6, 7, 8]:
+            raise RuntimeError("Agent package must explicitly support schemas 3 through 8")
         if manifest.get("company_label_asset") != "company-logo-sklavounos.png":
             raise RuntimeError("Agent package must declare the approved company label asset")
         if manifest.get("company_label_asset_sha256") != _sha256(company_logo):
             raise RuntimeError("Agent package company label asset hash does not match")
+        if manifest.get("english_company_label_asset") != english_logo.name:
+            raise RuntimeError("Agent package must declare the English shop logo")
+        if manifest.get("english_company_label_asset_sha256") != approved_english_hash:
+            raise RuntimeError("Agent package English shop logo hash does not match")
+        if manifest.get("label_layout_contracts") != [1, 2]:
+            raise RuntimeError("Agent package must preserve legacy layouts and support profiles")
         if manifest.get("contains_agent_token") is not False:
             raise RuntimeError("Agent packages must never contain a token")
 
@@ -171,8 +185,8 @@ def build(source_commit: str) -> tuple[Path, Path]:
     if production_origin not in production_setup or staging_origin in production_setup:
         raise RuntimeError("Production setup does not target only the production Warehouse")
 
-    staging = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19-STAGING.zip"
-    production = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19.zip"
+    staging = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20-STAGING.zip"
+    production = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20.zip"
     _build_zip(
         staging,
         {
@@ -191,14 +205,14 @@ def build(source_commit: str) -> tuple[Path, Path]:
     )
     _write_release_manifest(
         DOWNLOADS / "HPRT-AGENT-RELEASE-MANIFEST.json",
-        version="1.0.19-staging",
+        version="1.0.20-staging",
         source_commit=source_commit,
         package=staging,
         production=False,
     )
     _write_release_manifest(
         DOWNLOADS / "HPRT-AGENT-PRODUCTION-RELEASE-MANIFEST.json",
-        version="1.0.19",
+        version="1.0.20",
         source_commit=source_commit,
         package=production,
         production=True,

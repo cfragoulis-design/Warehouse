@@ -193,9 +193,9 @@ def test_content_contract_is_exact_hash_bound_and_rejects_controls() -> None:
         validate_label_content({**content, "company_name": "Sklavounos 🐂"})
     with pytest.raises(LabelContentValidationError, match="bidirectional"):
         validate_label_content({**content, "company_name": "SAFE\u202eTXT"})
-    with pytest.raises(LabelContentValidationError, match="NONE or SKLAVOUNOS_MARK"):
+    with pytest.raises(LabelContentValidationError, match="NONE, SKLAVOUNOS_MARK or SKLAVOUNOS_ENGLISH"):
         validate_label_content({**content, "logo_asset_id": "../../logo.png"})
-    with pytest.raises(LabelContentValidationError, match="NONE or SKLAVOUNOS_MARK"):
+    with pytest.raises(LabelContentValidationError, match="NONE, SKLAVOUNOS_MARK or SKLAVOUNOS_ENGLISH"):
         validate_label_content({**content, "logo_asset_id": "sklavounos_mark"})
     with pytest.raises(LabelContentValidationError, match="hash does not match"):
         validate_label_content_snapshot({**snapshot, "content_sha256": "0" * 64})

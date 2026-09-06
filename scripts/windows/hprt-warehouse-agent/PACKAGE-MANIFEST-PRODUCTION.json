@@ -1,6 +1,6 @@
 {
   "product": "Sklavounos Warehouse HPRT Agent",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "environment": "production",
   "base_url": "https://sklavounoswh.up.railway.app",
   "creator": "Christos Fragoulis",
@@ -14,10 +14,14 @@
     4,
     5,
     6,
-    7
+    7,
+    8
   ],
   "company_label_asset": "company-logo-sklavounos.png",
   "company_label_asset_sha256": "41633fd9bf9fc15c885c1c6b39ddfb9211c85a330bf07bc4465c1de3d357eeff",
+  "english_company_label_asset": "company-logo-sklavounos-english.png",
+  "english_company_label_asset_sha256": "10b90d45e04b37da5caf29fbecc05066f934f5a7457e11eec5b306e6a98603ad",
+  "label_layout_contracts": [1, 2],
   "creator_asset": "favicon-64.png",
   "contains_agent_token": false,
   "existing_brother_agent_changed": false

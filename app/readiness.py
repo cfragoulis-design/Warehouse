@@ -336,6 +336,13 @@ def _invariant_problem(bind: Engine) -> str | None:
         except LabelContentUnavailableError:
             return "invalid-label-content-feature-flag"
 
+        try:
+            from .label_layout import schema8_profiles_enabled
+
+            profiles_enabled = schema8_profiles_enabled()
+        except Exception:
+            return "invalid-label-profiles-feature-flag"
+
         active_layout = connection.execute(
             text(
                 "SELECT v.id, v.contract_version, v.settings_json, "
@@ -350,18 +357,23 @@ def _invariant_problem(bind: Engine) -> str | None:
         if (
             active_layout is None
             or int(active_layout.id) <= 0
-            or int(active_layout.contract_version) != 1
+            or int(active_layout.contract_version) not in {1, 2}
             or int(active_layout.lock_version) <= 0
         ):
             return "invalid-active-label-layout"
         try:
-            from .label_layout import layout_settings_sha256, validate_layout_settings
+            from .label_layout import layout_settings_sha256, validate_stored_layout_settings
 
-            settings = validate_layout_settings(json.loads(active_layout.settings_json))
+            settings = validate_stored_layout_settings(
+                json.loads(active_layout.settings_json), int(active_layout.contract_version)
+            )
             if layout_settings_sha256(settings) != active_layout.settings_sha256:
                 return "invalid-active-label-layout"
         except Exception:
             return "invalid-active-label-layout"
+
+        if int(active_layout.contract_version) == 2 and not profiles_enabled:
+            return "active-label-profiles-gate-disabled"
 
         try:
             content = validate_label_content(json.loads(active_layout.content_json))

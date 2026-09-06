@@ -11,7 +11,10 @@ CONTENT_CONTRACT_VERSION = 1
 SCHEMA7_FEATURE_ENV = "WAREHOUSE_LABEL_CONTENT_SCHEMA7_ENABLED"
 NO_LOGO_ASSET = "NONE"
 COMPANY_LOGO_ASSET = "SKLAVOUNOS_MARK"
-ALLOWED_LOGO_ASSET_IDS = frozenset({NO_LOGO_ASSET, COMPANY_LOGO_ASSET})
+ENGLISH_COMPANY_LOGO_ASSET = "SKLAVOUNOS_ENGLISH"
+ALLOWED_LOGO_ASSET_IDS = frozenset(
+    {NO_LOGO_ASSET, COMPANY_LOGO_ASSET, ENGLISH_COMPANY_LOGO_ASSET}
+)
 
 DEFAULT_FOOTER_CAPTION = "Παρασκευάζεται και συσκευάζεται από:"
 DEFAULT_COMPANY_NAME = "ΣΚΛΑΒΟΥΝΟΣ ΑΝΔΡΕΑΣ & ΣΚΛΑΒΟΥΝΟΣ ΧΡΗΣΤΟΣ Ο.Ε."
@@ -192,7 +195,7 @@ def validate_label_content(value: object) -> dict[str, str]:
     }
     if normalized["logo_asset_id"] not in ALLOWED_LOGO_ASSET_IDS:
         raise LabelContentValidationError(
-            "logo_asset_id must be NONE or SKLAVOUNOS_MARK."
+            "logo_asset_id must be NONE, SKLAVOUNOS_MARK or SKLAVOUNOS_ENGLISH."
         )
     _validate_print_fit(normalized)
     return normalized

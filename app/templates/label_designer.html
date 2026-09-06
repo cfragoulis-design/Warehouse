@@ -8,15 +8,15 @@
   <link rel="stylesheet" href="/static/sr-theme.css" />
   <link rel="stylesheet" href="/static/label-designer.css" />
   <script src="/static/js/datetime.js" defer></script>
-  <script id="label-designer-bootstrap" type="application/json">{{ {"products": product_samples, "company_logo_url": "/static/logo-icon.png"} | tojson }}</script>
+  <script id="label-designer-bootstrap" type="application/json">{{ {"products": product_samples, "company_logo_url": "/static/logo-icon.png", "english_logo_url": "/static/company-logo-sklavounos-english.png"} | tojson }}</script>
   <script src="/static/label-designer.js" defer></script>
 </head>
 <body>
   <header class="designer-header">
     <div>
-      <p class="eyebrow">WAREHOUSE · ADMIN</p>
+      <p class="eyebrow">ΑΠΟΘΗΚΗ · ΔΙΑΧΕΙΡΙΣΗ</p>
       <h1>Σχεδιαστής ετικέτας 50×70</h1>
-      <p class="subtitle">Ρύθμιση γραμματοσειρών, νόμιμων στοιχείων παραγωγού και εταιρικού σήματος με ασφαλή όρια, εκδόσεις και επαναφορά.</p>
+      <p class="subtitle">Δύο ανεξάρτητα προφίλ, πραγματικά προϊόντα και αυτόματη προσαρμογή στην ετικέτα 50 × 70 mm.</p>
     </div>
     <nav aria-label="Πλοήγηση σχεδιαστή">
       <span id="app-datetime" class="app-datetime"></span>
@@ -31,18 +31,34 @@
       <div class="panel-heading">
         <div>
           <p class="eyebrow">ΡΥΘΜΙΣΕΙΣ</p>
-          <h2 id="controlsTitle">Τυπογραφία και ύψη</h2>
+          <h2 id="controlsTitle">Ρυθμίσεις διάταξης</h2>
         </div>
         <button id="restoreWorkingBtn" class="button button-quiet" type="button" disabled>Ενεργή έκδοση</button>
       </div>
 
-      <label class="field-label" for="sampleSelect">Δείγμα προεπισκόπησης</label>
+      <div class="profile-toolbar">
+        <span class="field-label" id="profileLabel">Προφίλ επεξεργασίας και προεπισκόπησης</span>
+        <div class="profile-switch" role="group" aria-labelledby="profileLabel">
+          <button type="button" id="profileFullBtn" data-profile="full" aria-pressed="true">Πλήρης <small>Full</small></button>
+          <button type="button" id="profileSimpleBtn" data-profile="simple" aria-pressed="false">Απλή <small>Simple</small></button>
+        </div>
+        <p class="field-help">Οι γραμματοσειρές, τα ύψη και τα κενά αποθηκεύονται χωριστά ανά προφίλ.</p>
+      </div>
+
+      <label class="field-label" for="sampleSelect">Προϊόν προεπισκόπησης</label>
       <select id="sampleSelect" class="select-control">
         <option value="worst_case">Δοκιμή μεγάλου περιεχομένου</option>
         {% for sample in product_samples %}
           <option value="product:{{ sample.id }}">{{ sample.name }}{% if sample.sku %} · {{ sample.sku }}{% endif %}</option>
         {% endfor %}
       </select>
+      <p class="sample-note">Πραγματικά στοιχεία καταλόγου · ενδεικτικές ημερομηνίες και παρτίδες.</p>
+      <div id="eligibilityBanner" class="eligibility-banner" role="status"></div>
+      <div class="autofit-tools">
+        <button id="autoFitBtn" class="button button-primary" type="button" disabled>Αυτόματη προσαρμογή</button>
+        <button id="profileDefaultsBtn" class="button button-quiet" type="button" disabled>Προεπιλογές προφίλ</button>
+        <p id="autoFitDetail" class="field-help">Προσαρμόζει μόνο το επιλεγμένο προφίλ στο ορατό περιεχόμενο. Το υποσέλιδο παραμένει σταθερό.</p>
+      </div>
 
       <div id="runtimeBanner" class="runtime-banner" role="status" hidden></div>
 
@@ -56,7 +72,7 @@
       <div class="mutation-box">
         <label class="field-label" for="changeReason">Αιτιολογία αλλαγής <span aria-hidden="true">*</span></label>
         <textarea id="changeReason" rows="3" maxlength="255" placeholder="π.χ. Μεγαλύτερο LOT για ευκολότερη ανάγνωση"></textarea>
-        <p class="field-help">Απαιτείται για αποθήκευση, ενεργοποίηση και επαναφορά. Καταγράφεται στο ιστορικό.</p>
+        <p class="field-help">Κάθε νέα έκδοση αποθηκεύει μαζί και τα δύο προφίλ και τα κοινά στοιχεία παραγωγού. Η αιτιολογία καταγράφεται στο ιστορικό.</p>
         <div class="action-grid">
           <button id="saveDraftBtn" class="button button-primary" type="button" disabled>Αποθήκευση νέας έκδοσης</button>
           <button id="activateBtn" class="button button-success" type="button" disabled>Ενεργοποίηση επιλεγμένης</button>
@@ -68,15 +84,17 @@
     <section class="designer-panel preview-panel" aria-labelledby="previewTitle">
       <div class="panel-heading">
         <div>
-          <p class="eyebrow">LIVE PREVIEW</p>
+          <p class="eyebrow">ΖΩΝΤΑΝΗ ΠΡΟΕΠΙΣΚΟΠΗΣΗ</p>
           <h2 id="previewTitle">400 × 560 pixels</h2>
         </div>
         <span id="dirtyBadge" class="badge badge-muted">Χωρίς αλλαγές</span>
       </div>
+      <div class="preview-context"><strong id="previewProductName">Προϊόν</strong><span id="previewProfileBadge" class="badge badge-draft">Πλήρης · Full</span></div>
       <div class="preview-stage">
         <canvas id="labelPreview" width="400" height="560" aria-label="Προεπισκόπηση ετικέτας 50 επί 70 χιλιοστά"></canvas>
       </div>
-      <p class="preview-note">Η οθόνη προσομοιώνει τις ίδιες περιοχές και τα ίδια όρια. Ο HPRT Agent εκτελεί τον τελικό μονόχρωμο έλεγχο πριν από την εκτύπωση.</p>
+      <div class="space-meter" aria-hidden="true"><span id="bodySpaceBar"></span></div>
+      <p class="preview-note">Κύριο περιεχόμενο έως 449 px · σταθερό υποσέλιδο από 452 px. Η αποθήκευση εμποδίζεται όταν η προεπισκόπηση δεν χωρά. Ο HPRT Agent εκτελεί τον τελικό μονόχρωμο έλεγχο.</p>
     </section>
 
     <section class="designer-panel history-panel" aria-labelledby="historyTitle">
@@ -97,8 +115,11 @@
 
   <footer class="creator-credit">
     <a href="https://rawlogic.gr" target="_blank" rel="noopener" aria-label="RAW LOGIC. REAL SYSTEMS. — Created by Christos Fragoulis">
+      <img src="/static/brand/cf-logo-stacked-dark.svg" alt="" width="40" height="40" />
+      <span class="creator-credit-text">
       <span>RAW LOGIC. REAL SYSTEMS.</span>
       <strong>Created by Christos Fragoulis</strong>
+      </span>
     </a>
   </footer>
 </body>

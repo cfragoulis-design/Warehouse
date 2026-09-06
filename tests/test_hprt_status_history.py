@@ -105,7 +105,7 @@ def test_failed_or_invalid_events_do_not_become_last_successful_print(tmp_path):
     assert _run(tmp_path, "Get-HprtLastPrintTime -StateTimestamp '' -History @(Get-HprtPrintHistory)") == "Δεν υπάρχει ακόμη"
 
 
-@pytest.mark.parametrize("version", ["1.0.18", "1.0.19", "1.0.19-staging"])
+@pytest.mark.parametrize("version", ["1.0.18", "1.0.19", "1.0.20", "1.0.20-staging"])
 def test_version_is_read_from_installed_package_manifest(tmp_path, version):
     (tmp_path / "PACKAGE-MANIFEST.json").write_text(json.dumps({"version": version}), encoding="utf-8-sig")
     assert _run(tmp_path, "Get-HprtInstalledVersion") == version

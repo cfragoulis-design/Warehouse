@@ -1233,13 +1233,13 @@ def _hprt_agent_download() -> tuple[str | None, str]:
     release = load_hprt_agent_release_settings()
     if release.channel == "production":
         return (
-            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19.zip",
-            "↓ Λήψη HPRT Agent v1.0.19 · Production",
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20.zip",
+            "↓ Λήψη HPRT Agent v1.0.20 · Production",
         )
     if release.channel == "staging":
         return (
-            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.19-STAGING.zip",
-            "↓ Λήψη HPRT Agent v1.0.19 · Staging",
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20-STAGING.zip",
+            "↓ Λήψη HPRT Agent v1.0.20 · Staging",
         )
     return None, "Η λήψη HPRT Agent είναι απενεργοποιημένη"
 
@@ -1584,6 +1584,17 @@ def labels_create_batch(
     return JSONResponse({"ok": True, "duplicate": False, "message": "Μπήκε στην ουρά.", "batch_ref": batch_ref, "created_count": len(created), "items": created, "station": station_norm, "label_profile": label_profile})
 
 
+def _label_payload_supported(lot: ProductLot, maximum_schema: int = 7) -> bool:
+    try:
+        payload = json.loads(lot.label_payload_json or 'null')
+    except (TypeError, ValueError):
+        payload = None
+    schema = payload.get('schema_version') if isinstance(payload, dict) else None
+    # Preserve established handling of legacy/malformed payloads. New valid
+    # integer schemas can only be delivered through a compatible protocol.
+    return not (isinstance(schema, int) and not isinstance(schema, bool) and schema > maximum_schema)
+
+
 @router.get("/api/print-jobs/next-batch", response_class=JSONResponse)
 def api_print_jobs_next_batch(
     station: str,
@@ -1596,12 +1607,13 @@ def api_print_jobs_next_batch(
         token = request.headers.get('x-agent-token', '')
     _validate_agent_token(station_norm, token)
 
-    first_row = (
+    pending = (
         db.query(ProductLot)
         .filter(ProductLot.station == station_norm, ProductLot.status == 'QUEUED')
         .order_by(ProductLot.created_at.asc(), ProductLot.id.asc())
-        .first()
+        .yield_per(64)
     )
+    first_row = next((lot for lot in pending if _label_payload_supported(lot)), None)
     if not first_row:
         return _legacy_print_response({'batch': None})
 
@@ -1620,7 +1632,7 @@ def api_print_jobs_next_batch(
         'batch': {
             'batch_ref': batch_ref,
             'station': station_norm,
-            'jobs': [_sr_job_payload(lot, product) for lot, product in rows],
+            'jobs': [_sr_job_payload(lot, product) for lot, product in rows if _label_payload_supported(lot)],
         }
     })
 
@@ -1648,6 +1660,8 @@ def api_print_jobs_batch_done(
         except Exception:
             lot = None
         if not lot or lot.station != station_norm or lot.status != "QUEUED":
+            continue
+        if not _label_payload_supported(lot):
             continue
         before = _print_audit_snapshot(lot)
         lot.status = "PRINTED"
@@ -1685,12 +1699,13 @@ def labels_queue(
         .join(Product, Product.id == ProductLot.product_id)
         .filter(ProductLot.station == station_norm, ProductLot.status == 'QUEUED')
         .order_by(ProductLot.created_at.asc(), ProductLot.id.asc())
-        .limit(limit)
-        .all()
+        .yield_per(64)
     )
 
     out = []
     for lot, product in rows:
+        if not _label_payload_supported(lot):
+            continue
         out.append({
             'id': lot.id,
             'product_id': product.id,
@@ -1704,6 +1719,8 @@ def labels_queue(
             'storage_text': getattr(product, 'storage_text', None) or '',
             'label_template': getattr(product, 'label_template', None) or 'default.btw',
         })
+        if len(out) >= limit:
+            break
     return _legacy_print_response(out)
 
 
@@ -1737,6 +1754,8 @@ def labels_done(request: Request, db: Session = Depends(get_db)):
 
     if lot.status != 'QUEUED':
         raise HTTPException(status_code=409, detail='Legacy acknowledgement cannot override a leased or terminal job')
+    if not _label_payload_supported(lot):
+        raise HTTPException(status_code=409, detail='New label schemas require the leased print protocol')
 
     before = _print_audit_snapshot(lot)
     lot.status = 'PRINTED'
@@ -1783,6 +1802,8 @@ def labels_error(request: Request, db: Session = Depends(get_db)):
 
     if lot.status != 'QUEUED':
         raise HTTPException(status_code=409, detail='Legacy acknowledgement cannot override a leased or terminal job')
+    if not _label_payload_supported(lot):
+        raise HTTPException(status_code=409, detail='New label schemas require the leased print protocol')
 
     before = _print_audit_snapshot(lot)
     lot.status = 'ERROR'
@@ -1813,10 +1834,15 @@ def api_print_jobs_next(
     if request is not None:
         token = request.headers.get('x-agent-token', '')
     _validate_agent_token(station_norm, token)
+    # Capability declaration is not authorization: the existing station token
+    # is always checked first. Agents before 1.0.20 omit the header and must
+    # never lease a new schema-8 job merely because it reached the queue head.
+    declared_schema = (request.headers.get('x-label-schema-max', '') if request is not None else '').strip()
+    maximum_schema = 8 if declared_schema == '8' else 7
 
     acquire_transaction_lock(db, 'warehouse-print-queue', station_norm)
     now = datetime.now(ZoneInfo('UTC'))
-    row = (
+    candidates = (
         db.query(ProductLot, Product)
         .join(Product, Product.id == ProductLot.product_id)
         .filter(
@@ -1831,11 +1857,29 @@ def api_print_jobs_next(
         )
         .order_by(ProductLot.created_at.asc(), ProductLot.id.asc())
         .with_for_update(skip_locked=True)
-        .first()
     )
+    row = None
+    offset = 0
+    upgrade_required = False
+    while row is None:
+        # Bounded pages keep memory modest while allowing compatible older
+        # jobs behind any number of new jobs to remain printable. No payload
+        # or lease is mutated while an incompatible candidate is skipped.
+        page = candidates.offset(offset).limit(64).all()
+        for candidate in page:
+            candidate_lot, _candidate_product = candidate
+            if not _label_payload_supported(candidate_lot, maximum_schema):
+                upgrade_required = True
+                continue
+            row = candidate
+            break
+        if row is not None or len(page) < 64:
+            break
+        offset += len(page)
     if not row:
+        db.rollback()
         return JSONResponse(
-            {'ok': True, 'job': None},
+            {'ok': True, 'job': None, 'agent_upgrade_required': upgrade_required},
             media_type='application/json; charset=utf-8',
         )
 
