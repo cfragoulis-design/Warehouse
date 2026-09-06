@@ -82,6 +82,20 @@ function Get-CanonicalLabelLayoutDefaults {
     return ,$settings
 }
 
+function Get-ProfileLabelLayoutSpecification {
+    $specification = Get-LabelLayoutSpecification
+    foreach ($name in @($specification.Keys)) {
+        if ($name -eq 'title_font_px') { $specification[$name][2] = 48 }
+        elseif ($name -like '*_font_px') { $specification[$name][2] = 26 }
+        elseif ($name -eq 'nutrition_row_height_px') { $specification[$name][2] = 64 }
+        elseif ($name -like '*_height_px') { $specification[$name][2] = 100 }
+        elseif ($name -like '*_gap_after_px') { $specification[$name][2] = 16 }
+    }
+    $specification.Add('logo_height_px', @(48, 40, 100))
+    $specification.Add('logo_gap_after_px', @(6, 0, 16))
+    return ,$specification
+}
+
 function ConvertTo-StrictLayoutInteger {
     param(
         [Parameter(Mandatory)][object]$Value,
@@ -126,6 +140,7 @@ function Resolve-LabelLayout {
         [Parameter(Mandatory)][object]$Payload,
         [Parameter(Mandatory)][int]$SchemaVersion
     )
+    if ($SchemaVersion -eq 8) { return Resolve-ProfileLabelLayout -Payload $Payload }
     $defaults = Get-CanonicalLabelLayoutDefaults
     if ($SchemaVersion -ne 6 -and $SchemaVersion -ne 7) { return [pscustomobject]$defaults }
     $schemaLabel = "Schema $SchemaVersion"
@@ -174,6 +189,73 @@ function Resolve-LabelLayout {
         throw "$schemaLabel label layout hash does not match its settings."
     }
     return [pscustomobject]$settings
+}
+
+function Get-CanonicalProfileSettingsSha256 {
+    param([Parameter(Mandatory)][Collections.Specialized.OrderedDictionary]$Profiles)
+    $profilePairs = New-Object Collections.Generic.List[string]
+    foreach ($profileName in @('full', 'simple')) {
+        $settings = $Profiles[$profileName]
+        $names = [string[]]@($settings.Keys | ForEach-Object { [string]$_ })
+        [Array]::Sort($names, [StringComparer]::Ordinal)
+        $pairs = New-Object Collections.Generic.List[string]
+        foreach ($name in $names) { $pairs.Add(('"{0}":{1}' -f $name, [int]$settings[$name])) }
+        $profilePairs.Add(('"{0}":{{{1}}}' -f $profileName, ($pairs -join ',')))
+    }
+    $canonicalJson = '{' + ($profilePairs -join ',') + '}'
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha.ComputeHash((New-Object Text.UTF8Encoding($false, $true)).GetBytes($canonicalJson))
+        return (($digest | ForEach-Object { $_.ToString('x2') }) -join '')
+    }
+    finally { $sha.Dispose() }
+}
+
+function Resolve-ProfileLabelLayout {
+    param([Parameter(Mandatory)][object]$Payload)
+    $layout = $Payload.layout
+    if ($null -eq $layout -or $layout -isnot [pscustomobject]) { throw 'Schema 8 label layout is missing or invalid.' }
+    $required = @('contract_version', 'version_id', 'settings_sha256', 'settings')
+    $provided = @($layout.PSObject.Properties.Name)
+    foreach ($name in $provided) { if ($required -cnotcontains $name) { throw "Unknown schema 8 label layout field: $name." } }
+    foreach ($name in $required) { if ($provided -cnotcontains $name) { throw "Schema 8 label layout field is missing: $name." } }
+    [void](ConvertTo-StrictLayoutInteger -Value $layout.contract_version -Name 'contract_version' -Minimum 2 -Maximum 2)
+    [void](ConvertTo-StrictLayoutInteger -Value $layout.version_id -Name 'version_id' -Minimum 1 -Maximum ([int]::MaxValue))
+    $bundle = $layout.settings
+    if ($null -eq $bundle -or $bundle -isnot [pscustomobject]) { throw 'Schema 8 layout profiles are missing or invalid.' }
+    $profileNames = @($bundle.PSObject.Properties.Name)
+    if ($profileNames.Count -ne 2 -or $profileNames -cnotcontains 'full' -or $profileNames -cnotcontains 'simple') {
+        throw 'Schema 8 layout profiles must contain exactly full and simple.'
+    }
+    $specification = Get-ProfileLabelLayoutSpecification
+    $profiles = [ordered]@{}
+    foreach ($profileName in @('full', 'simple')) {
+        $raw = $bundle.$profileName
+        if ($null -eq $raw -or $raw -isnot [pscustomobject]) { throw "Schema 8 $profileName layout settings are missing or invalid." }
+        $names = @($raw.PSObject.Properties.Name)
+        foreach ($name in $names) { if (-not $specification.Contains($name)) { throw "Unknown label layout setting: $profileName.$name." } }
+        foreach ($name in $specification.Keys) { if ($names -cnotcontains $name) { throw "Label layout setting is missing: $profileName.$name." } }
+        if ($names.Count -ne $specification.Count) { throw "Schema 8 $profileName layout settings are incomplete." }
+        $settings = [ordered]@{}
+        foreach ($name in $specification.Keys) {
+            $range = $specification[$name]
+            $settings[$name] = ConvertTo-StrictLayoutInteger -Value $raw.$name -Name "$profileName.$name" -Minimum ([int64]$range[1]) -Maximum ([int64]$range[2])
+        }
+        $profiles[$profileName] = $settings
+    }
+    $claimedHash = (Get-LabelText -Value $layout.settings_sha256 -Maximum 64).ToLowerInvariant()
+    if ($claimedHash -notmatch '^[0-9a-f]{64}$') { throw 'Schema 8 label layout hash is invalid.' }
+    $actualHash = Get-CanonicalProfileSettingsSha256 -Profiles $profiles
+    if (-not [string]::Equals($claimedHash, $actualHash, [StringComparison]::Ordinal)) { throw 'Schema 8 label layout hash does not match its settings.' }
+    $isSimple = (
+        $Payload.product.plain_traceability -is [bool] -and $Payload.product.plain_traceability -eq $true -and
+        $Payload.product.nutrition_exempt -is [bool] -and $Payload.product.nutrition_exempt -eq $true -and
+        -not (Get-LabelText -Value $Payload.product.ingredients) -and
+        -not (Get-LabelText -Value $Payload.product.allergens) -and
+        -not (Get-LabelText -Value $Payload.product.nutrition)
+    )
+    $selectedProfile = if ($isSimple) { 'simple' } else { 'full' }
+    return [pscustomobject]$profiles[$selectedProfile]
 }
 
 function ConvertTo-StrictLabelContentText {
@@ -232,7 +314,7 @@ function Resolve-LabelContent {
         [Parameter(Mandatory)][object]$Payload,
         [Parameter(Mandatory)][int]$SchemaVersion
     )
-    if ($SchemaVersion -ne 7) {
+    if ($SchemaVersion -ne 7 -and $SchemaVersion -ne 8) {
         return [pscustomobject][ordered]@{
             footer_caption = 'Παρασκευάζεται και συσκευάζεται από:'
             company_name = Get-LabelText -Value $Payload.business.name -Maximum 255
@@ -241,34 +323,35 @@ function Resolve-LabelContent {
         }
     }
 
+    $schemaLabel = "Schema $SchemaVersion"
     $snapshot = $Payload.label_content
     if ($null -eq $snapshot -or $snapshot -isnot [pscustomobject]) {
-        throw 'Schema 7 label content snapshot is missing or invalid.'
+        throw "$schemaLabel label content snapshot is missing or invalid."
     }
     $requiredSnapshotFields = @('contract_version', 'version_id', 'content_sha256', 'content')
     $snapshotFields = @($snapshot.PSObject.Properties.Name)
     foreach ($name in $snapshotFields) {
-        if ($requiredSnapshotFields -cnotcontains $name) { throw "Unknown schema 7 label content snapshot field: $name." }
+        if ($requiredSnapshotFields -cnotcontains $name) { throw "Unknown schema $SchemaVersion label content snapshot field: $name." }
     }
     foreach ($name in $requiredSnapshotFields) {
-        if ($snapshotFields -cnotcontains $name) { throw "Schema 7 label content snapshot field is missing: $name." }
+        if ($snapshotFields -cnotcontains $name) { throw "$schemaLabel label content snapshot field is missing: $name." }
     }
     [void](ConvertTo-StrictLayoutInteger -Value $snapshot.contract_version -Name 'label_content.contract_version' -Minimum 1 -Maximum 1)
     [void](ConvertTo-StrictLayoutInteger -Value $snapshot.version_id -Name 'label_content.version_id' -Minimum 1 -Maximum ([int]::MaxValue))
 
     $rawContent = $snapshot.content
     if ($null -eq $rawContent -or $rawContent -isnot [pscustomobject]) {
-        throw 'Schema 7 label content is missing or invalid.'
+        throw "$schemaLabel label content is missing or invalid."
     }
     $requiredContentFields = @('footer_caption', 'company_name', 'company_address', 'logo_asset_id')
     $contentFields = @($rawContent.PSObject.Properties.Name)
     foreach ($name in $contentFields) {
-        if ($requiredContentFields -cnotcontains $name) { throw "Unknown schema 7 label content field: $name." }
+        if ($requiredContentFields -cnotcontains $name) { throw "Unknown schema $SchemaVersion label content field: $name." }
     }
     foreach ($name in $requiredContentFields) {
-        if ($contentFields -cnotcontains $name) { throw "Schema 7 label content field is missing: $name." }
+        if ($contentFields -cnotcontains $name) { throw "$schemaLabel label content field is missing: $name." }
     }
-    if ($contentFields.Count -ne $requiredContentFields.Count) { throw 'Schema 7 label content is incomplete.' }
+    if ($contentFields.Count -ne $requiredContentFields.Count) { throw "$schemaLabel label content is incomplete." }
 
     $content = [ordered]@{
         footer_caption = ConvertTo-StrictLabelContentText -Value $rawContent.footer_caption -Name 'footer_caption' -Maximum 120
@@ -276,14 +359,14 @@ function Resolve-LabelContent {
         company_address = ConvertTo-StrictLabelContentText -Value $rawContent.company_address -Name 'company_address' -Maximum 500
         logo_asset_id = ConvertTo-StrictLabelContentText -Value $rawContent.logo_asset_id -Name 'logo_asset_id' -Maximum 32
     }
-    if ($content.logo_asset_id -cne 'NONE' -and $content.logo_asset_id -cne 'SKLAVOUNOS_MARK') {
-        throw 'Schema 7 logo_asset_id is not approved.'
+    if ($content.logo_asset_id -cne 'NONE' -and $content.logo_asset_id -cne 'SKLAVOUNOS_MARK' -and -not ($SchemaVersion -eq 8 -and $content.logo_asset_id -ceq 'SKLAVOUNOS_ENGLISH')) {
+        throw "$schemaLabel logo_asset_id is not approved."
     }
     $claimedHash = (Get-LabelText -Value $snapshot.content_sha256 -Maximum 64).ToLowerInvariant()
-    if ($claimedHash -notmatch '^[0-9a-f]{64}$') { throw 'Schema 7 label content hash is invalid.' }
+    if ($claimedHash -notmatch '^[0-9a-f]{64}$') { throw "$schemaLabel label content hash is invalid." }
     $actualHash = Get-CanonicalLabelContentSha256 -Content $content
     if (-not [string]::Equals($claimedHash, $actualHash, [StringComparison]::Ordinal)) {
-        throw 'Schema 7 label content hash does not match its content.'
+        throw "$schemaLabel label content hash does not match its content."
     }
     return [pscustomobject]$content
 }
@@ -297,20 +380,26 @@ function Add-LabelText {
         [int]$MinimumFontPixels = 8,
         [Drawing.FontStyle]$Style = [Drawing.FontStyle]::Regular,
         [Drawing.StringAlignment]$Alignment = [Drawing.StringAlignment]::Center,
-        [switch]$NoWrap
+        [switch]$NoWrap,
+        [switch]$StrictFit
     )
     $value = (Get-LabelText -Value $Text) -replace '[\x00-\x08\x0b\x0c\x0e-\x1f]', ' '
     if (-not $value) { return }
     $format = New-Object Drawing.StringFormat
     $format.Alignment = $Alignment
     $format.LineAlignment = [Drawing.StringAlignment]::Center
-    $format.Trimming = [Drawing.StringTrimming]::EllipsisWord
+    $format.Trimming = if ($StrictFit) { [Drawing.StringTrimming]::None } else { [Drawing.StringTrimming]::EllipsisWord }
     if ($NoWrap) { $format.FormatFlags = [Drawing.StringFormatFlags]::NoWrap }
     try {
         for ($size = $MaximumFontPixels; $size -ge $MinimumFontPixels; $size--) {
             $font = New-Object Drawing.Font('Arial', [single]$size, $Style, [Drawing.GraphicsUnit]::Pixel)
             try {
-                $measured = $Graphics.MeasureString($value, $font, [int]$Rectangle.Width, $format)
+                if ($StrictFit) {
+                    $measureWidth = if ($NoWrap) { [single]100000 } else { [single]$Rectangle.Width }
+                    $measureBounds = New-Object Drawing.SizeF($measureWidth, [single]100000)
+                    $measured = $Graphics.MeasureString($value, $font, $measureBounds, $format)
+                }
+                else { $measured = $Graphics.MeasureString($value, $font, [int]$Rectangle.Width, $format) }
                 if ($measured.Width -le ($Rectangle.Width + 1) -and $measured.Height -le ($Rectangle.Height + 1)) {
                     $Graphics.DrawString($value, $font, [Drawing.Brushes]::Black, $Rectangle, $format)
                     return
@@ -323,49 +412,70 @@ function Add-LabelText {
     finally { $format.Dispose() }
 }
 
+function Get-NutritionEntries {
+    param([AllowEmptyString()][string]$Nutrition)
+    $text = Get-LabelText -Value $Nutrition
+    # Remove only recognized duplicated headings at the start. Nutrient
+    # spelling, amounts, ranges and order remain exactly as supplied.
+    $headingPattern = '^\s*(?:(?:Ανά|Per)\s*100\s*g\s*:?\s*|Θερμίδες\s+και\s+Συστατικά\s*\(\s*ανά\s*100\s*g\s*\)\s*:?\s*)'
+    do {
+        $previous = $text
+        $text = [regex]::Replace($text, $headingPattern, '', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    } while ($text -cne $previous)
+    if (-not $text) { return @() }
+
+    # Consume the full recognized label before inserting a break. A preceding
+    # word boundary would miss pasted text such as "kcalΠρωτεΐνη" or "gΛιπαρά".
+    $nutrientPattern = '(?:Ενεργειακή\s+αξία|Ενέργεια|Θερμίδες|Energy|Εκ\s+των\s+οποίων\s+κορεσμένα|of\s+which\s+saturates|Κορεσμένα|Εκ\s+των\s+οποίων\s+σάκχαρα|of\s+which\s+sugars|Σάκχαρα|Υδατάνθρακες|Carbohydrates?|Πρωτεΐνες|Πρωτεΐνη|Proteins?|Εδώδιμες\s+ίνες|Φυτικές\s+ίνες|Fibre|Fiber|Ίνες|Λιπαρά|Λίπη|Fat|Αλάτι|Salt)(?=\s*:?\s*[0-9])'
+    $text = [regex]::Replace($text, $nutrientPattern, ([string][char]10 + '$&'), [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $entries = @($text -split '(?:\r\n|[\r\n\u0085\u2028\u2029;|])|,\s*(?=\p{L})' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($entries.Count -gt 8) { throw 'Nutrition declaration is too large for the 50x70 label.' }
+    return $entries
+}
+
 function Add-NutritionTable {
     param(
         [Parameter(Mandatory)][Drawing.Graphics]$Graphics,
         [Parameter(Mandatory)][string]$Nutrition,
         [Parameter(Mandatory)][int]$Y,
-        [Parameter(Mandatory)][object]$Layout
+        [Parameter(Mandatory)][object]$Layout,
+        [Parameter(Mandatory)][int]$AvailableBodyHeight,
+        [switch]$StrictFit
     )
-    $text = (Get-LabelText -Value $Nutrition) -replace '^\s*Ανά\s+100\s*g\s*:\s*', ''
-    if (-not $text) { return 0 }
-    $entries = @($text -split ',\s+(?=[^0-9])' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-    if ($entries.Count -gt 8) { throw 'Nutrition declaration is too large for the 50x70 label.' }
-    Add-LabelText -Graphics $Graphics -Text 'ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ ΑΝΑ 100 g' -Rectangle (New-Object Drawing.RectangleF(14, $Y, 372, $Layout.nutrition_heading_height_px)) -MaximumFontPixels $Layout.nutrition_heading_font_px -MinimumFontPixels 9 -Style Bold -NoWrap
-    $rows = [Math]::Ceiling($entries.Count / 2.0)
-    $cellWidth = 186
-    $cellHeight = [int]$Layout.nutrition_row_height_px
+    $entries = @(Get-NutritionEntries -Nutrition $Nutrition)
+    if ($entries.Count -eq 0) { throw 'Nutrition declaration does not fit the 50x70 layout: no nutrient entries were supplied.' }
+    $cellHeight = [int][Math]::Min([int]$Layout.nutrition_row_height_px, [Math]::Floor($AvailableBodyHeight / [double]$entries.Count))
+    if ($cellHeight -lt 14) { throw 'Dynamic label content does not fit the 50x70 layout.' }
+    Add-LabelText -Graphics $Graphics -Text 'ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ ΑΝΑ 100 g' -Rectangle (New-Object Drawing.RectangleF(14, $Y, 372, $Layout.nutrition_heading_height_px)) -MaximumFontPixels $Layout.nutrition_heading_font_px -MinimumFontPixels 9 -Style Bold -NoWrap -StrictFit:$StrictFit
     $pen = New-Object Drawing.Pen([Drawing.Color]::Black, 1)
     try {
         for ($i = 0; $i -lt $entries.Count; $i++) {
-            $column = $i % 2
-            $row = [Math]::Floor($i / 2)
-            $rect = New-Object Drawing.RectangleF((14 + ($column * $cellWidth)), ($Y + $Layout.nutrition_heading_height_px + ($row * $cellHeight)), $cellWidth, $cellHeight)
+            $rect = New-Object Drawing.RectangleF(14, ($Y + $Layout.nutrition_heading_height_px + ($i * $cellHeight)), 372, $cellHeight)
             $Graphics.DrawRectangle($pen, [single]$rect.X, [single]$rect.Y, [single]$rect.Width, [single]$rect.Height)
             $inner = New-Object Drawing.RectangleF(($rect.X + 4), $rect.Y, ($rect.Width - 8), $rect.Height)
-            Add-LabelText -Graphics $Graphics -Text $entries[$i] -Rectangle $inner -MaximumFontPixels $Layout.nutrition_cell_font_px -MinimumFontPixels 8 -Alignment Center -NoWrap
+            Add-LabelText -Graphics $Graphics -Text $entries[$i] -Rectangle $inner -MaximumFontPixels $Layout.nutrition_cell_font_px -MinimumFontPixels 8 -Alignment Center -NoWrap -StrictFit:$StrictFit
         }
     }
     finally { $pen.Dispose() }
-    return [int]($Layout.nutrition_heading_height_px + ($rows * $cellHeight))
+    return [int]($Layout.nutrition_heading_height_px + ($entries.Count * $cellHeight))
 }
 
 function Add-ApprovedCompanyLogo {
     param(
         [Parameter(Mandatory)][Drawing.Graphics]$Graphics,
-        [Parameter(Mandatory)][string]$AssetId
+        [Parameter(Mandatory)][string]$AssetId,
+        [ValidateRange(0, 100)][int]$TopHeight = 0
     )
     if ($AssetId -ceq 'NONE') { return $false }
-    if ($AssetId -cne 'SKLAVOUNOS_MARK') { throw 'Company logo asset is not approved.' }
+    if ($AssetId -cne 'SKLAVOUNOS_MARK' -and $AssetId -cne 'SKLAVOUNOS_ENGLISH') { throw 'Company logo asset is not approved.' }
+    if ($AssetId -ceq 'SKLAVOUNOS_ENGLISH' -and $TopHeight -eq 0) { throw 'English company logo requires a schema 8 top layout.' }
 
-    $assetPath = Join-Path $PSScriptRoot 'company-logo-sklavounos.png'
+    $assetFile = if ($AssetId -ceq 'SKLAVOUNOS_ENGLISH') { 'company-logo-sklavounos-english.png' } else { 'company-logo-sklavounos.png' }
+    $assetPath = Join-Path $PSScriptRoot $assetFile
     if (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
         throw 'Approved company logo asset is missing from the Agent package.'
     }
-    $expectedHash = '41633fd9bf9fc15c885c1c6b39ddfb9211c85a330bf07bc4465c1de3d357eeff'
+    $expectedHash = if ($AssetId -ceq 'SKLAVOUNOS_ENGLISH') { '10b90d45e04b37da5caf29fbecc05066f934f5a7457e11eec5b306e6a98603ad' } else { '41633fd9bf9fc15c885c1c6b39ddfb9211c85a330bf07bc4465c1de3d357eeff' }
     $assetSha = [Security.Cryptography.SHA256]::Create()
     try {
         $actualHash = (($assetSha.ComputeHash([IO.File]::ReadAllBytes($assetPath)) | ForEach-Object { $_.ToString('x2') }) -join '')
@@ -377,10 +487,13 @@ function Add-ApprovedCompanyLogo {
 
     $source = [Drawing.Image]::FromFile([IO.Path]::GetFullPath($assetPath))
     try {
-        if ($source.Width -ne 1188 -or $source.Height -ne 1018) {
+        if ($AssetId -ceq 'SKLAVOUNOS_ENGLISH' -and ($source.Width -ne 512 -or $source.Height -ne 512)) {
             throw 'Approved company logo dimensions are invalid.'
         }
-        $box = New-Object Drawing.RectangleF(17, 478, 50, 64)
+        if ($AssetId -ceq 'SKLAVOUNOS_MARK' -and ($source.Width -ne 1188 -or $source.Height -ne 1018)) {
+            throw 'Approved company logo dimensions are invalid.'
+        }
+        $box = if ($TopHeight -gt 0) { New-Object Drawing.RectangleF(((400 - $TopHeight) / 2), 7, $TopHeight, $TopHeight) } else { New-Object Drawing.RectangleF(17, 478, 50, 64) }
         $scale = [Math]::Min($box.Width / $source.Width, $box.Height / $source.Height)
         $width = [single]($source.Width * $scale)
         $height = [single]($source.Height * $scale)
@@ -401,7 +514,8 @@ function Add-ApprovalOval {
         [Parameter(Mandatory)][Drawing.Graphics]$Graphics,
         [Parameter(Mandatory)][string]$ApprovalNumber,
         [Parameter(Mandatory)][int]$Y,
-        [Parameter(Mandatory)][object]$Layout
+        [Parameter(Mandatory)][object]$Layout,
+        [switch]$StrictFit
     )
     $raw = (Get-LabelText -Value $ApprovalNumber -Maximum 128) -replace '\s+', ' '
     $parts = @($raw.Split(' ', [StringSplitOptions]::RemoveEmptyEntries))
@@ -416,9 +530,9 @@ function Add-ApprovalOval {
     $pen = New-Object Drawing.Pen([Drawing.Color]::Black, 2)
     try { $Graphics.DrawEllipse($pen, 304, $Y, 80, 70) }
     finally { $pen.Dispose() }
-    Add-LabelText -Graphics $Graphics -Text $country -Rectangle (New-Object Drawing.RectangleF(310, ($Y + 7), 68, 17)) -MaximumFontPixels $Layout.approval_country_font_px -MinimumFontPixels 10 -Style Bold -NoWrap
-    Add-LabelText -Graphics $Graphics -Text $number -Rectangle (New-Object Drawing.RectangleF(308, ($Y + 23), 72, 25)) -MaximumFontPixels $Layout.approval_number_font_px -MinimumFontPixels 9 -Style Bold -NoWrap
-    Add-LabelText -Graphics $Graphics -Text $suffix -Rectangle (New-Object Drawing.RectangleF(310, ($Y + 47), 68, 16)) -MaximumFontPixels $Layout.approval_suffix_font_px -MinimumFontPixels 9 -Style Bold -NoWrap
+    Add-LabelText -Graphics $Graphics -Text $country -Rectangle (New-Object Drawing.RectangleF(310, ($Y + 7), 68, 17)) -MaximumFontPixels $Layout.approval_country_font_px -MinimumFontPixels 10 -Style Bold -NoWrap -StrictFit:$StrictFit
+    Add-LabelText -Graphics $Graphics -Text $number -Rectangle (New-Object Drawing.RectangleF(308, ($Y + 23), 72, 25)) -MaximumFontPixels $Layout.approval_number_font_px -MinimumFontPixels 9 -Style Bold -NoWrap -StrictFit:$StrictFit
+    Add-LabelText -Graphics $Graphics -Text $suffix -Rectangle (New-Object Drawing.RectangleF(310, ($Y + 47), 68, 16)) -MaximumFontPixels $Layout.approval_suffix_font_px -MinimumFontPixels 9 -Style Bold -NoWrap -StrictFit:$StrictFit
 }
 
 function Convert-BitmapToMonochromeBytes {
@@ -520,13 +634,14 @@ function Save-MonochromePreviewPng {
 function New-UnifiedLabelBitmap {
     param([Parameter(Mandatory)][object]$Payload)
     $schemaVersion = [int]$Payload.schema_version
-    if ($schemaVersion -ne 3 -and $schemaVersion -ne 4 -and $schemaVersion -ne 5 -and $schemaVersion -ne 6 -and $schemaVersion -ne 7) { throw 'Unsupported dynamic label schema.' }
+    if ($schemaVersion -ne 3 -and $schemaVersion -ne 4 -and $schemaVersion -ne 5 -and $schemaVersion -ne 6 -and $schemaVersion -ne 7 -and $schemaVersion -ne 8) { throw 'Unsupported dynamic label schema.' }
+    $strictFit = $schemaVersion -eq 8
     if ([string]$Payload.printer_profile -cne 'HPRT_LPQ80_BITMAP_50X70') { throw 'Wrong dynamic printer profile.' }
     if (([string]$Payload.profile).Trim().ToUpperInvariant() -cne 'DISTRIBUTION') { throw 'Unsupported dynamic label profile.' }
     $layout = Resolve-LabelLayout -Payload $Payload -SchemaVersion $schemaVersion
     $labelContent = Resolve-LabelContent -Payload $Payload -SchemaVersion $schemaVersion
-    if ($schemaVersion -eq 7 -and [int]$Payload.layout.version_id -ne [int]$Payload.label_content.version_id) {
-        throw 'Schema 7 layout and label content must use the same immutable version.'
+    if (($schemaVersion -eq 7 -or $schemaVersion -eq 8) -and [int]$Payload.layout.version_id -ne [int]$Payload.label_content.version_id) {
+        throw "Schema $schemaVersion layout and label content must use the same immutable version."
     }
 
     $displayName = Get-LabelText -Value $Payload.product.display_name -Maximum 255
@@ -566,47 +681,55 @@ function New-UnifiedLabelBitmap {
         $graphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
 
         $y = 7
-        Add-LabelText -Graphics $graphics -Text $displayName -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.title_height_px)) -MaximumFontPixels $layout.title_font_px -MinimumFontPixels 17 -Style Bold
+        if ($schemaVersion -eq 8 -and $labelContent.logo_asset_id -cne 'NONE') {
+            [void](Add-ApprovedCompanyLogo -Graphics $graphics -AssetId $labelContent.logo_asset_id -TopHeight $layout.logo_height_px)
+            $y += $layout.logo_height_px + $layout.logo_gap_after_px
+        }
+        Add-LabelText -Graphics $graphics -Text $displayName -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.title_height_px)) -MaximumFontPixels $layout.title_font_px -MinimumFontPixels 17 -Style Bold -StrictFit:$strictFit
         $y += $layout.title_height_px
-        Add-LabelText -Graphics $graphics -Text $legalName -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.legal_name_height_px)) -MaximumFontPixels $layout.legal_name_font_px -MinimumFontPixels 9
+        Add-LabelText -Graphics $graphics -Text $legalName -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.legal_name_height_px)) -MaximumFontPixels $layout.legal_name_font_px -MinimumFontPixels 9 -StrictFit:$strictFit
         $y += $layout.legal_name_height_px
 
         if ($ingredientText -and (-not $singleIngredient -or $plainTraceability)) {
             $ingredients = 'Συστατικά: ' + $ingredientText
-            Add-LabelText -Graphics $graphics -Text $ingredients -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.ingredients_height_px)) -MaximumFontPixels $layout.ingredients_font_px -MinimumFontPixels 9
+            Add-LabelText -Graphics $graphics -Text $ingredients -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.ingredients_height_px)) -MaximumFontPixels $layout.ingredients_font_px -MinimumFontPixels 9 -StrictFit:$strictFit
             $y += $layout.ingredients_height_px
         }
         if ($allergenText) {
             $allergens = 'ΑΛΛΕΡΓΙΟΓΟΝΑ: ' + $allergenText
-            Add-LabelText -Graphics $graphics -Text $allergens -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.allergens_height_px)) -MaximumFontPixels $layout.allergens_font_px -MinimumFontPixels 10 -Style Bold
+            Add-LabelText -Graphics $graphics -Text $allergens -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.allergens_height_px)) -MaximumFontPixels $layout.allergens_font_px -MinimumFontPixels 10 -Style Bold -StrictFit:$strictFit
             $y += $layout.allergens_height_px + $layout.allergens_gap_after_px
         }
 
         $nutritionHeight = 0
+        $source = Get-LabelText $Payload.traceability.source_lot 96
+        $usage = Get-LabelText $Payload.product.usage_instructions 500
         if ($nutritionText) {
-            $nutritionHeight = Add-NutritionTable -Graphics $graphics -Nutrition $nutritionText -Y $y -Layout $layout
+            $trailingHeight = $layout.dates_height_px + $layout.lot_height_px + $layout.storage_height_px + $layout.origin_height_px
+            if ($source) { $trailingHeight += $layout.source_lot_height_px }
+            if ($usage) { $trailingHeight += $layout.usage_height_px }
+            $nutritionBodyHeight = 449 - $y - $layout.nutrition_heading_height_px - $layout.nutrition_gap_after_px - $trailingHeight
+            $nutritionHeight = Add-NutritionTable -Graphics $graphics -Nutrition $nutritionText -Y $y -Layout $layout -AvailableBodyHeight $nutritionBodyHeight -StrictFit:$strictFit
         }
         if ($nutritionHeight -gt 0) { $y += $nutritionHeight + $layout.nutrition_gap_after_px }
 
         $dates = 'ΠΑΡΑΓΩΓΗ: {0}     ΑΝΑΛΩΣΗ ΕΩΣ: {1}' -f (Get-LabelText $Payload.traceability.production_date 16), (Get-LabelText $Payload.traceability.use_by_date 16)
-        Add-LabelText -Graphics $graphics -Text $dates -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.dates_height_px)) -MaximumFontPixels $layout.dates_font_px -MinimumFontPixels 9 -Style Bold -NoWrap
+        Add-LabelText -Graphics $graphics -Text $dates -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.dates_height_px)) -MaximumFontPixels $layout.dates_font_px -MinimumFontPixels 9 -Style Bold -NoWrap -StrictFit:$strictFit
         $y += $layout.dates_height_px
         $lotLine = 'LOT: {0}' -f (Get-LabelText $Payload.traceability.internal_lot 64)
-        Add-LabelText -Graphics $graphics -Text $lotLine -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.lot_height_px)) -MaximumFontPixels $layout.lot_font_px -MinimumFontPixels 8 -NoWrap
+        Add-LabelText -Graphics $graphics -Text $lotLine -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.lot_height_px)) -MaximumFontPixels $layout.lot_font_px -MinimumFontPixels 8 -NoWrap -StrictFit:$strictFit
         $y += $layout.lot_height_px
-        $source = Get-LabelText $Payload.traceability.source_lot 96
         if ($source) {
-            Add-LabelText -Graphics $graphics -Text ("ΠΑΡΤΙΔΑ ΠΗΓΗΣ: $source") -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.source_lot_height_px)) -MaximumFontPixels $layout.source_lot_font_px -MinimumFontPixels 8 -NoWrap
+            Add-LabelText -Graphics $graphics -Text ("ΠΑΡΤΙΔΑ ΠΗΓΗΣ: $source") -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.source_lot_height_px)) -MaximumFontPixels $layout.source_lot_font_px -MinimumFontPixels 8 -NoWrap -StrictFit:$strictFit
             $y += $layout.source_lot_height_px
         }
-        Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.storage 255) -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.storage_height_px)) -MaximumFontPixels $layout.storage_font_px -MinimumFontPixels 9 -Style Bold
+        Add-LabelText -Graphics $graphics -Text (Get-LabelText $Payload.storage 255) -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.storage_height_px)) -MaximumFontPixels $layout.storage_font_px -MinimumFontPixels 9 -Style Bold -StrictFit:$strictFit
         $y += $layout.storage_height_px
         $origin = 'ΠΡΟΕΛΕΥΣΗ: ' + (Get-LabelText $Payload.product.origin 255)
-        Add-LabelText -Graphics $graphics -Text $origin -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.origin_height_px)) -MaximumFontPixels $layout.origin_font_px -MinimumFontPixels 8 -NoWrap
+        Add-LabelText -Graphics $graphics -Text $origin -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.origin_height_px)) -MaximumFontPixels $layout.origin_font_px -MinimumFontPixels 8 -NoWrap -StrictFit:$strictFit
         $y += $layout.origin_height_px
-        $usage = Get-LabelText $Payload.product.usage_instructions 500
         if ($usage) {
-            Add-LabelText -Graphics $graphics -Text $usage -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.usage_height_px)) -MaximumFontPixels $layout.usage_font_px -MinimumFontPixels 8
+            Add-LabelText -Graphics $graphics -Text $usage -Rectangle (New-Object Drawing.RectangleF(14, $y, 372, $layout.usage_height_px)) -MaximumFontPixels $layout.usage_font_px -MinimumFontPixels 8 -StrictFit:$strictFit
             $y += $layout.usage_height_px
         }
         if ($y -gt 449) { throw 'Dynamic label content does not fit the 50x70 layout.' }
@@ -614,13 +737,13 @@ function New-UnifiedLabelBitmap {
         $separator = New-Object Drawing.Pen([Drawing.Color]::Black, 1)
         try { $graphics.DrawLine($separator, 14, 452, 386, 452) }
         finally { $separator.Dispose() }
-        Add-LabelText -Graphics $graphics -Text $labelContent.footer_caption -Rectangle (New-Object Drawing.RectangleF(14, 456, 278, 18)) -MaximumFontPixels $layout.footer_caption_font_px -MinimumFontPixels 8 -NoWrap
-        $hasCompanyLogo = Add-ApprovedCompanyLogo -Graphics $graphics -AssetId $labelContent.logo_asset_id
+        Add-LabelText -Graphics $graphics -Text $labelContent.footer_caption -Rectangle (New-Object Drawing.RectangleF(14, 456, 278, 18)) -MaximumFontPixels $layout.footer_caption_font_px -MinimumFontPixels 8 -NoWrap -StrictFit:$strictFit
+        $hasCompanyLogo = if ($schemaVersion -eq 8) { $false } else { Add-ApprovedCompanyLogo -Graphics $graphics -AssetId $labelContent.logo_asset_id }
         $footerTextX = if ($hasCompanyLogo) { 72 } else { 14 }
         $footerTextWidth = if ($hasCompanyLogo) { 220 } else { 278 }
-        Add-LabelText -Graphics $graphics -Text $labelContent.company_name -Rectangle (New-Object Drawing.RectangleF($footerTextX, 473, $footerTextWidth, 31)) -MaximumFontPixels $layout.footer_name_font_px -MinimumFontPixels 9 -Style Bold
-        Add-LabelText -Graphics $graphics -Text $labelContent.company_address -Rectangle (New-Object Drawing.RectangleF($footerTextX, 503, $footerTextWidth, 43)) -MaximumFontPixels $layout.footer_address_font_px -MinimumFontPixels 8
-        Add-ApprovalOval -Graphics $graphics -ApprovalNumber (Get-LabelText $Payload.business.approval_number 128) -Y 470 -Layout $layout
+        Add-LabelText -Graphics $graphics -Text $labelContent.company_name -Rectangle (New-Object Drawing.RectangleF($footerTextX, 473, $footerTextWidth, 31)) -MaximumFontPixels $layout.footer_name_font_px -MinimumFontPixels 9 -Style Bold -StrictFit:$strictFit
+        Add-LabelText -Graphics $graphics -Text $labelContent.company_address -Rectangle (New-Object Drawing.RectangleF($footerTextX, 503, $footerTextWidth, 43)) -MaximumFontPixels $layout.footer_address_font_px -MinimumFontPixels 8 -StrictFit:$strictFit
+        Add-ApprovalOval -Graphics $graphics -ApprovalNumber (Get-LabelText $Payload.business.approval_number 128) -Y 470 -Layout $layout -StrictFit:$strictFit
         return $bitmap
     }
     catch {

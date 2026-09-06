@@ -222,7 +222,7 @@ class LabelLayoutVersion(Base):
             name="uq_label_layout_versions_profile_version",
         ),
         CheckConstraint(
-            "contract_version = 1",
+            "contract_version IN (1, 2)",
             name="ck_label_layout_versions_contract",
         ),
         CheckConstraint(

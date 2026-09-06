@@ -110,7 +110,7 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
 
     psycopg_url = schema_migrations._psycopg_url(make_url(database_url))
     catalog = schema_migrations.migration_catalog()
-    assert catalog[-1].version == "20260831_004"
+    assert catalog[-1].version == "20260906_001"
     with psycopg.connect(psycopg_url, autocommit=False) as connection:
         connection.execute(
             sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(
@@ -141,7 +141,7 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
         # Record the exact prefix through 20260830_001, then apply the two
         # label-layout, Vacuum-preservation and label-content migrations under test so
         # their schema, immutability and restricted-role grants are proven.
-        for migration in catalog[:-6]:
+        for migration in catalog[:-7]:
             connection.execute(
                 """
                 INSERT INTO warehouse_schema_migrations
@@ -185,9 +185,10 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
         "20260831_002",
         "20260831_003",
         "20260831_004",
+        "20260906_001",
     )
     assert second.applied_versions == ()
-    assert second.current_version == "20260831_004"
+    assert second.current_version == "20260906_001"
     assert second.post_schema_fingerprint == first.post_schema_fingerprint
 
     runtime_psycopg_url = schema_migrations._psycopg_url(runtime_url)

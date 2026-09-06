@@ -20,16 +20,19 @@ from app.label_layout import (
     activate_layout_version,
     active_layout_snapshot_for_print,
     canonical_layout_defaults,
+    canonical_layout_profiles_defaults,
     canonical_layout_settings_json,
     layout_settings_sha256,
     layout_state,
     reset_layout,
     save_layout_draft,
     schema6_layout_enabled,
+    schema8_profiles_enabled,
+    validate_layout_profiles_settings,
     validate_layout_settings,
     validate_layout_snapshot,
 )
-from app.labeling import DISTRIBUTION_PROFILE, build_label_payload
+from app.labeling import DISTRIBUTION_PROFILE, build_label_payload, label_layout_variant
 from app.models import (
     AuditEvent,
     LabelLayoutActive,
@@ -76,6 +79,8 @@ def label_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WAREHOUSE_LABEL_RED_MEAT_APPROVAL_NUMBER", "GR A 920 CE")
     monkeypatch.setenv("WAREHOUSE_LABEL_POULTRY_APPROVAL_NUMBER", "GR PE 620 CE")
     monkeypatch.delenv("WAREHOUSE_LABEL_LAYOUT_SCHEMA6_ENABLED", raising=False)
+    monkeypatch.delenv("WAREHOUSE_LABEL_CONTENT_SCHEMA7_ENABLED", raising=False)
+    monkeypatch.delenv("WAREHOUSE_LABEL_PROFILES_SCHEMA8_ENABLED", raising=False)
 
 
 def _seed_layout(db: Session) -> tuple[User, LabelLayoutVersion]:
@@ -470,3 +475,120 @@ def test_queued_jobs_keep_their_original_layout_after_activation(
     assert duplicate["duplicate"] is True
     db.refresh(first_job)
     assert first_job.label_payload_json == first_payload_text
+
+
+def test_profiles_are_independent_strict_and_hash_bound() -> None:
+    profiles = canonical_layout_profiles_defaults()
+    assert set(profiles) == {"full", "simple"}
+    assert len(profiles["full"]) == len(profiles["simple"]) == 34
+    assert profiles["full"]["logo_height_px"] == 48
+    assert profiles["simple"]["logo_height_px"] == 80
+    original_hash = layout_settings_sha256(profiles)
+    profiles["simple"]["title_font_px"] = 48
+    profiles["simple"]["title_height_px"] = 100
+    assert profiles["full"]["title_font_px"] == 27
+    assert layout_settings_sha256(profiles) != original_hash
+    assert validate_layout_profiles_settings(profiles) == profiles
+    snapshot = {
+        "contract_version": 2,
+        "version_id": 10,
+        "settings_sha256": layout_settings_sha256(profiles),
+        "settings": profiles,
+    }
+    assert validate_layout_snapshot(snapshot) == snapshot
+    with pytest.raises(LabelLayoutValidationError):
+        validate_layout_snapshot({**snapshot, "contract_version": 1})
+    with pytest.raises(LabelLayoutValidationError, match="hash does not match"):
+        validate_layout_snapshot({**snapshot, "settings_sha256": original_hash})
+    with pytest.raises(LabelLayoutValidationError, match="exactly full and simple"):
+        validate_layout_profiles_settings({"full": profiles["full"]})
+    for value in (True, 49, 0, "48"):
+        invalid = canonical_layout_profiles_defaults()
+        invalid["full"]["title_font_px"] = value
+        with pytest.raises(LabelLayoutValidationError):
+            validate_layout_profiles_settings(invalid)
+    assert layout_settings_sha256(canonical_layout_defaults()) == CANONICAL_SETTINGS_SHA256
+
+
+def test_profile_variant_uses_actual_content_not_unit() -> None:
+    metadata = {
+        "unit": "pcs", "plain_traceability": True, "nutrition_exempt": True,
+        "ingredients": "", "allergens": "", "nutrition": "",
+    }
+    assert label_layout_variant(metadata) == "simple"
+    assert label_layout_variant({**metadata, "unit": "kg"}) == "simple"
+    assert label_layout_variant({**metadata, "plain_traceability": False}) == "full"
+    assert label_layout_variant({**metadata, "nutrition_exempt": False}) == "full"
+    for field in ("ingredients", "allergens", "nutrition"):
+        assert label_layout_variant({**metadata, field: "Real content"}) == "full"
+
+
+def test_profiles_activation_gate_and_schema8_preserve_queued_jobs(
+    db: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actor, first_version = _seed_layout(db)
+    product = _product(db)
+    monkeypatch.setenv("WAREHOUSE_LABEL_LAYOUT_SCHEMA6_ENABLED", "true")
+    first_response = _response_json(services.labels_create_batch(
+        RequestStub({
+            "request_id": "profiles-legacy-job", "label_profile": "DISTRIBUTION",
+            "items": [{"product_id": product.id, "copies": 1}],
+        }), user=actor, db=db,
+    ))
+    old_job = db.get(ProductLot, first_response["items"][0]["id"])
+    old_snapshot_text = old_job.label_payload_json
+    profiles = canonical_layout_profiles_defaults()
+    profiles["simple"]["title_font_px"] = 40
+    draft = save_layout_draft(
+        db, settings=profiles, actor=actor, reason="Independent Full/Simple layouts",
+        expected_version=1,
+    )
+    assert draft["contract_version"] == 2
+    assert draft["settings"] == profiles
+    assert draft["based_on_version_id"] == first_version.id
+    assert not schema8_profiles_enabled()
+    with pytest.raises(LabelLayoutValidationError, match="schema 8 feature gate"):
+        activate_layout_version(
+            db, version_id=draft["id"], actor=actor, reason="Not enabled yet", expected_version=1,
+        )
+    assert layout_state(db)["active"]["id"] == first_version.id
+    monkeypatch.setenv("WAREHOUSE_LABEL_PROFILES_SCHEMA8_ENABLED", "true")
+    activated = activate_layout_version(
+        db, version_id=draft["id"], actor=actor, reason="Local test activation", expected_version=1,
+    )
+    assert activated["schema8_enabled"] is True
+    assert activated["active"]["settings"] == profiles
+    second_response = _response_json(services.labels_create_batch(
+        RequestStub({
+            "request_id": "profiles-new-job", "label_profile": "DISTRIBUTION",
+            "items": [{"product_id": product.id, "copies": 1}],
+        }), user=actor, db=db,
+    ))
+    new_job = db.get(ProductLot, second_response["items"][0]["id"])
+    payload = json.loads(new_job.label_payload_json)
+    assert payload["schema_version"] == 8
+    assert payload["layout"]["settings"] == profiles
+    assert payload["layout"]["version_id"] == payload["label_content"]["version_id"] == draft["id"]
+    db.refresh(old_job)
+    assert old_job.label_payload_json == old_snapshot_text
+    assert json.loads(old_snapshot_text)["schema_version"] == 6
+    monkeypatch.setenv("WAREHOUSE_LABEL_PROFILES_SCHEMA8_ENABLED", "false")
+    with pytest.raises(LabelLayoutUnavailableError, match="schema 8 feature gate"):
+        active_layout_snapshot_for_print(db)
+    monkeypatch.setenv("WAREHOUSE_LABEL_LAYOUT_SCHEMA6_ENABLED", "false")
+    with pytest.raises(LabelLayoutUnavailableError, match="schema 8 feature gate"):
+        active_layout_snapshot_for_print(db)
+    with pytest.raises(LabelLayoutValidationError, match="schema 8 feature gate"):
+        reset_layout(db, actor=actor, reason="Gate closed", expected_version=2)
+
+
+def test_schema8_feature_flag_rejects_ambiguous_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WAREHOUSE_LABEL_PROFILES_SCHEMA8_ENABLED", "possibly")
+    with pytest.raises(LabelLayoutUnavailableError, match="explicit boolean"):
+        schema8_profiles_enabled()
+
+
+def test_schema8_gate_does_not_enable_legacy_layouts(db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    _seed_layout(db)
+    monkeypatch.setenv("WAREHOUSE_LABEL_PROFILES_SCHEMA8_ENABLED", "true")
+    assert active_layout_snapshot_for_print(db) is None

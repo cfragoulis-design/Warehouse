@@ -33,7 +33,10 @@ try {
         'HprtLpq80Print.ps1',
         'WarehouseHprtAgent.Status.ps1',
         'Diagnose-WarehouseHprtAgent.ps1',
+        'PACKAGE-MANIFEST.json',
+        'creator-signature.png',
         'company-logo-sklavounos.png',
+        'company-logo-sklavounos-english.png',
         'favicon-64.png'
     )
     foreach ($file in $sourceFiles) {

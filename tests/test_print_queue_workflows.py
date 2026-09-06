@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -385,6 +385,76 @@ def test_leased_claim_error_reason_retry_cancel_and_ack_lifecycle(
     ]
     assert events[2].reason == "HPRT_PRINTER_NOT_FOUND"
     assert all("claim_token" not in (event.after_json or "") for event in events)
+
+
+def test_schema8_claim_requires_opt_in_and_does_not_starve_legacy_jobs(
+    db: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRINT_AGENT_TOKEN_WORKSHOP", "profiles-agent-token")
+    user, product = _user_product(db)
+    queued: list[ProductLot] = []
+    for index in range(66):
+        schema = 9 if index == 0 else (8 if index < 65 else 7)
+        lot = ProductLot(
+            product_id=product.id, station="WORKSHOP", quantity_labels=1,
+            production_date=date(2026, 9, 6), expiry_date=date(2026, 9, 9),
+            lot_code=f"SCHEMA-CAP-{index}", status="QUEUED", created_by_user_id=user.id,
+            created_at=datetime(2026, 9, 6, tzinfo=timezone.utc) + timedelta(seconds=index),
+            label_payload_json=json.dumps({"schema_version": schema, "traceability": {}, "product": {}}),
+        )
+        db.add(lot)
+        queued.append(lot)
+    db.commit()
+    original_payloads = [lot.label_payload_json for lot in queued]
+    token = {"x-agent-token": "profiles-agent-token"}
+    legacy_queue = _json(services.labels_queue(
+        station="WORKSHOP", request=RequestStub(headers=token), limit=1, db=db,
+    ))
+    assert [job["id"] for job in legacy_queue] == [queued[-1].id]
+    legacy_batch = _json(services.api_print_jobs_next_batch(
+        station="WORKSHOP", request=RequestStub(headers=token), db=db,
+    ))["batch"]
+    assert [job["id"] for job in legacy_batch["jobs"]] == [queued[-1].id]
+    for acknowledgement in (services.labels_done, services.labels_error):
+        with pytest.raises(HTTPException) as blocked:
+            acknowledgement(RequestStub(payload={
+                "id": queued[1].id, "station": "WORKSHOP", "token": "profiles-agent-token",
+            }), db=db)
+        assert blocked.value.status_code == 409
+    batch_ack = _json(services.api_print_jobs_batch_done(
+        RequestStub(payload={"ids": [queued[0].id, queued[1].id]}, headers=token),
+        station="WORKSHOP", db=db,
+    ))
+    assert batch_ack["done_ids"] == []
+    legacy_claim = _json(services.api_print_jobs_next(
+        station="WORKSHOP", request=RequestStub(headers=token), db=db,
+    ))["job"]
+    assert legacy_claim["id"] == queued[-1].id
+    assert legacy_claim["render_payload"]["schema_version"] == 7
+    for lot in queued[:-1]:
+        db.refresh(lot)
+        assert lot.status == "QUEUED"
+        assert lot.claim_token_hash is None
+        assert lot.claim_expires_at is None
+    waiting = _json(services.api_print_jobs_next(
+        station="WORKSHOP", request=RequestStub(headers={**token, "x-label-schema-max": "99"}), db=db,
+    ))
+    assert waiting["job"] is None
+    assert waiting["agent_upgrade_required"] is True
+    new_claim = _json(services.api_print_jobs_next(
+        station="WORKSHOP", request=RequestStub(headers={**token, "x-label-schema-max": "8"}), db=db,
+    ))["job"]
+    assert new_claim["id"] == queued[1].id
+    assert new_claim["render_payload"]["schema_version"] == 8
+    db.refresh(queued[0])
+    assert queued[0].status == "QUEUED"
+    assert queued[0].claim_token_hash is None
+    assert [lot.label_payload_json for lot in queued] == original_payloads
+    with pytest.raises(HTTPException) as rejected:
+        services.api_print_jobs_next(
+            station="WORKSHOP", request=RequestStub(headers={"x-agent-token": "wrong", "x-label-schema-max": "8"}), db=db,
+        )
+    assert rejected.value.status_code == 403
 
 
 def test_legacy_protocol_is_deprecated_and_cannot_override_active_claim(

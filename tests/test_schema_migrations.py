@@ -29,7 +29,14 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20260831_002",
         "20260831_003",
         "20260831_004",
+        "20260906_001",
     ]
+    profiles_migration = catalog[-1]
+    assert "CHECK (contract_version IN (1, 2))" in profiles_migration.sql
+    assert "VALIDATE CONSTRAINT ck_label_layout_versions_contract" in profiles_migration.sql
+    assert "label_layout_versions_contract_version_check" in profiles_migration.sql
+    for forbidden in ("UPDATE ", "DELETE FROM", "DROP TABLE", "TRUNCATE", "GRANT "):
+        assert forbidden not in profiles_migration.sql.upper()
     migration = catalog[0]
     assert (
         migration.checksum == hashlib.sha256(migration.sql.encode("utf-8")).hexdigest()

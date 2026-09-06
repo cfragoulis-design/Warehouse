@@ -11,7 +11,11 @@ from .approval_profiles import (
     UNASSIGNED,
     normalize_approval_profile,
 )
-from .label_layout import LabelLayoutValidationError, validate_layout_snapshot
+from .label_layout import (
+    LAYOUT_PROFILES_CONTRACT_VERSION,
+    LabelLayoutValidationError,
+    validate_layout_snapshot,
+)
 from .label_content import (
     LabelContentValidationError,
     validate_label_content_snapshot,
@@ -200,6 +204,16 @@ def product_label_metadata(product) -> dict[str, object]:
     }
 
 
+def label_layout_variant(metadata: Mapping[str, object]) -> str:
+    """Select layout only from the complete label metadata, never its unit."""
+    simple = (
+        metadata.get("plain_traceability") is True
+        and metadata.get("nutrition_exempt") is True
+        and not any(str(metadata.get(field) or "").strip() for field in ("ingredients", "allergens", "nutrition"))
+    )
+    return "simple" if simple else "full"
+
+
 def build_label_payload(
     product,
     lot,
@@ -237,6 +251,15 @@ def build_label_payload(
         if isinstance(candidate_content, Mapping):
             content = candidate_content
 
+    profiles_layout = (
+        normalized_layout is not None
+        and normalized_layout["contract_version"] == LAYOUT_PROFILES_CONTRACT_VERSION
+    )
+    if profiles_layout and normalized_content is None:
+        raise LabelValidationError("Full/Simple layouts require the matching label content snapshot.")
+    if content is not None and content.get("logo_asset_id") == "SKLAVOUNOS_ENGLISH" and not profiles_layout:
+        raise LabelValidationError("The new company logo requires Full/Simple layouts and schema 8.")
+
     missing = product_readiness(product, profile, label_content=content)
     if missing:
         raise LabelValidationError("Λείπουν: " + ", ".join(missing))
@@ -251,7 +274,10 @@ def build_label_payload(
     if origin_override:
         metadata["origin"] = origin_override
     plain_traceability = bool(metadata.pop("plain_traceability", False))
-    if normalized_content is not None:
+    if profiles_layout:
+        schema_version = 8
+        metadata["plain_traceability"] = plain_traceability
+    elif normalized_content is not None:
         schema_version = 7
         metadata["plain_traceability"] = plain_traceability
     elif normalized_layout is not None:

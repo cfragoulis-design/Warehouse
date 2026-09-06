@@ -161,7 +161,7 @@ function Invoke-AgentRequest {
         [string]$ClaimToken = '',
         [hashtable]$Body = $null
     )
-    $headers = @{ 'x-agent-token' = $Token }
+    $headers = @{ 'x-agent-token' = $Token; 'x-label-schema-max' = '8' }
     if ($ClaimToken) { $headers['x-print-claim-token'] = $ClaimToken }
     $parameters = @{
         Method = $Method

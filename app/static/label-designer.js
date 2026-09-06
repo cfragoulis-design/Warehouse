@@ -9,6 +9,11 @@ let companyLogoReady = false;
 companyLogo.addEventListener("load", () => { companyLogoReady = true; schedulePreview(); });
 companyLogo.addEventListener("error", () => { companyLogoReady = false; schedulePreview(); });
 companyLogo.src = String(bootstrap.company_logo_url || "/static/logo-icon.png");
+const englishLogo = new Image();
+let englishLogoReady = false;
+englishLogo.addEventListener("load", () => { englishLogoReady = true; schedulePreview(); });
+englishLogo.addEventListener("error", () => { englishLogoReady = false; schedulePreview(); });
+englishLogo.src = String(bootstrap.english_logo_url || "/static/company-logo-sklavounos-english.png");
 
 const shell = document.getElementById("designerShell");
 const sampleSelect = document.getElementById("sampleSelect");
@@ -29,8 +34,18 @@ const refreshBtn = document.getElementById("refreshBtn");
 const versionList = document.getElementById("versionList");
 const emptyVersions = document.getElementById("emptyVersions");
 const toast = document.getElementById("designerToast");
+const profileButtons = [...document.querySelectorAll("button[data-profile]")];
+const eligibilityBanner = document.getElementById("eligibilityBanner");
+const autoFitBtn = document.getElementById("autoFitBtn");
+const profileDefaultsBtn = document.getElementById("profileDefaultsBtn");
+const autoFitDetail = document.getElementById("autoFitDetail");
+const previewProductName = document.getElementById("previewProductName");
+const previewProfileBadge = document.getElementById("previewProfileBadge");
+const bodySpaceBar = document.getElementById("bodySpaceBar");
 
 const FIELD_META = {
+  logo_height_px: ["logo", "Ύψος περιοχής λογοτύπου"],
+  logo_gap_after_px: ["logo", "Κενό μετά το λογότυπο"],
   title_font_px: ["title", "Γραμματοσειρά τίτλου"],
   title_height_px: ["title", "Ύψος τίτλου"],
   legal_name_font_px: ["title", "Γραμματοσειρά νόμιμης ονομασίας"],
@@ -66,6 +81,7 @@ const FIELD_META = {
 };
 
 const GROUP_LABELS = {
+  logo: "Εταιρικό λογότυπο · επάνω κέντρο",
   title: "Ονομασία προϊόντος",
   composition: "Συστατικά και αλλεργιογόνα",
   nutrition: "Διατροφική δήλωση",
@@ -98,16 +114,82 @@ const FIXED_MINIMUMS = {
 
 let state = null;
 let workingSettings = {};
+let workingProfiles = { full: {}, simple: {} };
+let workingContractVersion = 1;
+let editingProfile = "full";
 let workingContent = {};
 let selectedVersionId = null;
 let renderPending = false;
+let previewFits = false;
+let mutationPending = false;
+
+function isProfileBundle(settings) {
+  return Boolean(settings && typeof settings.full === "object" && typeof settings.simple === "object");
+}
 
 function cloneSettings(settings) {
+  if (isProfileBundle(settings)) return { full: cloneSettings(settings.full), simple: cloneSettings(settings.simple) };
   return Object.fromEntries(Object.entries(settings || {}).map(([key, value]) => [key, Number(value)]));
 }
 
 function canonicalSettings(settings) {
+  if (isProfileBundle(settings)) return `v2:${canonicalSettings(settings.full)}:${canonicalSettings(settings.simple)}`;
   return JSON.stringify(Object.keys(settings || {}).sort().map((key) => [key, Number(settings[key])]));
+}
+
+function workspaceSettings() {
+  return workingContractVersion === 2 ? workingProfiles : workingSettings;
+}
+
+function currentDefaults() {
+  return workingContractVersion === 2 ? state.profiles_defaults[editingProfile] : state.defaults;
+}
+
+function currentBounds() {
+  return workingContractVersion === 2 ? state.profiles_bounds : state.bounds;
+}
+
+function upgradeToProfiles() {
+  if (workingContractVersion === 2) return false;
+  const legacy = cloneSettings(workingSettings);
+  workingProfiles = {
+    full: { ...state.profiles_defaults.full, ...legacy },
+    simple: cloneSettings(state.profiles_defaults.simple),
+  };
+  workingContractVersion = 2;
+  workingSettings = workingProfiles[editingProfile];
+  return true;
+}
+
+function simpleEligibility(item) {
+  const data = item && item.product ? item.product : (item || {});
+  return data.plain_traceability === true && data.nutrition_exempt === true
+    && !String(data.ingredients || "").trim() && !String(data.allergens || "").trim()
+    && !String(data.nutrition || "").trim();
+}
+
+function selectedProduct() {
+  if (!sampleSelect.value.startsWith("product:")) return null;
+  return products.find((item) => String(item.id) === sampleSelect.value.slice(8)) || null;
+}
+
+function updateProfileContext() {
+  const product = selectedProduct();
+  const eligible = Boolean(product && simpleEligibility(product));
+  profileButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.profile === editingProfile)));
+  const label = editingProfile === "full" ? "Πλήρης · Full" : "Απλή · Simple";
+  previewProfileBadge.textContent = workingContractVersion === 1 ? "Ιστορική διάταξη · v1" : label;
+  previewProductName.textContent = product ? product.name : "Δοκιμή μεγάλου περιεχομένου";
+  eligibilityBanner.className = `eligibility-banner${editingProfile === "simple" && !eligible ? " is-warning" : ""}`;
+  if (workingContractVersion === 1) {
+    eligibilityBanner.textContent = "Ιστορική έκδοση v1: η προεπισκόπηση διατηρεί την παλιά διάταξη. Η πρώτη αλλαγή δημιουργεί νέα έκδοση δύο προφίλ.";
+  } else if (eligible) {
+    eligibilityBanner.textContent = `Το προϊόν πληροί τους κανόνες της Απλής ετικέτας. Προεπισκόπηση: ${label}.`;
+  } else if (editingProfile === "simple") {
+    eligibilityBanner.textContent = "Προσοχή: το επιλεγμένο προϊόν δεν δικαιούται Απλή ετικέτα. Βλέπεις το προφίλ Simple για επεξεργασία, με όλα τα πραγματικά στοιχεία του προϊόντος. Η εκτύπωση θα επιλέξει Full.";
+  } else {
+    eligibilityBanner.textContent = "Πλήρης ετικέτα: η Απλή απαιτεί απλή ιχνηλασιμότητα, διατροφική εξαίρεση και κενά συστατικά, αλλεργιογόνα και διατροφικά στοιχεία.";
+  }
 }
 
 function cloneContent(content) {
@@ -219,9 +301,10 @@ function labelForField(field) {
 }
 
 function buildControls() {
+  const openGroups = new Set([...controlGroups.querySelectorAll("details[open]")].map((item) => item.dataset.group));
   controlGroups.replaceChildren();
   const groups = new Map();
-  Object.keys(state.defaults || {}).forEach((field) => {
+  Object.keys(currentDefaults() || {}).forEach((field) => {
     const group = groupForField(field);
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group).push(field);
@@ -230,14 +313,15 @@ function buildControls() {
   groups.forEach((fields, groupName) => {
     const details = document.createElement("details");
     details.className = "control-group";
-    details.open = groupName === "title" || groupName === "nutrition";
+    details.dataset.group = groupName;
+    details.open = openGroups.size ? openGroups.has(groupName) : ["logo", "title", "nutrition"].includes(groupName);
     const summary = document.createElement("summary");
     summary.textContent = GROUP_LABELS[groupName] || GROUP_LABELS.other;
     const grid = document.createElement("div");
     grid.className = "control-group-grid";
 
     fields.forEach((field) => {
-      const bounds = state.bounds[field];
+      const bounds = currentBounds()[field];
       const wrapper = document.createElement("div");
       wrapper.className = "layout-control";
       const label = document.createElement("label");
@@ -267,11 +351,13 @@ function buildControls() {
       const update = (event) => {
         const value = Math.max(bounds.minimum, Math.min(bounds.maximum, Math.round(Number(event.target.value))));
         if (!Number.isFinite(value)) return;
+        const upgraded = upgradeToProfiles();
         workingSettings[field] = value;
         number.value = String(value);
         range.value = String(value);
         updateDirtyState();
         schedulePreview();
+        if (upgraded) buildControls();
       };
       number.addEventListener("input", update);
       range.addEventListener("input", update);
@@ -284,9 +370,10 @@ function buildControls() {
 
   const contentDetails = document.createElement("details");
   contentDetails.className = "control-group";
+  contentDetails.dataset.group = "content";
   contentDetails.open = true;
   const contentSummary = document.createElement("summary");
-  contentSummary.textContent = "Νόμιμα στοιχεία παραγωγού και εταιρικό σήμα";
+  contentSummary.textContent = "Κοινά στοιχεία παραγωγού και λογότυπο";
   const contentGrid = document.createElement("div");
   contentGrid.className = "control-group-grid";
   const textFields = [
@@ -309,9 +396,11 @@ function buildControls() {
     input.dataset.contentField = field;
     input.autocomplete = "off";
     input.addEventListener("input", () => {
+      const upgraded = upgradeToProfiles();
       workingContent[field] = input.value;
       updateDirtyState();
       schedulePreview();
+      if (upgraded) buildControls();
     });
     wrapper.append(label, input);
     contentGrid.appendChild(wrapper);
@@ -326,7 +415,7 @@ function buildControls() {
   logoSelect.id = "label-content-logo_asset_id";
   logoSelect.className = "select-control";
   logoSelect.dataset.contentField = "logo_asset_id";
-  [["NONE", "Χωρίς λογότυπο"], ["SKLAVOUNOS_MARK", "Σήμα εταιρείας Sklavounos"]].forEach(([value, title]) => {
+  [["SKLAVOUNOS_ENGLISH", "Sklavounos · Αγγλικό λογότυπο (PDF)"], ["SKLAVOUNOS_MARK", "Sklavounos · Παλαιό εταιρικό σήμα"], ["NONE", "Χωρίς λογότυπο"]].forEach(([value, title]) => {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = title;
@@ -334,13 +423,15 @@ function buildControls() {
   });
   logoSelect.value = String(workingContent.logo_asset_id || "NONE");
   logoSelect.addEventListener("change", () => {
+    const upgraded = upgradeToProfiles();
     workingContent.logo_asset_id = logoSelect.value;
     updateDirtyState();
     schedulePreview();
+    if (upgraded) buildControls();
   });
   const logoHelp = document.createElement("p");
   logoHelp.className = "field-help";
-  logoHelp.textContent = "Επιτρέπεται μόνο το εγκεκριμένο εταιρικό σήμα. Δεν γίνεται μεταφόρτωση αυθαίρετου αρχείου.";
+  logoHelp.textContent = "Κοινή επιλογή και για τα δύο προφίλ. Στη νέα διάταξη το λογότυπο βρίσκεται επάνω, στο κέντρο. Το ύψος του ρυθμίζεται χωριστά ανά προφίλ.";
   logoWrapper.append(logoLabel, logoSelect, logoHelp);
   contentGrid.appendChild(logoWrapper);
   contentDetails.append(contentSummary, contentGrid);
@@ -357,7 +448,7 @@ function syncControlValues() {
 }
 
 function updateDirtyState() {
-  const canonicalWorking = canonicalWorkspace(workingSettings, workingContent);
+  const canonicalWorking = canonicalWorkspace(workspaceSettings(), workingContent);
   const matchingVersion = getVersions().find((version) => canonicalWorkspace(versionSettings(version), versionContent(version)) === canonicalWorking) || null;
   selectedVersionId = matchingVersion ? versionId(matchingVersion) : null;
   const matchesActive = canonicalWorking === canonicalWorkspace(activeSettings(), activeContent());
@@ -374,16 +465,28 @@ function updateDirtyState() {
   versionList.querySelectorAll("input[name='layout-version']").forEach((radio) => {
     radio.checked = matchingVersion ? String(radio.value) === String(versionId(matchingVersion)) : false;
   });
-  saveDraftBtn.disabled = !state || Boolean(matchingVersion);
-  resetBtn.disabled = !state;
-  restoreWorkingBtn.disabled = !state;
-  activateBtn.disabled = !matchingVersion || String(versionId(matchingVersion)) === String(activeVersionId());
+  saveDraftBtn.disabled = mutationPending || !state || Boolean(matchingVersion) || !previewFits || renderPending;
+  resetBtn.disabled = mutationPending || !state || (isProfileBundle(activeSettings()) && !state.schema8_enabled);
+  restoreWorkingBtn.disabled = mutationPending || !state;
+  const needsSchema8 = matchingVersion && isProfileBundle(matchingVersion.settings);
+  activateBtn.disabled = mutationPending || !matchingVersion || !previewFits || renderPending
+    || String(versionId(matchingVersion)) === String(activeVersionId()) || (needsSchema8 && !state.schema8_enabled);
+  autoFitBtn.disabled = mutationPending || !state;
+  profileDefaultsBtn.disabled = mutationPending || !state;
+  updateProfileContext();
 }
 
 function setWorkingVersion(settings, content) {
-  workingSettings = cloneSettings(settings);
+  workingContractVersion = isProfileBundle(settings) ? 2 : 1;
+  if (workingContractVersion === 2) {
+    workingProfiles = cloneSettings(settings);
+    workingSettings = workingProfiles[editingProfile];
+  } else {
+    workingSettings = cloneSettings(settings);
+  }
   workingContent = cloneContent(content);
-  syncControlValues();
+  previewFits = false;
+  buildControls();
   updateDirtyState();
   schedulePreview();
 }
@@ -457,9 +560,9 @@ function wrappedLines(text, width) {
   return lines;
 }
 
-function drawFittedText(text, rect, options, failures) {
+function fittedText(text, rect, options) {
   const value = String(text || "").trim();
-  if (!value) return true;
+  if (!value) return { size: options.maximum, lines: [], lineHeight: 0 };
   const maximum = Number(options.maximum);
   const minimum = Number(options.minimum);
   const noWrap = Boolean(options.noWrap);
@@ -474,9 +577,23 @@ function drawFittedText(text, rect, options, failures) {
       break;
     }
   }
+  return chosen;
+}
+
+function drawFittedText(text, rect, options, failures) {
+  const value = String(text || "").trim();
+  if (!value) return true;
+  let chosen = fittedText(value, rect, options);
   if (!chosen) {
     failures.push(options.label);
-    chosen = { size: minimum, lines: noWrap ? [value] : wrappedLines(value, rect.width), lineHeight: minimum * 1.16 };
+    // Schema 8 fails closed: never display an ellipsis or a clipped legal value.
+    if (workingContractVersion === 2) return false;
+    ctx.font = fontString(options.minimum, options.bold);
+    chosen = { size: options.minimum, lines: options.noWrap ? [value] : wrappedLines(value, rect.width), lineHeight: options.minimum * 1.16 };
+  }
+  if (workingContractVersion === 2 && options.body && rect.y + rect.height > 449) {
+    failures.push(`${options.label}: υπέρβαση της περιοχής 449 px`);
+    return false;
   }
   ctx.font = fontString(chosen.size, options.bold);
   ctx.textAlign = options.align || "center";
@@ -500,12 +617,20 @@ function setting(name, fallback) {
 }
 
 function minimumFor(field) {
-  return state && state.bounds[field] ? state.bounds[field].minimum : (FIXED_MINIMUMS[field] ?? 8);
+  const bounds = state ? currentBounds() : {};
+  return bounds[field] ? bounds[field].minimum : (FIXED_MINIMUMS[field] ?? 8);
 }
 
 function splitNutrition(value) {
-  const clean = String(value || "").replace(/^\s*Ανά\s+100\s*g\s*:\s*/iu, "");
-  return clean.split(/,\s+(?=[^0-9])/u).map((entry) => entry.trim()).filter(Boolean).slice(0, 8);
+  let clean = String(value || "").trim();
+  const heading = /^\s*(?:(?:Ανά|Per)\s*100\s*g\s*:?\s*|Θερμίδες\s+και\s+Συστατικά\s*\(\s*ανά\s*100\s*g\s*\)\s*:?\s*)/iu;
+  while (heading.test(clean)) clean = clean.replace(heading, "");
+  // Consume the complete label so a shorter name inside it is not split twice.
+  // No word boundary: existing entries may contain "kcalΠρωτεΐνη" or "gΛιπαρά".
+  const nutrient = /(?:Ενεργειακή\s+αξία|Ενέργεια|Θερμίδες|Energy|Εκ\s+των\s+οποίων\s+κορεσμένα|of\s+which\s+saturates|Κορεσμένα|Εκ\s+των\s+οποίων\s+σάκχαρα|of\s+which\s+sugars|Σάκχαρα|Υδατάνθρακες|Carbohydrates?|Πρωτεΐνες|Πρωτεΐνη|Proteins?|Εδώδιμες\s+ίνες|Φυτικές\s+ίνες|Fibre|Fiber|Ίνες|Λιπαρά|Λίπη|Fat|Αλάτι|Salt)(?=\s*:?\s*[0-9])/giu;
+  clean = clean.replace(nutrient, "\n$&");
+  return clean.split(/(?:\r\n|[\r\n\u0085\u2028\u2029;|])|,\s*(?=\p{L})/u)
+    .map((entry) => entry.trim()).filter(Boolean);
 }
 
 function approvalParts(value) {
@@ -517,22 +642,24 @@ function approvalParts(value) {
   return [country, tokens.join(" ") || "—", suffix];
 }
 
-function drawCompanyLogo(assetId, failures) {
+function drawCompanyLogo(assetId, failures, box = { x: 17, y: 478, width: 50, height: 64 }) {
   if (assetId === "NONE") return false;
-  if (assetId !== "SKLAVOUNOS_MARK") {
+  if (!["SKLAVOUNOS_MARK", "SKLAVOUNOS_ENGLISH"].includes(assetId)
+      || (assetId === "SKLAVOUNOS_ENGLISH" && workingContractVersion !== 2)) {
     failures.push("Μη εγκεκριμένο εταιρικό λογότυπο");
     return false;
   }
-  if (!companyLogoReady || !companyLogo.naturalWidth || !companyLogo.naturalHeight) {
+  const logo = assetId === "SKLAVOUNOS_ENGLISH" ? englishLogo : companyLogo;
+  const ready = assetId === "SKLAVOUNOS_ENGLISH" ? englishLogoReady : companyLogoReady;
+  if (!ready || !logo.naturalWidth || !logo.naturalHeight) {
     failures.push("Το εταιρικό λογότυπο δεν φορτώθηκε");
     return false;
   }
-  const box = { x: 17, y: 478, width: 50, height: 64 };
-  const scale = Math.min(box.width / companyLogo.naturalWidth, box.height / companyLogo.naturalHeight);
-  const width = companyLogo.naturalWidth * scale;
-  const height = companyLogo.naturalHeight * scale;
+  const scale = Math.min(box.width / logo.naturalWidth, box.height / logo.naturalHeight);
+  const width = logo.naturalWidth * scale;
+  const height = logo.naturalHeight * scale;
   ctx.drawImage(
-    companyLogo,
+    logo,
     box.x + ((box.width - width) / 2),
     box.y + ((box.height - height) / 2),
     width,
@@ -557,6 +684,7 @@ function thresholdCanvas() {
 
 function renderPreview() {
   renderPending = false;
+  if (!state) return;
   const sample = sampleData();
   const failures = [];
   ctx.fillStyle = "#fff";
@@ -565,6 +693,12 @@ function renderPreview() {
   ctx.fillStyle = "#000";
   ctx.lineWidth = 1;
   let y = 7;
+  const profileLayout = workingContractVersion === 2;
+  if (profileLayout && sample.logoAssetId !== "NONE") {
+    const logoHeight = setting("logo_height_px", editingProfile === "simple" ? 80 : 48);
+    drawCompanyLogo(sample.logoAssetId, failures, { x: 14, y, width: 372, height: logoHeight });
+    y += logoHeight + setting("logo_gap_after_px", 6);
+  }
 
   const drawSection = (text, fontField, heightField, options = {}) => {
     const height = setting(heightField, options.height || 24);
@@ -573,6 +707,7 @@ function renderPreview() {
       minimum: minimumFor(fontField),
       bold: Boolean(options.bold),
       noWrap: Boolean(options.noWrap),
+      body: true,
       label: options.label || labelForField(fontField),
     }, failures);
     y += height;
@@ -587,24 +722,32 @@ function renderPreview() {
   }
 
   const nutrition = splitNutrition(sample.nutrition);
+  if (sample.nutrition && !nutrition.length) failures.push("Δεν υπάρχουν διατροφικά στοιχεία μετά την επικεφαλίδα");
+  if (nutrition.length > 8) failures.push("Η διατροφική δήλωση ξεπερνά τις 8 σειρές");
   if (nutrition.length) {
     const headingHeight = setting("nutrition_heading_height_px", 19);
     drawFittedText("ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ ΑΝΑ 100 g", { x: 14, y, width: 372, height: headingHeight }, {
-      maximum: setting("nutrition_heading_font_px", 12), minimum: minimumFor("nutrition_heading_font_px"), bold: true, noWrap: true, label: "Επικεφαλίδα διατροφικής δήλωσης",
+      maximum: setting("nutrition_heading_font_px", 12), minimum: minimumFor("nutrition_heading_font_px"), bold: true, noWrap: true, body: true, label: "Επικεφαλίδα διατροφικής δήλωσης",
     }, failures);
     y += headingHeight;
-    const rowHeight = setting("nutrition_row_height_px", 22);
+    const trailingHeight = setting("dates_height_px", 24) + setting("lot_height_px", 23)
+      + setting("storage_height_px", 28) + setting("origin_height_px", 21)
+      + (sample.sourceLot ? setting("source_lot_height_px", 20) : 0)
+      + (sample.usage ? setting("usage_height_px", 33) : 0);
+    const rowBudget = 449 - y - setting("nutrition_gap_after_px", 4) - trailingHeight;
+    const fittedRowHeight = Math.min(setting("nutrition_row_height_px", 22), Math.floor(rowBudget / nutrition.length));
+    if (fittedRowHeight < 14) failures.push("Οι διατροφικές σειρές δεν χωρούν χωρίς να καλύψουν τα υπόλοιπα στοιχεία");
+    const rowHeight = Math.max(14, fittedRowHeight);
     nutrition.forEach((entry, index) => {
-      const column = index % 2;
-      const row = Math.floor(index / 2);
-      const x = 14 + column * 186;
-      const cellY = y + row * rowHeight;
-      ctx.strokeRect(x, cellY, 186, rowHeight);
-      drawFittedText(entry, { x: x + 4, y: cellY, width: 178, height: rowHeight }, {
-        maximum: setting("nutrition_cell_font_px", 11), minimum: minimumFor("nutrition_cell_font_px"), noWrap: true, label: `Διατροφικό στοιχείο ${index + 1}`,
+      const cellWidth = 372;
+      const x = 14;
+      const cellY = y + index * rowHeight;
+      if (!profileLayout || cellY + rowHeight <= 449) ctx.strokeRect(x, cellY, cellWidth, rowHeight);
+      drawFittedText(entry, { x: x + 4, y: cellY, width: cellWidth - 8, height: rowHeight }, {
+        maximum: setting("nutrition_cell_font_px", 11), minimum: minimumFor("nutrition_cell_font_px"), noWrap: true, body: true, label: `Διατροφικό στοιχείο ${index + 1}`,
       }, failures);
     });
-    y += Math.ceil(nutrition.length / 2) * rowHeight + setting("nutrition_gap_after_px", 4);
+    y += nutrition.length * rowHeight + setting("nutrition_gap_after_px", 4);
   }
 
   drawSection(`ΠΑΡΑΓΩΓΗ: ${sample.productionDate}     ΑΝΑΛΩΣΗ ΕΩΣ: ${sample.useByDate}`, "dates_font_px", "dates_height_px", { bold: true, noWrap: true, height: 24, maximum: 13, label: "Ημερομηνίες" });
@@ -614,6 +757,8 @@ function renderPreview() {
   drawSection(`ΠΡΟΕΛΕΥΣΗ: ${sample.origin}`, "origin_font_px", "origin_height_px", { noWrap: true, height: 21, maximum: 11, label: "Προέλευση" });
   if (sample.usage) drawSection(sample.usage, "usage_font_px", "usage_height_px", { height: 33, maximum: 11, label: "Οδηγίες χρήσης" });
 
+  // Keep the stored v1 layout reservation compatible with existing snapshots.
+  // Actual one-per-row nutrition capacity is checked against the footer above.
   const protectedWorstCaseBottom = 7
     + setting("title_height_px", 42)
     + setting("legal_name_height_px", 29)
@@ -629,7 +774,7 @@ function renderPreview() {
     + setting("storage_height_px", 28)
     + setting("origin_height_px", 21)
     + setting("usage_height_px", 33);
-  if (protectedWorstCaseBottom > 449) failures.push(`Η πλήρης διάταξη φτάνει στα ${protectedWorstCaseBottom}px (όριο 449px)`);
+  if (!profileLayout && protectedWorstCaseBottom > 449) failures.push(`Η πλήρης διάταξη φτάνει στα ${protectedWorstCaseBottom}px (όριο 449px)`);
   if (y > 449) failures.push(`Το κύριο περιεχόμενο φτάνει στα ${y}px (όριο 449px)`);
   ctx.beginPath();
   ctx.moveTo(14, 452);
@@ -639,7 +784,7 @@ function renderPreview() {
   drawFittedText(sample.footerCaption, { x: 14, y: 456, width: 278, height: 18 }, {
     maximum: setting("footer_caption_font_px", 10), minimum: minimumFor("footer_caption_font_px"), noWrap: true, label: "Λεζάντα παραγωγού",
   }, failures);
-  const hasCompanyLogo = drawCompanyLogo(sample.logoAssetId, failures);
+  const hasCompanyLogo = profileLayout ? false : drawCompanyLogo(sample.logoAssetId, failures);
   const footerTextX = hasCompanyLogo ? 72 : 14;
   const footerTextWidth = hasCompanyLogo ? 220 : 278;
   drawFittedText(sample.businessName, { x: footerTextX, y: 473, width: footerTextWidth, height: 31 }, {
@@ -665,6 +810,9 @@ function renderPreview() {
 
   thresholdCanvas();
   const uniqueFailures = [...new Set(failures)];
+  previewFits = uniqueFailures.length === 0;
+  bodySpaceBar.style.width = `${Math.max(0, Math.min(100, ((y - 7) / 442) * 100))}%`;
+  bodySpaceBar.className = previewFits ? "" : "is-overflow";
   if (uniqueFailures.length === 0) {
     fitCard.dataset.fit = "yes";
     fitTitle.textContent = "Χωράει στο 50×70";
@@ -674,13 +822,130 @@ function renderPreview() {
     fitTitle.textContent = "Χρειάζεται προσαρμογή";
     fitDetail.textContent = uniqueFailures.slice(0, 3).join(" · ");
   }
+  updateDirtyState();
 }
 
 function schedulePreview() {
+  autoFitDetail.textContent = `Προσαρμόζει μόνο το προφίλ ${editingProfile === "full" ? "Full" : "Simple"} στο ορατό περιεχόμενο. Το υποσέλιδο και το άλλο προφίλ παραμένουν αμετάβλητα.`;
   if (renderPending) return;
   renderPending = true;
+  previewFits = false;
+  if (state) updateDirtyState();
   window.requestAnimationFrame(renderPreview);
 }
+
+function bodySections(sample) {
+  const sections = [];
+  const add = (font, height, text, extra = {}) => sections.push({ font, height, texts: [text], count: 1, width: 372, ...extra });
+  add("title_font_px", "title_height_px", sample.displayName, { bold: true });
+  add("legal_name_font_px", "legal_name_height_px", sample.legalName);
+  if (sample.ingredients) add("ingredients_font_px", "ingredients_height_px", `Συστατικά: ${sample.ingredients}`);
+  if (sample.allergens) add("allergens_font_px", "allergens_height_px", `ΑΛΛΕΡΓΙΟΓΟΝΑ: ${sample.allergens}`, { bold: true });
+  const nutrition = splitNutrition(sample.nutrition);
+  if (sample.nutrition && !nutrition.length) throw new Error("Η διατροφική δήλωση περιέχει μόνο επικεφαλίδα.");
+  if (nutrition.length > 8) throw new Error("Η διατροφική δήλωση ξεπερνά τις 8 σειρές. Έλεγξε το προϊόν.");
+  if (nutrition.length) {
+    add("nutrition_heading_font_px", "nutrition_heading_height_px", "ΔΙΑΤΡΟΦΙΚΗ ΔΗΛΩΣΗ ΑΝΑ 100 g", { bold: true, noWrap: true });
+    add("nutrition_cell_font_px", "nutrition_row_height_px", "", { texts: nutrition, count: nutrition.length, width: 364, noWrap: true });
+  }
+  add("dates_font_px", "dates_height_px", `ΠΑΡΑΓΩΓΗ: ${sample.productionDate}     ΑΝΑΛΩΣΗ ΕΩΣ: ${sample.useByDate}`, { bold: true, noWrap: true });
+  add("lot_font_px", "lot_height_px", `LOT: ${sample.lot}`, { noWrap: true });
+  if (sample.sourceLot) add("source_lot_font_px", "source_lot_height_px", `ΠΑΡΤΙΔΑ ΠΗΓΗΣ: ${sample.sourceLot}`, { noWrap: true });
+  add("storage_font_px", "storage_height_px", sample.storage, { bold: true });
+  add("origin_font_px", "origin_height_px", `ΠΡΟΕΛΕΥΣΗ: ${sample.origin}`, { noWrap: true });
+  if (sample.usage) add("usage_font_px", "usage_height_px", sample.usage);
+  return sections;
+}
+
+function measuredSectionHeight(section, size, bounds) {
+  ctx.font = fontString(size, section.bold);
+  let lineCount = 1;
+  for (const text of section.texts) {
+    const lines = section.noWrap ? [String(text)] : wrappedLines(text, section.width);
+    if (lines.some((line) => ctx.measureText(line).width > section.width)) return null;
+    lineCount = Math.max(lineCount, lines.length);
+  }
+  const height = Math.max(bounds[section.height].minimum, Math.ceil(lineCount * size * 1.16) + 2);
+  return height <= bounds[section.height].maximum ? height : null;
+}
+
+function autoFitProfile(settings, sample, bounds) {
+  const candidate = cloneSettings(settings);
+  const sections = bodySections(sample);
+  const gapFields = [];
+  const hasLogo = sample.logoAssetId !== "NONE";
+  if (hasLogo) {
+    candidate.logo_height_px = Math.max(bounds.logo_height_px.minimum, Math.min(bounds.logo_height_px.maximum, Number(settings.logo_height_px)));
+    gapFields.push("logo_gap_after_px");
+  }
+  if (sample.allergens) gapFields.push("allergens_gap_after_px");
+  if (splitNutrition(sample.nutrition).length) gapFields.push("nutrition_gap_after_px");
+  gapFields.forEach((field) => { candidate[field] = bounds[field].minimum; });
+  for (const section of sections) {
+    candidate[section.font] = bounds[section.font].minimum;
+    const height = measuredSectionHeight(section, candidate[section.font], bounds);
+    if (height === null) throw new Error(`${labelForField(section.font)}: το πλήρες κείμενο δεν χωρά στο ελάχιστο ασφαλές μέγεθος.`);
+    candidate[section.height] = height;
+  }
+  const bottom = () => 7 + (hasLogo ? candidate.logo_height_px : 0)
+    + gapFields.reduce((total, field) => total + candidate[field], 0)
+    + sections.reduce((total, section) => total + candidate[section.height] * section.count, 0);
+  if (hasLogo && bottom() > 449) candidate.logo_height_px = Math.max(bounds.logo_height_px.minimum, candidate.logo_height_px - (bottom() - 449));
+  if (bottom() > 449) throw new Error(`Το προϊόν απαιτεί τουλάχιστον ${bottom()} px. Δεν γίνεται ασφαλής αυτόματη προσαρμογή χωρίς απώλεια περιεχομένου.`);
+
+  // Grow every visible field independently. Width, wrapping, row count and the
+  // immutable footer boundary all participate in each candidate measurement.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const section of sections) {
+      const nextSize = candidate[section.font] + 1;
+      if (nextSize > bounds[section.font].maximum) continue;
+      const nextHeight = measuredSectionHeight(section, nextSize, bounds);
+      if (nextHeight === null) continue;
+      if (bottom() + (nextHeight - candidate[section.height]) * section.count > 449) continue;
+      candidate[section.font] = nextSize;
+      candidate[section.height] = nextHeight;
+      changed = true;
+    }
+  }
+  // Allocate remaining space as breathing room; never change footer settings or
+  // hidden fields. A row-height increment costs one pixel for every visible row.
+  const spacers = [
+    ...(hasLogo ? [{ field: "logo_height_px", count: 1 }] : []),
+    ...gapFields.map((field) => ({ field, count: 1 })),
+    ...sections.map((section) => ({ field: section.height, count: section.count })),
+  ];
+  changed = true;
+  while (changed) {
+    changed = false;
+    for (const spacer of spacers) {
+      if (candidate[spacer.field] >= bounds[spacer.field].maximum || bottom() + spacer.count > 449) continue;
+      candidate[spacer.field] += 1;
+      changed = true;
+    }
+  }
+  return { settings: candidate, bottom: bottom(), sections: sections.length };
+}
+
+autoFitBtn.addEventListener("click", () => {
+  if (!state || mutationPending) return;
+  upgradeToProfiles();
+  try {
+    const result = autoFitProfile(workingSettings, sampleData(), currentBounds());
+    workingProfiles[editingProfile] = result.settings;
+    workingSettings = workingProfiles[editingProfile];
+    buildControls();
+    renderPreview();
+    autoFitDetail.textContent = `${editingProfile === "full" ? "Full" : "Simple"}: προσαρμόστηκαν ${result.sections} ορατές ενότητες έως ${result.bottom} / 449 px. Το άλλο προφίλ και το υποσέλιδο δεν άλλαξαν.`;
+    showToast(previewFits ? "Η αυτόματη προσαρμογή ολοκληρώθηκε. Αποθήκευσε τη νέα έκδοση όταν είσαι έτοιμος." : "Το κυρίως περιεχόμενο προσαρμόστηκε. Έλεγξε τις υπόλοιπες προειδοποιήσεις πριν αποθηκεύσεις.", previewFits ? "success" : "error");
+  } catch (error) {
+    buildControls();
+    schedulePreview();
+    autoFitDetail.textContent = error.message;
+    showToast(error.message, "error");
+  }
+});
 
 function renderVersions() {
   versionList.replaceChildren();
@@ -703,13 +968,16 @@ function renderVersions() {
     const badge = document.createElement("span");
     const active = String(id) === String(activeVersionId()) || version.is_active === true || version.status === "ACTIVE";
     badge.className = `badge ${active ? "badge-active" : "badge-draft"}`;
-    badge.textContent = active ? "ΕΝΕΡΓΗ" : "DRAFT";
+    badge.textContent = active ? "ΕΝΕΡΓΗ" : "ΠΡΟΣΧΕΔΙΟ";
+    const contractBadge = document.createElement("span");
+    contractBadge.className = "badge badge-muted";
+    contractBadge.textContent = isProfileBundle(version.settings) ? "v2 · Full + Simple" : "v1 · Ιστορική";
     const creator = document.createElement("span");
     const creatorId = version.created_by_user_id;
     creator.textContent = version.created_by_username || version.created_by || (creatorId ? `user #${creatorId}` : "SYSTEM");
     const created = document.createElement("span");
     created.textContent = formatTimestamp(version.created_at);
-    meta.append(badge, creator, created);
+    meta.append(badge, contractBadge, creator, created);
     const reason = document.createElement("p");
     reason.className = "version-reason";
     reason.textContent = version.change_reason || version.reason || "Χωρίς καταγεγραμμένη αιτιολογία";
@@ -739,21 +1007,23 @@ async function loadState({ keepSelection = false } = {}) {
     state.content_defaults = cloneContent(state.content_defaults || (state.active && state.active.content) || {});
     state.bounds = normalizeBounds(state.bounds || {}, state.defaults);
     if (!Object.keys(state.defaults).length) throw new Error("Το backend δεν επέστρεψε το canonical layout contract.");
+    if (!isProfileBundle(state.profiles_defaults)) throw new Error("Απαιτείται backend με υποστήριξη δύο προφίλ (contract 2).");
+    state.profiles_defaults = cloneSettings(state.profiles_defaults);
+    state.profiles_bounds = normalizeBounds(state.profiles_bounds || {}, state.profiles_defaults.full);
     runtimeBanner.hidden = false;
-    runtimeBanner.className = `runtime-banner${state.schema6_enabled || state.schema7_enabled ? " is-live" : ""}`;
-    runtimeBanner.textContent = state.schema7_enabled
-      ? "Η ενεργή έκδοση διάταξης και νόμιμων στοιχείων εφαρμόζεται στις νέες εργασίες ως immutable schema 7 snapshot. Οι queued εργασίες δεν αλλάζουν."
-      : (state.schema6_enabled
-        ? "Η ενεργή διάταξη εφαρμόζεται στις νέες εργασίες. Τα νόμιμα στοιχεία και το εταιρικό σήμα παραμένουν κλειστά από το schema 7 feature gate."
-        : "Η έκδοση μπορεί να ρυθμιστεί με ασφάλεια, αλλά η εφαρμογή της στις νέες εκτυπώσεις παραμένει κλειστή από τα feature gates.");
+    runtimeBanner.className = `runtime-banner${state.schema8_enabled ? " is-live" : ""}`;
+    runtimeBanner.textContent = state.schema8_enabled
+      ? "Schema 8: ΕΝΕΡΓΟ. Οι νέες εκδόσεις δύο προφίλ μπορούν να ενεργοποιηθούν για νέες εργασίες. Τα υπάρχοντα στιγμιότυπα εκτύπωσης παραμένουν αμετάβλητα."
+      : "Schema 8: ΑΝΕΝΕΡΓΟ. Μπορείς να σχεδιάσεις και να αποθηκεύσεις προσχέδια Full + Simple. Η ενεργοποίησή τους απαιτεί ρητή ενεργοποίηση του feature gate από τη διαχείριση· δεν αλλάζουν οι εκτυπώσεις.";
     if (!keepSelection || !selectedVersion()) selectedVersionId = activeVersionId();
-    workingSettings = selectedVersion() ? versionSettings(selectedVersion()) : activeSettings();
-    workingContent = selectedVersion() ? versionContent(selectedVersion()) : activeContent();
-    buildControls();
+    setWorkingVersion(selectedVersion() ? versionSettings(selectedVersion()) : activeSettings(), selectedVersion() ? versionContent(selectedVersion()) : activeContent());
     renderVersions();
     updateDirtyState();
     schedulePreview();
   } catch (error) {
+    previewFits = false;
+    state = null;
+    updateDirtyState();
     fitCard.dataset.fit = "no";
     fitTitle.textContent = "Ο σχεδιαστής δεν φορτώθηκε";
     fitDetail.textContent = error.message;
@@ -764,7 +1034,8 @@ async function loadState({ keepSelection = false } = {}) {
 }
 
 async function mutate(path, body, successMessage, { selectCreated = false } = {}) {
-  [saveDraftBtn, activateBtn, resetBtn].forEach((button) => { button.disabled = true; });
+  mutationPending = true;
+  updateDirtyState();
   try {
     const result = await api(path, { method: "POST", body: JSON.stringify(body) });
     reasonInput.value = "";
@@ -774,20 +1045,31 @@ async function mutate(path, body, successMessage, { selectCreated = false } = {}
   } catch (error) {
     if (error.status === 409) showToast("Η διάταξη άλλαξε από άλλη συνεδρία. Έγινε ανανέωση· έλεγξε ξανά πριν συνεχίσεις.", "error");
     else showToast(error.message, "error");
-    await loadState({ keepSelection: true });
+    // Keep edits after a validation/network failure; reload only on an actual conflict.
+    if (error.status === 409) await loadState({ keepSelection: true });
+  } finally {
+    mutationPending = false;
+    updateDirtyState();
   }
 }
 
 saveDraftBtn.addEventListener("click", async () => {
+  if (mutationPending) return;
+  upgradeToProfiles();
+  renderPreview();
+  if (!previewFits) return showToast("Η προεπισκόπηση δεν χωρά. Προσάρμοσε το προφίλ πριν από την αποθήκευση.", "error");
   const reason = requireReason();
   if (!reason) return;
-  await mutate("", { settings: workingSettings, content: workingContent, reason, expected_version: versionToken() }, "Η νέα έκδοση αποθηκεύτηκε ως draft.", { selectCreated: true });
+  await mutate("", { settings: cloneSettings(workingProfiles), content: workingContent, reason, expected_version: versionToken() }, "Η νέα έκδοση Full + Simple αποθηκεύτηκε ως προσχέδιο.", { selectCreated: true });
 });
 
 activateBtn.addEventListener("click", async () => {
   const reason = requireReason();
   const version = selectedVersion();
   if (!reason || !version) return;
+  if (isProfileBundle(version.settings) && !state.schema8_enabled) return showToast("Η ενεργοποίηση δύο προφίλ απαιτεί Schema 8: ΕΝΕΡΓΟ.", "error");
+  renderPreview();
+  if (!previewFits || mutationPending) return;
   await mutate(`/${encodeURIComponent(versionId(version))}/activate`, { reason, expected_version: versionToken() }, "Η επιλεγμένη διάταξη ενεργοποιήθηκε.");
 });
 
@@ -804,7 +1086,38 @@ restoreWorkingBtn.addEventListener("click", () => {
   renderVersions();
 });
 
-refreshBtn.addEventListener("click", () => loadState({ keepSelection: true }));
-sampleSelect.addEventListener("change", schedulePreview);
+refreshBtn.addEventListener("click", () => {
+  if (!selectedVersion() && !window.confirm("Η ανανέωση θα απορρίψει τις μη αποθηκευμένες αλλαγές. Συνέχεια;")) return;
+  loadState({ keepSelection: true });
+});
+sampleSelect.addEventListener("change", () => {
+  const product = selectedProduct();
+  editingProfile = product && simpleEligibility(product) ? "simple" : "full";
+  if (workingContractVersion === 2) workingSettings = workingProfiles[editingProfile];
+  buildControls();
+  schedulePreview();
+});
+profileButtons.forEach((button) => button.addEventListener("click", () => {
+  if (!state || mutationPending) return;
+  editingProfile = button.dataset.profile;
+  upgradeToProfiles();
+  workingSettings = workingProfiles[editingProfile];
+  buildControls();
+  schedulePreview();
+}));
+profileDefaultsBtn.addEventListener("click", () => {
+  if (!state || mutationPending) return;
+  upgradeToProfiles();
+  workingProfiles[editingProfile] = cloneSettings(state.profiles_defaults[editingProfile]);
+  workingSettings = workingProfiles[editingProfile];
+  buildControls();
+  schedulePreview();
+  showToast(`Επαναφέρθηκαν μόνο οι ρυθμίσεις του προφίλ ${editingProfile === "full" ? "Full" : "Simple"}. Απαιτείται αποθήκευση.`);
+});
+
+if (products.length) {
+  sampleSelect.value = `product:${products[0].id}`;
+  editingProfile = simpleEligibility(products[0]) ? "simple" : "full";
+}
 
 loadState();

@@ -36,6 +36,7 @@ function Get-HprtPrintHistory {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try {
             $event = $line | ConvertFrom-Json -ErrorAction Stop
+            $timestamp = [DateTimeOffset]::Parse([string]$event.timestamp, [Globalization.CultureInfo]::InvariantCulture)
             $profile = switch ([string]$event.profile) {
                 'INTERNAL' { 'Εσωτερική 50×70' }
                 'DISTRIBUTION' { 'Ενιαία 50×70' }
@@ -43,6 +44,9 @@ function Get-HprtPrintHistory {
             }
             $history.Add([pscustomobject]@{
                 Time = Get-DisplayTime -Value ([string]$event.timestamp)
+                Timestamp = $timestamp.ToString('o')
+                SortTimestampUtc = $timestamp.UtcDateTime.Ticks
+                PrintSucceeded = ([string]$event.result -eq 'PRINTED')
                 Job = "#$([int]$event.job_id)"
                 Label = "$profile · $([string]$event.product)"
                 Copies = [string]$event.copies
@@ -51,7 +55,33 @@ function Get-HprtPrintHistory {
         }
         catch { }
     }
-    return @($history | Select-Object -Last $Limit | Sort-Object Time -Descending)
+    return @($history | Sort-Object SortTimestampUtc -Descending | Select-Object -First $Limit)
+}
+
+function Get-HprtLastPrintTime {
+    param([AllowNull()][string]$StateTimestamp, [object[]]$History = @())
+    $latest = $null
+    foreach ($value in @($StateTimestamp) + @($History | Where-Object { $_.PrintSucceeded } | ForEach-Object { $_.Timestamp })) {
+        if ([string]::IsNullOrWhiteSpace([string]$value)) { continue }
+        try {
+            $candidate = [DateTimeOffset]::Parse([string]$value, [Globalization.CultureInfo]::InvariantCulture)
+            if ($null -eq $latest -or $candidate -gt $latest) { $latest = $candidate }
+        }
+        catch { }
+    }
+    if ($null -eq $latest) { return 'Δεν υπάρχει ακόμη' }
+    return Get-DisplayTime -Value $latest.ToString('o')
+}
+
+function Get-HprtInstalledVersion {
+    $path = Join-Path $InstallRoot 'PACKAGE-MANIFEST.json'
+    try {
+        $manifest = Get-Content -LiteralPath $path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $version = [string]$manifest.version
+        if ($version -match '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') { return $version }
+    }
+    catch { }
+    return 'Μη διαθέσιμη'
 }
 
 function Get-HprtStatusSnapshot {
@@ -94,7 +124,7 @@ function Get-HprtStatusSnapshot {
     $queueState = if ($status) { [string]$status.queue_state } else { 'STARTING' }
     $currentJob = if ($status -and $status.current_job_id) { "#$([int]$status.current_job_id)" } else { '—' }
     $history = @(Get-HprtPrintHistory -Limit 10)
-    $lastPrint = if ($history.Count -gt 0) { [string]$history[0].Time } elseif ($status) { Get-DisplayTime -Value ([string]$status.last_print) } else { 'Δεν υπάρχει ακόμη' }
+    $lastPrint = Get-HprtLastPrintTime -StateTimestamp $(if ($status) { [string]$status.last_print } else { '' }) -History $history
     $lastError = if ($status -and -not [string]::IsNullOrWhiteSpace([string]$status.last_error)) {
         switch ([string]$status.last_error) {
             'LABEL_CONTENT_TOO_LARGE' { 'Το περιεχόμενο δεν χωρά στην ετικέτα 50×70' }
@@ -159,6 +189,7 @@ function Get-HprtStatusSnapshot {
     }
 
     return [pscustomobject]@{
+        Version = Get-HprtInstalledVersion
         StatusCode = $statusCode
         StatusTitle = $statusTitle
         StatusDetail = $statusDetail
@@ -256,6 +287,15 @@ $mediaBadge.ForeColor = $palette.Orange
 $mediaBadge.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
 $mediaBadge.Anchor = 'Top,Right'
 $header.Controls.Add($mediaBadge)
+
+$versionLabel = New-Object Windows.Forms.Label
+$versionLabel.Location = New-Object Drawing.Point(610, 62)
+$versionLabel.Size = New-Object Drawing.Size(200, 22)
+$versionLabel.TextAlign = 'MiddleCenter'
+$versionLabel.ForeColor = $palette.Muted
+$versionLabel.Font = New-Object Drawing.Font('Segoe UI', 10)
+$versionLabel.Anchor = 'Top,Right'
+$header.Controls.Add($versionLabel)
 
 $statusPanel = New-Object Windows.Forms.Panel
 $statusPanel.Location = New-Object Drawing.Point(26, 108)
@@ -414,14 +454,86 @@ $closeButton.ForeColor = $palette.Muted
 
 $updatedLabel = New-Object Windows.Forms.Label
 $updatedLabel.Location = New-Object Drawing.Point(28, 795)
-$updatedLabel.Size = New-Object Drawing.Size(780, 22)
+$updatedLabel.Size = New-Object Drawing.Size(380, 22)
 $updatedLabel.ForeColor = $palette.Muted
 $updatedLabel.Anchor = 'Bottom,Left,Right'
 $form.Controls.Add($updatedLabel)
 
+$creatorCredit = New-Object Windows.Forms.Button
+$creatorCredit.Location = New-Object Drawing.Point(475, 785)
+$creatorCredit.Size = New-Object Drawing.Size(338, 45)
+$creatorCredit.Anchor = 'Bottom,Right'
+$creatorCredit.FlatStyle = 'Flat'
+$creatorCredit.FlatAppearance.BorderSize = 0
+$creatorCredit.BackColor = $palette.Background
+$creatorCredit.AccessibleName = 'RAW LOGIC. REAL SYSTEMS. — Created by Christos Fragoulis'
+$creatorCredit.AccessibleDescription = 'Σχετικά με τον EFET Print Agent και την έκδοση εγκατάστασης'
+$signaturePath = Join-Path $InstallRoot 'creator-signature.png'
+if (Test-Path -LiteralPath $signaturePath -PathType Leaf) {
+    $signatureStream = New-Object IO.MemoryStream(,[IO.File]::ReadAllBytes($signaturePath))
+    try {
+        $signatureSource = [Drawing.Image]::FromStream($signatureStream)
+        try { $creatorCredit.BackgroundImage = New-Object Drawing.Bitmap($signatureSource) }
+        finally { $signatureSource.Dispose() }
+    }
+    finally { $signatureStream.Dispose() }
+    $creatorCredit.BackgroundImageLayout = 'Zoom'
+    $form.Add_FormClosed({ if ($null -ne $creatorCredit.BackgroundImage) { $creatorCredit.BackgroundImage.Dispose() } })
+}
+else {
+    $creatorCredit.Text = "RAW LOGIC. REAL SYSTEMS.`r`nCreated by Christos Fragoulis"
+    $creatorCredit.Font = New-Object Drawing.Font('Segoe UI', 9)
+}
+$creatorCredit.Add_Click({
+    $about = New-Object Windows.Forms.Form
+    $about.Text = 'Σχετικά με τον EFET Print Agent'
+    $about.ClientSize = New-Object Drawing.Size(440, 230)
+    $about.StartPosition = 'CenterParent'
+    $about.FormBorderStyle = 'FixedDialog'
+    $about.MaximizeBox = $false
+    $about.MinimizeBox = $false
+    $about.BackColor = $palette.Background
+    $about.ForeColor = $palette.Text
+    $about.Font = New-Object Drawing.Font('Segoe UI', 10)
+    $aboutTitle = New-Object Windows.Forms.Label
+    $aboutTitle.Location = New-Object Drawing.Point(20, 18)
+    $aboutTitle.Size = New-Object Drawing.Size(400, 55)
+    $aboutTitle.Text = "EFET Print Agent · WORKSHOP`r`nΈκδοση εγκατάστασης: $(Get-HprtInstalledVersion)"
+    $about.Controls.Add($aboutTitle)
+    $aboutCredit = New-Object Windows.Forms.Label
+    $aboutCredit.Location = New-Object Drawing.Point(20, 85)
+    $aboutCredit.Size = New-Object Drawing.Size(400, 60)
+    $aboutCredit.AccessibleName = $creatorCredit.AccessibleName
+    if ($null -ne $creatorCredit.BackgroundImage) {
+        $aboutCredit.BackgroundImage = $creatorCredit.BackgroundImage
+        $aboutCredit.BackgroundImageLayout = 'Zoom'
+    }
+    else { $aboutCredit.Text = "RAW LOGIC. REAL SYSTEMS.`r`nCreated by Christos Fragoulis" }
+    $about.Controls.Add($aboutCredit)
+    $aboutUrl = New-Object Windows.Forms.Label
+    $aboutUrl.Location = New-Object Drawing.Point(20, 153)
+    $aboutUrl.Size = New-Object Drawing.Size(260, 25)
+    $aboutUrl.Text = 'https://rawlogic.gr'
+    $aboutUrl.ForeColor = $palette.Muted
+    $about.Controls.Add($aboutUrl)
+    $aboutClose = New-Object Windows.Forms.Button
+    $aboutClose.Text = 'Κλείσιμο'
+    $aboutClose.Location = New-Object Drawing.Point(300, 185)
+    $aboutClose.Size = New-Object Drawing.Size(120, 32)
+    $aboutClose.DialogResult = [Windows.Forms.DialogResult]::OK
+    $about.Controls.Add($aboutClose)
+    $about.AcceptButton = $aboutClose
+    $about.CancelButton = $aboutClose
+    try { [void]$about.ShowDialog($form) }
+    finally { $aboutCredit.BackgroundImage = $null; $about.Dispose() }
+})
+$form.Controls.Add($creatorCredit)
+
 $refreshAction = {
     try {
         $snapshot = Get-HprtStatusSnapshot
+        $versionLabel.Text = "Έκδοση $($snapshot.Version)"
+        $form.Text = "EFET Print Agent WORKSHOP — $($snapshot.Version) — Κατάσταση"
         $statusTitle.Text = $snapshot.StatusTitle
         $statusDetail.Text = $snapshot.StatusDetail
         $statusColor = switch ($snapshot.StatusCode) {
