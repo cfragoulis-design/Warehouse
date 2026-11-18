@@ -137,13 +137,22 @@
   .needQty{width:46px;min-width:46px;height:30px;text-align:center;padding:4px;border-radius:9px}
   .needBtn{width:30px;height:30px;border-radius:9px;font-weight:900;background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.45);color:#ffb2b2;cursor:pointer;}
   .needBtn:hover{filter:brightness(1.1)}
-    .directLabelForm{display:grid;grid-template-columns:minmax(126px,1fr) max-content 46px minmax(74px,auto);align-items:center;gap:4px;flex:1 1 320px;width:auto;min-width:320px;padding:0;border:0}
+    .directLabelForm{display:grid;grid-template-columns:minmax(126px,1fr) max-content 46px minmax(138px,auto);align-items:center;gap:4px;flex:1 1 320px;width:auto;min-width:320px;padding:0;border:0}
     .labelCopies{grid-column:3;width:46px;min-width:0;height:30px;padding:4px;text-align:center;border-radius:9px;font-weight:900}
     .labelPreservation{grid-column:1;width:100%;min-width:0;max-width:none;height:30px;padding:4px 7px;border-radius:9px;font-weight:800;background:rgba(11,16,32,.72);color:var(--text);border:1px solid rgba(202,162,74,.38)}
     .labelExpiry{grid-column:2;min-width:0;white-space:nowrap;color:var(--muted);font-size:9px;font-weight:800;line-height:1;text-align:left}
-    .labelBtn{grid-column:4;display:inline-flex;align-items:center;justify-content:center;width:100%;min-width:0;height:30px;padding:0 8px;border-radius:9px;font-weight:900;cursor:pointer;border:1px solid transparent}
+    .labelBtn{grid-column:4;display:inline-flex;align-items:center;justify-content:center;width:100%;min-width:138px;height:30px;padding:0 8px;border-radius:9px;font-size:12px;font-weight:900;white-space:nowrap;cursor:pointer;border:1px solid transparent}
     .labelBtn.workshop{background:rgba(202,162,74,.16);border-color:rgba(202,162,74,.45);color:#f1d694}
+    .labelBtn.central{background:rgba(47,124,246,.16);border-color:rgba(47,124,246,.5);color:#9ec1ff}
     .labelBtn:hover{filter:brightness(1.08)}
+    .labelBtn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+    .printJobsCard{margin-top:16px}
+    .printJobsCard .cardHead{display:flex;justify-content:space-between;gap:12px;align-items:baseline;padding:12px 14px}
+    .printJobsScroll{max-height:280px}
+    .printJobsTable{width:100%;border-collapse:collapse}
+    .printJobsTable th,.printJobsTable td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);font-size:13px}
+    .stationCentral{color:#9ec1ff;font-weight:900}
+    .stationWorkshop{color:#f1d694;font-weight:900}
     .readyBanner{
       margin:12px 0;
       padding:12px 14px;
@@ -307,6 +316,15 @@
   {% set shell_stock_refresh = true %}
   {% include "_warehouse_shell.html" %}
 
+  {% set label_loc = (loc or 'all')|trim|lower %}
+  {% if label_loc == 'central' %}
+    {% set label_destination = 'Κεντρικό' %}
+    {% set label_station_code = 'CENTRAL' %}
+  {% else %}
+    {% set label_destination = 'Εργαστήριο' %}
+    {% set label_station_code = 'WORKSHOP' %}
+  {% endif %}
+  {% set label_queue_blocked = user and user.role == 'workshop' and label_station_code == 'CENTRAL' %}
   <div class="wrap">
     {% if request.query_params.get('ok') == 'label' %}
       <div style="margin:0 0 12px 0;padding:10px 14px;border-radius:12px;border:1px solid rgba(46,204,113,.35);background:rgba(46,204,113,.12);font-weight:800;">✅ Το label job καταχωρήθηκε.</div>
@@ -508,7 +526,7 @@
                         {% if it.vacuum_shelf_life_days > 0 %}<option value="VACUUM" data-days="{{ it.vacuum_shelf_life_days }}">Vacuum · {{ it.vacuum_shelf_life_days }}η</option>{% endif %}
                       </select>
                       <input class="labelCopies" type="number" name="copies" value="1" min="1" max="50" step="1" inputmode="numeric" aria-label="Αντίτυπα ετικέτας" title="Αριθμός αντιτύπων" />
-                      <button class="labelBtn workshop" type="submit" title="Προσθήκη στην ουρά HPRT του Εργαστηρίου">🖨 Queue</button>
+                      <button class="labelBtn {{ 'central' if label_station_code == 'CENTRAL' else 'workshop' }}" type="submit" {% if label_queue_blocked %}disabled aria-disabled="true" title="Το Κεντρικό δέχεται ουρά HPRT μόνο από διαχειριστή. Προορισμός: Κεντρικό."{% elif label_loc == 'all' %}title="Προσθήκη στην ουρά HPRT του Εργαστηρίου. Η τοποθεσία Όλες στέλνει στο Εργαστήριο."{% elif label_station_code == 'CENTRAL' %}title="Προσθήκη στην ουρά HPRT του Κεντρικού."{% else %}title="Προσθήκη στην ουρά HPRT του Εργαστηρίου."{% endif %}>🖨 {{ label_destination }}</button>
                       <span class="labelExpiry" data-label-expiry aria-live="polite"></span>
                     </form>
                   {% endif %}
@@ -521,6 +539,30 @@
       </table>
       </div>
     </div>
+    {% if user and user.role in ['admin', 'workshop'] %}
+    <div class="card printJobsCard" id="stock-print-jobs">
+      <div class="cardHead">
+        <strong>Ουρά ετικετών HPRT</strong>
+        <span class="muted">Κάθε εργασία δείχνει τον σταθμό προορισμού.</span>
+      </div>
+      <div class="tableScroll printJobsScroll">
+        <table class="printJobsTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Προϊόν</th>
+              <th>Αντίτυπα</th>
+              <th>Σταθμός</th>
+              <th>Κατάσταση</th>
+            </tr>
+          </thead>
+          <tbody id="stockPrintJobsBody">
+            <tr><td colspan="5" class="muted">Φόρτωση ουράς…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
   </div>
 
 <div id="label-toast" class="labelToast" role="status" aria-live="polite"></div>
@@ -584,6 +626,69 @@ function stockActionSummary(data){
   return `${base} Central: ${data.central_qty_text}; Workshop: ${data.workshop_qty_text}; Pending: ${data.pending_text}; Owed: ${data.missing_text}.`;
 }
 
+function stockLabelLoc(){
+  const selected = document.querySelector('select[name="loc"]');
+  const value = String(selected && selected.value || "").trim().toLowerCase();
+  if (value === "central" || value === "workshop" || value === "all") return value;
+  return "all";
+}
+
+function labelStationName(station){
+  if (station === "CENTRAL") return "Κεντρικό";
+  if (station === "WORKSHOP") return "Εργαστήριο";
+  return String(station || "");
+}
+
+function renderStockPrintJobs(body, jobs){
+  body.replaceChildren();
+  if (!jobs.length){
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 5;
+    cell.className = "muted";
+    cell.textContent = "Η ουρά είναι κενή.";
+    row.appendChild(cell);
+    body.appendChild(row);
+    return;
+  }
+  jobs.forEach((job) => {
+    const row = document.createElement("tr");
+    const idCell = document.createElement("td");
+    idCell.textContent = `#${job.id ?? ""}`;
+    const productCell = document.createElement("td");
+    productCell.textContent = String(job.product_name || "");
+    const copiesCell = document.createElement("td");
+    copiesCell.textContent = String(job.copies ?? "");
+    const stationCell = document.createElement("td");
+    stationCell.textContent = labelStationName(job.station);
+    stationCell.className = job.station === "CENTRAL" ? "stationCentral" : (job.station === "WORKSHOP" ? "stationWorkshop" : "");
+    const statusCell = document.createElement("td");
+    statusCell.textContent = String(job.status_label || job.status || "");
+    row.append(idCell, productCell, copiesCell, stationCell, statusCell);
+    body.appendChild(row);
+  });
+}
+
+async function refreshStockPrintJobs(){
+  const body = document.getElementById("stockPrintJobsBody");
+  if (!body) return;
+  try{
+    const res = await fetch("/admin/labels/jobs", {cache: "no-store", headers: {"Accept": "application/json"}});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok || !Array.isArray(data.jobs)) throw new Error("queue");
+    renderStockPrintJobs(body, data.jobs.slice(0, 20));
+  }catch(_err){
+    body.replaceChildren();
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 5;
+    cell.className = "muted";
+    cell.textContent = "Η ουρά ετικετών δεν φορτώθηκε.";
+    row.appendChild(cell);
+    body.appendChild(row);
+  }
+}
+
 async function submitLabelFormAjax(form){
   const btn = form.querySelector('button[type="submit"]');
   const original = btn ? btn.textContent : "";
@@ -609,7 +714,7 @@ async function submitLabelFormAjax(form){
       },
       body: JSON.stringify({
         request_id: (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${productId}-${copies}-${preservationProfile}`),
-        station: "WORKSHOP",
+        loc: stockLabelLoc(),
         label_profile: "DISTRIBUTION",
         items: [{product_id: productId, copies, preservation_profile: preservationProfile}]
       }),
@@ -619,7 +724,9 @@ async function submitLabelFormAjax(form){
     if (!res.ok || !data.ok){
       throw new Error(detailMessage(data.detail || data.error, "Η εκτύπωση label απέτυχε."));
     }
-    showLabelToast(`Μπήκε στην ουρά: ${copies} ${copies === 1 ? "ετικέτα" : "ετικέτες"}.`, "ok");
+    const destination = data.station === "CENTRAL" ? "Κεντρικό" : "Εργαστήριο";
+    showLabelToast(`Μπήκε στην ουρά ${destination}: ${copies} ${copies === 1 ? "ετικέτα" : "ετικέτες"}.`, "ok");
+    refreshStockPrintJobs();
   }catch(err){
     showLabelToast(err.message || "Η εκτύπωση label απέτυχε.", "err");
   }finally{
@@ -645,6 +752,7 @@ document.querySelectorAll(".js-label-print-form").forEach(form => {
   renderExpiry();
   form.addEventListener("submit", function(ev){
     ev.preventDefault();
+    if (form.querySelector('button[type="submit"]')?.disabled) return;
     submitLabelFormAjax(form);
   });
 });
@@ -793,6 +901,7 @@ document.querySelectorAll(".js-label-print-form").forEach(form => {
       }
 
       applyOnlyPendingFilter();
+      refreshStockPrintJobs();
     }catch(e){
       const dot = document.getElementById("liveDot");
       const txt = document.getElementById("liveText");

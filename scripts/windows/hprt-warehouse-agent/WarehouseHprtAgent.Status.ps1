@@ -73,6 +73,18 @@ function Get-HprtLastPrintTime {
     return Get-DisplayTime -Value $latest.ToString('o')
 }
 
+function Get-HprtConfiguredStation {
+    $configPath = Join-Path $InstallRoot 'config.json'
+    try {
+        $manifestConfig = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $station = ([string]$manifestConfig.station).Trim().ToUpperInvariant()
+        if ($station -in @('WORKSHOP', 'CENTRAL')) { return $station }
+    }
+    catch { }
+    if ($InstallRoot -like '*WarehouseHprtAgent-Central*') { return 'CENTRAL' }
+    return 'WORKSHOP'
+}
+
 function Get-HprtInstalledVersion {
     $path = Join-Path $InstallRoot 'PACKAGE-MANIFEST.json'
     try {
@@ -204,6 +216,7 @@ function Get-HprtStatusSnapshot {
         LastTaskResult = if ($taskInfo) { [string]$taskInfo.LastTaskResult } else { '—' }
         PrintHistory = $history
         DiagnosticPath = $diagnosticPath
+        Station = Get-HprtConfiguredStation
     }
 }
 
@@ -225,8 +238,14 @@ $palette = @{
     Blue = [Drawing.ColorTranslator]::FromHtml('#3BA7FF')
 }
 
+$configuredStation = Get-HprtConfiguredStation
+$script:StatusStation = $configuredStation
+$stationTitles = @{
+    WORKSHOP = 'EFET PRINT AGENT · WORKSHOP'
+    CENTRAL = 'EFET PRINT AGENT · CENTRAL'
+}
 $form = New-Object Windows.Forms.Form
-$form.Text = 'EFET Print Agent WORKSHOP — Κατάσταση'
+$form.Text = "EFET Print Agent $configuredStation — Κατάσταση"
 $form.StartPosition = 'CenterScreen'
 $form.ClientSize = New-Object Drawing.Size(840, 835)
 $form.MinimumSize = New-Object Drawing.Size(856, 874)
@@ -270,7 +289,7 @@ if (Test-Path -LiteralPath $creatorAsset -PathType Leaf) {
 }
 
 $title = New-Object Windows.Forms.Label
-$title.Text = 'EFET PRINT AGENT · WORKSHOP'
+$title.Text = $stationTitles[$configuredStation]
 $title.Location = New-Object Drawing.Point(26, 37)
 $title.Size = New-Object Drawing.Size(530, 35)
 $title.ForeColor = $palette.Text
@@ -498,7 +517,7 @@ $creatorCredit.Add_Click({
     $aboutTitle = New-Object Windows.Forms.Label
     $aboutTitle.Location = New-Object Drawing.Point(20, 18)
     $aboutTitle.Size = New-Object Drawing.Size(400, 55)
-    $aboutTitle.Text = "EFET Print Agent · WORKSHOP`r`nΈκδοση εγκατάστασης: $(Get-HprtInstalledVersion)"
+    $aboutTitle.Text = "EFET Print Agent · $configuredStation`r`nΈκδοση εγκατάστασης: $(Get-HprtInstalledVersion)"
     $about.Controls.Add($aboutTitle)
     $aboutCredit = New-Object Windows.Forms.Label
     $aboutCredit.Location = New-Object Drawing.Point(20, 85)
@@ -533,7 +552,9 @@ $refreshAction = {
     try {
         $snapshot = Get-HprtStatusSnapshot
         $versionLabel.Text = "Έκδοση $($snapshot.Version)"
-        $form.Text = "EFET Print Agent WORKSHOP — $($snapshot.Version) — Κατάσταση"
+        $script:StatusStation = [string]$snapshot.Station
+        if ($stationTitles.ContainsKey($script:StatusStation)) { $title.Text = $stationTitles[$script:StatusStation] }
+        $form.Text = "EFET Print Agent $($script:StatusStation) — $($snapshot.Version) — Κατάσταση"
         $statusTitle.Text = $snapshot.StatusTitle
         $statusDetail.Text = $snapshot.StatusDetail
         $statusColor = switch ($snapshot.StatusCode) {
@@ -571,9 +592,11 @@ $diagnosticButton.Add_Click({
         [Windows.Forms.MessageBox]::Show('Τα διαγνωστικά δεν έχουν εγκατασταθεί.', 'EFET Print Agent') | Out-Null
         return
     }
-    Start-Process -FilePath 'PowerShell.exe' -ArgumentList @(
-        '-NoLogo', '-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "`"$path`""
-    ) | Out-Null
+    $diagnosticArguments = @('-NoLogo', '-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "`"$path`"")
+    if ($script:StatusStation -in @('WORKSHOP', 'CENTRAL')) {
+        $diagnosticArguments += @('-Station', $script:StatusStation)
+    }
+    Start-Process -FilePath 'PowerShell.exe' -ArgumentList $diagnosticArguments | Out-Null
 })
 $restartButton.Add_Click({
     $answer = [Windows.Forms.MessageBox]::Show(

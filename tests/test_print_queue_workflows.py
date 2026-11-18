@@ -552,3 +552,134 @@ def test_print_center_reports_queue_state_and_prevents_double_submit() -> None:
     assert "detailMessage(data.detail || data.error, \"Η εκτύπωση label απέτυχε.\")" in stock
     assert "throw new Error(data.detail || data.error" not in stock
     assert "Στάλθηκαν" not in stock
+    assert 'loc: \'workshop\'' in center
+    assert "station: 'WORKSHOP'" not in center
+    assert "<th>Σταθμός</th>" in center
+    assert "job.station === 'CENTRAL' ? 'Κεντρικό'" in center
+    assert 'id="stockPrintJobsBody"' in stock
+    assert "function stockLabelLoc()" in stock
+    assert "loc: stockLabelLoc()" in stock
+    assert 'station: "WORKSHOP"' not in stock
+    assert "Η τοποθεσία Όλες στέλνει στο Εργαστήριο." in stock
+    assert "Προσθήκη στην ουρά HPRT του Κεντρικού." in stock
+    assert "Προσθήκη στην ουρά HPRT του Εργαστηρίου." in stock
+    assert "🖨 {{ label_destination }}" in stock
+
+
+def test_stock_loc_allowlist_sets_station_and_blocks_workshop_central(
+    db: Session,
+) -> None:
+    admin, product = _user_product(db)
+    workshop = User(username="print-workshop", role="workshop", pin_hash="not-used")
+    other = User(username="print-other", role="staff", pin_hash="not-used")
+    db.add_all([workshop, other])
+    db.commit()
+
+    cases = [
+        ({}, "WORKSHOP"),
+        ({"loc": None}, "WORKSHOP"),
+        ({"loc": ""}, "WORKSHOP"),
+        ({"loc": "all"}, "WORKSHOP"),
+        ({"loc": " workshop "}, "WORKSHOP"),
+        ({"loc": "central"}, "CENTRAL"),
+        ({"loc": "CENTRAL"}, "CENTRAL"),
+    ]
+    for index, (extra, expected) in enumerate(cases):
+        payload = _create_payload(product.id, f"loc-map-{index}")
+        payload.update(extra)
+        created = _json(
+            services.labels_create_batch(
+                RequestStub(payload=payload), user=admin, db=db
+            )
+        )
+        assert created["station"] == expected
+        assert created["label_profile"] == "DISTRIBUTION"
+        lot = db.get(ProductLot, created["items"][0]["id"])
+        assert lot is not None
+        assert lot.station == expected
+        assert lot.label_profile == "DISTRIBUTION"
+        assert lot.lot_code.split("-")[-2] == ("C" if expected == "CENTRAL" else "W")
+
+    rows = services._print_job_rows(db)
+    assert {row["station"] for row in rows} >= {"CENTRAL", "WORKSHOP"}
+    assert all(row["station"] in {"CENTRAL", "WORKSHOP"} for row in rows)
+
+    replay = _create_payload(product.id, "loc-map-5")
+    replay["loc"] = "workshop"
+    replay["station"] = "WORKSHOP"
+    duplicate = _json(
+        services.labels_create_batch(RequestStub(payload=replay), user=admin, db=db)
+    )
+    assert duplicate["duplicate"] is True
+    assert duplicate["station"] == "CENTRAL"
+    assert (
+        db.scalar(
+            select(func.count(ProductLot.id)).where(
+                ProductLot.batch_ref == duplicate["batch_ref"]
+            )
+        )
+        == 1
+    )
+
+    bad_loc = _create_payload(product.id, "bad-loc")
+    bad_loc["loc"] = "freezer"
+    with pytest.raises(HTTPException) as rejected_loc:
+        services.labels_create_batch(
+            RequestStub(payload=bad_loc), user=admin, db=db
+        )
+    assert rejected_loc.value.status_code == 400
+
+    spoofed = _create_payload(product.id, "spoof-station")
+    spoofed["station"] = "CENTRAL"
+    with pytest.raises(HTTPException) as rejected_spoof:
+        services.labels_create_batch(
+            RequestStub(payload=spoofed), user=admin, db=db
+        )
+    assert rejected_spoof.value.status_code == 400
+
+    mismatched = _create_payload(product.id, "mismatched-station")
+    mismatched["loc"] = "central"
+    mismatched["station"] = "WORKSHOP"
+    with pytest.raises(HTTPException) as rejected_mismatch:
+        services.labels_create_batch(
+            RequestStub(payload=mismatched), user=admin, db=db
+        )
+    assert rejected_mismatch.value.status_code == 400
+
+    garbage = _create_payload(product.id, "garbage-station")
+    garbage["loc"] = "workshop"
+    garbage["station"] = "FRONT-DESK"
+    with pytest.raises(HTTPException) as rejected_garbage:
+        services.labels_create_batch(
+            RequestStub(payload=garbage), user=admin, db=db
+        )
+    assert rejected_garbage.value.status_code == 400
+
+    before = db.scalar(select(func.count(ProductLot.id)))
+    blocked = _create_payload(product.id, "workshop-central")
+    blocked["loc"] = "central"
+    with pytest.raises(HTTPException) as rejected_role:
+        services.labels_create_batch(
+            RequestStub(payload=blocked), user=workshop, db=db
+        )
+    assert rejected_role.value.status_code == 403
+    assert db.scalar(select(func.count(ProductLot.id))) == before
+
+    for loc in ("all", "workshop", ""):
+        allowed = _create_payload(product.id, f"workshop-allowed-{loc or 'missing'}")
+        if loc != "":
+            allowed["loc"] = loc
+        created = _json(
+            services.labels_create_batch(
+                RequestStub(payload=allowed), user=workshop, db=db
+            )
+        )
+        assert created["station"] == "WORKSHOP"
+
+    denied = _create_payload(product.id, "staff-denied")
+    denied["loc"] = "workshop"
+    with pytest.raises(HTTPException) as rejected_staff:
+        services.labels_create_batch(
+            RequestStub(payload=denied), user=other, db=db
+        )
+    assert rejected_staff.value.status_code == 403

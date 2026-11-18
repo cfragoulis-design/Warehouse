@@ -1,6 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [string]$ConfigPath = (Join-Path $PSScriptRoot 'config.json'),
+    [string]$Station = '',
     [switch]$RunOnce
 )
 
@@ -40,7 +41,7 @@ function Write-AgentState {
         $lastPrint = if ($PrintSucceeded) { $now } elseif ($existing) { [string]$existing.last_print } else { '' }
         $status = [ordered]@{
             schema_version = 1
-            station = 'WORKSHOP'
+            station = $script:AgentStation
             state = $State
             queue_state = $QueueState
             current_job_id = if ($CurrentJobId -gt 0) { $CurrentJobId } else { $null }
@@ -89,7 +90,13 @@ function Read-ExactConfig {
     }
     $base = [Uri]([string]$value.base_url).TrimEnd('/')
     if ($base.Scheme -ne 'https' -or -not $base.Host) { throw 'Agent base URL must use HTTPS.' }
-    if ([string]$value.station -cne 'WORKSHOP') { throw 'HPRT Agent station must be WORKSHOP.' }
+    $configuredStation = ([string]$value.station).Trim().ToUpperInvariant()
+    if ($configuredStation -notin @('WORKSHOP', 'CENTRAL')) { throw 'HPRT Agent station must be WORKSHOP or CENTRAL.' }
+    if (-not [string]::IsNullOrWhiteSpace($Station)) {
+        $requestedStation = $Station.Trim().ToUpperInvariant()
+        if ($requestedStation -notin @('WORKSHOP', 'CENTRAL')) { throw 'HPRT Agent station must be WORKSHOP or CENTRAL.' }
+        if ($requestedStation -cne $configuredStation) { throw 'HPRT Agent station does not match the installed station.' }
+    }
     $poll = [int]$value.poll_seconds
     if ($poll -lt 2 -or $poll -gt 60) { throw 'Agent polling interval is invalid.' }
     $printer = ([string]$value.printer_name).Trim()
@@ -98,7 +105,7 @@ function Read-ExactConfig {
     if (-not (Test-Path -LiteralPath $tokenPath -PathType Leaf)) { throw 'Agent token is missing.' }
     return [pscustomobject]@{
         BaseUrl = $base.AbsoluteUri.TrimEnd('/')
-        Station = 'WORKSHOP'
+        Station = $configuredStation
         PrinterName = $printer
         PollSeconds = $poll
         TokenPath = $tokenPath
@@ -286,9 +293,11 @@ function Invoke-OnePoll {
     return $true
 }
 
+$script:AgentStation = 'WORKSHOP'
 $config = Read-ExactConfig
+$script:AgentStation = $config.Station
 $token = Read-DpapiToken -Path $config.TokenPath
-Write-AgentLog -Message 'STARTED station=WORKSHOP renderer=HPRT_LPQ80_BITMAP_50X70'
+Write-AgentLog -Message ('STARTED station={0} renderer=HPRT_LPQ80_BITMAP_50X70' -f $config.Station)
 Write-AgentState -State STARTING -QueueState STARTING
 
 do {

@@ -30,8 +30,8 @@ STOCK_PAGE = ROOT / "app" / "templates" / "stock.html"
 CREATOR_APP_ICON = PACKAGE / "favicon-64.png"
 CREATOR_WEB_LOGO = ROOT / "app" / "static" / "branding" / "cf-logo-stacked-dark.svg"
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20-STAGING.zip"
-PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20.zip"
+STAGING_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21-STAGING.zip"
+PRODUCTION_DOWNLOAD = ROOT / "app" / "static" / "downloads" / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21.zip"
 STAGING_RELEASE_MANIFEST = ROOT / "app" / "static" / "downloads" / "HPRT-AGENT-RELEASE-MANIFEST.json"
 PRODUCTION_RELEASE_MANIFEST = (
     ROOT / "app" / "static" / "downloads" / "HPRT-AGENT-PRODUCTION-RELEASE-MANIFEST.json"
@@ -278,7 +278,8 @@ def test_windows_package_is_ps51_safe_and_keeps_tokens_out_of_config():
     assert "https://sklavounoswh.up.railway.app" in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     assert "staging-characterization" not in PRODUCTION_SETUP.read_text(encoding="utf-8-sig")
     production_manifest = json.loads(PRODUCTION_PACKAGE_MANIFEST.read_text(encoding="utf-8-sig"))
-    assert production_manifest["version"] == "1.0.20"
+    assert production_manifest["version"] == "1.0.21"
+    assert production_manifest["stations"] == ["WORKSHOP", "CENTRAL"]
     assert production_manifest["environment"] == "production"
     assert production_manifest["label_payload_schemas"] == [3, 4, 5, 6, 7, 8]
     assert production_manifest["contains_agent_token"] is False
@@ -388,6 +389,7 @@ def test_staging_download_is_exact_secret_free_package():
             **COMMON_FILES,
             "PACKAGE-MANIFEST.json": "PACKAGE-MANIFEST.json",
             "SETUP.cmd": "SETUP.cmd",
+            "SETUP-CENTRAL.cmd": "SETUP-CENTRAL.cmd",
         }
         assert set(archive.namelist()) == set(expected_sources)
         for archive_name, source_name in expected_sources.items():
@@ -395,8 +397,14 @@ def test_staging_download_is_exact_secret_free_package():
         setup = archive.read("SETUP.cmd").decode("utf-8-sig")
         assert "warehouse-full-ui-staging-characterization.up.railway.app" in setup
         assert "https://sklavounoswh.up.railway.app" not in setup
+        assert "-Station" not in setup
+        central_setup = archive.read("SETUP-CENTRAL.cmd").decode("utf-8-sig")
+        assert "-Station CENTRAL" in central_setup
+        assert "warehouse-full-ui-staging-characterization.up.railway.app" in central_setup
+        assert "https://sklavounoswh.up.railway.app" not in central_setup
         manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
-        assert manifest["version"] == "1.0.20-staging"
+        assert manifest["version"] == "1.0.21-staging"
+        assert manifest["stations"] == ["WORKSHOP", "CENTRAL"]
         assert manifest["environment"] == "staging"
         assert manifest["label_payload_schemas"] == [3, 4, 5, 6, 7, 8]
         assert manifest["contains_agent_token"] is False
@@ -408,7 +416,7 @@ def test_staging_download_is_exact_secret_free_package():
     release_manifest = json.loads(STAGING_RELEASE_MANIFEST.read_text(encoding="utf-8"))
     assert release_manifest == {
         "product": "Sklavounos Warehouse HPRT Agent",
-        "version": "1.0.20-staging",
+        "version": "1.0.21-staging",
         "creator": "Christos Fragoulis",
         "source_commit": "e5e77773a857c3412f2b2036050c4238a7043933",
         "package": STAGING_DOWNLOAD.name,
@@ -428,6 +436,7 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
             **COMMON_FILES,
             "PACKAGE-MANIFEST.json": "PACKAGE-MANIFEST-PRODUCTION.json",
             "SETUP.cmd": "SETUP-PRODUCTION.cmd",
+            "SETUP-CENTRAL.cmd": "SETUP-CENTRAL-PRODUCTION.cmd",
         }
         assert set(archive.namelist()) == set(expected_sources)
         for archive_name, source_name in expected_sources.items():
@@ -435,10 +444,16 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
         setup = archive.read("SETUP.cmd").decode("utf-8-sig")
         assert "https://sklavounoswh.up.railway.app" in setup
         assert "staging-characterization" not in setup
+        assert "-Station" not in setup
+        central_setup = archive.read("SETUP-CENTRAL.cmd").decode("utf-8-sig")
+        assert "-Station CENTRAL" in central_setup
+        assert "https://sklavounoswh.up.railway.app" in central_setup
+        assert "staging-characterization" not in central_setup
         manifest = json.loads(archive.read("PACKAGE-MANIFEST.json").decode("utf-8-sig"))
         assert manifest["environment"] == "production"
         assert manifest["contains_agent_token"] is False
-        assert manifest["version"] == "1.0.20"
+        assert manifest["version"] == "1.0.21"
+        assert manifest["stations"] == ["WORKSHOP", "CENTRAL"]
         assert manifest["label_payload_schemas"] == [3, 4, 5, 6, 7, 8]
         readme = archive.read("README.txt").decode("utf-8-sig").replace("\r\n", "\n")
         assert "RAW LOGIC. REAL SYSTEMS.\nCreated by Christos Fragoulis" in readme
@@ -448,7 +463,7 @@ def test_production_download_is_exact_secret_free_and_targets_only_production():
     release_manifest = json.loads(PRODUCTION_RELEASE_MANIFEST.read_text(encoding="utf-8"))
     assert release_manifest == {
         "product": "Sklavounos Warehouse HPRT Agent",
-        "version": "1.0.20",
+        "version": "1.0.21",
         "creator": "Christos Fragoulis",
         "source_commit": "e5e77773a857c3412f2b2036050c4238a7043933",
         "package": PRODUCTION_DOWNLOAD.name,
@@ -1065,8 +1080,8 @@ def test_label_center_has_no_quantity_or_manual_code_fields():
     services = (ROOT / "app" / "services.py").read_text(encoding="utf-8")
     assert 'request.url.hostname or ""' not in services
     assert "load_hprt_agent_release_settings" in services
-    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20.zip" in services
-    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20-STAGING.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21.zip" in services
+    assert "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21-STAGING.zip" in services
 
 
 def test_label_center_agent_download_does_not_depend_on_request_hostname(
@@ -1080,14 +1095,14 @@ def test_label_center_agent_download_does_not_depend_on_request_hostname(
     monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "production")
     production_url, production_label = services._hprt_agent_download()
     assert production_url == (
-        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20.zip"
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21.zip"
     )
     assert "Production" in production_label
 
     monkeypatch.setenv("WAREHOUSE_HPRT_AGENT_RELEASE_CHANNEL", "staging")
     staging_url, staging_label = services._hprt_agent_download()
     assert staging_url == (
-        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20-STAGING.zip"
+        "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21-STAGING.zip"
     )
     assert "Staging" in staging_label
 
@@ -1126,3 +1141,80 @@ def test_renderer_rejects_unknown_profile_before_printing(tmp_path: Path):
 
     assert result.returncode != 0
     assert not output.exists()
+
+
+def test_agent_station_parameter_is_workshop_or_central_only() -> None:
+    agent = AGENT.read_text(encoding="utf-8-sig")
+    installer = INSTALLER.read_text(encoding="utf-8-sig")
+    diagnose = (PACKAGE / "Diagnose-WarehouseHprtAgent.ps1").read_text(encoding="utf-8-sig")
+    status = STATUS_UI.read_text(encoding="utf-8-sig")
+
+    assert "[ValidateSet('WORKSHOP', 'CENTRAL')]" in installer
+    assert "[string]$Station = 'WORKSHOP'" in installer
+    assert "HPRT Agent station must be WORKSHOP or CENTRAL." in installer
+    assert "C:\\ProgramData\\Sklavounos\\WarehouseHprtAgent'" in installer
+    assert "C:\\ProgramData\\Sklavounos\\WarehouseHprtAgent-Central'" in installer
+    assert "Sklavounos Warehouse HPRT Agent CENTRAL" in installer
+    assert "EFET Print Agent - Status.lnk" in installer
+    assert "EFET Print Agent CENTRAL - Status.lnk" in installer
+    assert "-Station {2}" in installer
+    assert "agent-token.dpapi" in installer
+    assert "PRINT_AGENT_TOKEN" not in installer
+    assert "must be WORKSHOP.'" not in agent
+    assert "@('WORKSHOP', 'CENTRAL')" in agent
+    assert "HPRT Agent station does not match the installed station." in agent
+    assert "[string]$Station = ''" in agent
+    assert "STARTED station={0}" in agent
+    assert "HPRT Agent station must be WORKSHOP or CENTRAL." in diagnose
+    assert "WarehouseHprtAgent-Central" in diagnose
+    assert "EFET PRINT AGENT · WORKSHOP" in status
+    assert "EFET PRINT AGENT · CENTRAL" in status
+    assert "-Station" in status
+    workshop_setup = (PACKAGE / "SETUP.cmd").read_text(encoding="utf-8-sig")
+    central_setup = (PACKAGE / "SETUP-CENTRAL.cmd").read_text(encoding="utf-8-sig")
+    production_central = (PACKAGE / "SETUP-CENTRAL-PRODUCTION.cmd").read_text(
+        encoding="utf-8-sig"
+    )
+    assert "-Station" not in workshop_setup
+    assert "-Station CENTRAL" in central_setup
+    assert "https://sklavounoswh.up.railway.app" not in central_setup
+    assert "-Station CENTRAL" in production_central
+    assert "https://sklavounoswh.up.railway.app" in production_central
+    assert "staging-characterization" not in production_central
+
+
+def test_powershell_parser_accepts_only_workshop_or_central_station() -> None:
+    """Use Windows PowerShell's parser when it exists; otherwise lock the same param text."""
+    installer = INSTALLER.read_text(encoding="utf-8-sig")
+    param_block = installer.split("$ErrorActionPreference", 1)[0]
+    assert "ValidateSet('WORKSHOP', 'CENTRAL')" in param_block
+    assert "FOO" not in param_block
+    if os.name != "nt" or not POWERSHELL.is_file():
+        return
+    command = f"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile('{str(INSTALLER).replace("'", "''")}', [ref]$tokens, [ref]$errors)
+if ($errors.Count) {{ throw ($errors | Out-String) }}
+$param = $ast.ParamBlock.Parameters | Where-Object {{ $_.Name.VariablePath.UserPath -eq 'Station' }}
+if ($null -eq $param) {{ throw 'Station parameter is missing' }}
+$attribute = $param.Attributes | Where-Object {{ $_.TypeName.Name -eq 'ValidateSet' }}
+$values = @($attribute.PositionalArguments | ForEach-Object {{ $_.Value }})
+if (($values -join '|') -ne 'WORKSHOP|CENTRAL') {{ throw ('Unexpected station allowlist: ' + ($values -join '|')) }}
+'OK'
+"""
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ],
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert "OK" in result.stdout.decode("utf-8-sig")

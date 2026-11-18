@@ -139,10 +139,46 @@ def _normalize_station(station: str | None) -> str:
     raise HTTPException(status_code=400, detail='Invalid station')
 
 
+# Stock's location selector is the only enqueue destination. ``all`` and a
+# missing value keep today's WORKSHOP queue. Anything outside this map is
+# rejected; browser station text is not a second source of truth.
+_STOCK_LOC_TO_STATION = {
+    "": "WORKSHOP",
+    "all": "WORKSHOP",
+    "workshop": "WORKSHOP",
+    "central": "CENTRAL",
+}
+
+
+def _station_for_stock_loc(loc: object) -> str:
+    if loc is None:
+        normalized = ""
+    elif isinstance(loc, str):
+        normalized = loc.strip().casefold()
+    else:
+        raise HTTPException(status_code=400, detail="Invalid loc")
+    try:
+        return _STOCK_LOC_TO_STATION[normalized]
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail="Invalid loc") from exc
+
+
+def _reject_untrusted_station(payload: dict, station_norm: str) -> None:
+    if "station" not in payload:
+        return
+    raw_station = payload.get("station")
+    if raw_station is None or (isinstance(raw_station, str) and not raw_station.strip()):
+        return
+    if not isinstance(raw_station, str):
+        raise HTTPException(status_code=400, detail="Invalid station")
+    if _normalize_station(raw_station) != station_norm:
+        raise HTTPException(status_code=400, detail="Invalid station")
+
+
 def _station_allowed_for_user(user: User, station: str) -> bool:
     role = (getattr(user, 'role', '') or '').lower()
     if role == 'admin':
-        return station == 'CENTRAL'
+        return station in {'CENTRAL', 'WORKSHOP'}
     if role == 'workshop':
         return station == 'WORKSHOP'
     return False
@@ -1233,13 +1269,13 @@ def _hprt_agent_download() -> tuple[str | None, str]:
     release = load_hprt_agent_release_settings()
     if release.channel == "production":
         return (
-            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20.zip",
-            "↓ Λήψη HPRT Agent v1.0.20 · Production",
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21.zip",
+            "↓ Λήψη HPRT Agent v1.0.21 · Production",
         )
     if release.channel == "staging":
         return (
-            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20-STAGING.zip",
-            "↓ Λήψη HPRT Agent v1.0.20 · Staging",
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21-STAGING.zip",
+            "↓ Λήψη HPRT Agent v1.0.21 · Staging",
         )
     return None, "Η λήψη HPRT Agent είναι απενεργοποιημένη"
 
@@ -1370,9 +1406,11 @@ def labels_create_batch(
         label_profile = normalize_label_profile(payload.get("label_profile"))
     except LabelValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    # The dynamic EFET labels are rendered by the dedicated HPRT at WORKSHOP.
-    station_norm = "WORKSHOP"
-    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop"}:
+    # Destination follows the Stock loc selector. Free-form station text cannot
+    # choose CENTRAL, and the label stays on the active unified 50×70 profile.
+    station_norm = _station_for_stock_loc(payload.get("loc"))
+    _reject_untrusted_station(payload, station_norm)
+    if not _station_allowed_for_user(user, station_norm):
         raise HTTPException(status_code=403, detail="Invalid station for this user")
     if not isinstance(items, list) or not items:
         raise HTTPException(status_code=400, detail="No batch items provided")
@@ -1402,7 +1440,7 @@ def labels_create_batch(
             "batch_ref": batch_ref,
             "created_count": len(existing),
             "items": [_sr_job_payload(lot, product) for lot, product in existing],
-            "station": station_norm,
+            "station": existing[0][0].station or station_norm,
             "label_profile": label_profile,
         })
 

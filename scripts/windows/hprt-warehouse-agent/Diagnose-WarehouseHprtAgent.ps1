@@ -1,6 +1,44 @@
-﻿$ErrorActionPreference = 'Stop'
-$root = 'C:\ProgramData\Sklavounos\WarehouseHprtAgent'
-$taskName = 'Sklavounos Warehouse HPRT Agent'
+﻿[CmdletBinding()]
+param(
+    [string]$Station = ''
+)
+
+$ErrorActionPreference = 'Stop'
+
+function Resolve-HprtInstallTarget {
+    param([string]$RequestedStation)
+    $targets = @{
+        WORKSHOP = [pscustomobject]@{
+            Root = 'C:\ProgramData\Sklavounos\WarehouseHprtAgent'
+            TaskName = 'Sklavounos Warehouse HPRT Agent'
+        }
+        CENTRAL = [pscustomobject]@{
+            Root = 'C:\ProgramData\Sklavounos\WarehouseHprtAgent-Central'
+            TaskName = 'Sklavounos Warehouse HPRT Agent CENTRAL'
+        }
+    }
+    $key = ''
+    if (-not [string]::IsNullOrWhiteSpace($RequestedStation)) {
+        $key = $RequestedStation.Trim().ToUpperInvariant()
+        if (-not $targets.ContainsKey($key)) { throw 'HPRT Agent station must be WORKSHOP or CENTRAL.' }
+    }
+    else {
+        $localConfig = Join-Path $PSScriptRoot 'config.json'
+        if (Test-Path -LiteralPath $localConfig -PathType Leaf) {
+            try {
+                $configured = ([string]((Get-Content -LiteralPath $localConfig -Raw -Encoding UTF8 | ConvertFrom-Json).station)).Trim().ToUpperInvariant()
+                if ($targets.ContainsKey($configured)) { $key = $configured }
+            }
+            catch { }
+        }
+        if (-not $key) { $key = 'WORKSHOP' }
+    }
+    return $targets[$key]
+}
+
+$target = Resolve-HprtInstallTarget -RequestedStation $Station
+$root = $target.Root
+$taskName = $target.TaskName
 $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 $info = if ($task) { Get-ScheduledTaskInfo -TaskName $taskName } else { $null }
 
