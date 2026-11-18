@@ -4,8 +4,17 @@ RAW LOGIC. REAL SYSTEMS.
 Created by Christos Fragoulis
 """
 
+import os
+
+import pytest
+
 from label_designer_preview_server import fixtures
 from test_hprt_layout_profiles import _payload, _rehash, _render
+
+pytestmark = pytest.mark.skipif(
+    os.name != "nt",
+    reason="Requires Windows PowerShell and System.Drawing",
+)
 
 
 def test_browser_autofit_full_seven_rows_renders_in_hprt(tmp_path):

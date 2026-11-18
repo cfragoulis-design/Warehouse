@@ -1,13 +1,25 @@
 ﻿[CmdletBinding()]
 param(
+    [ValidateSet('WORKSHOP', 'CENTRAL')]
+    [string]$Station = 'WORKSHOP',
     [string]$BaseUrl = '',
     [string]$PrinterName = '',
     [string]$WindowsAccount = ([Security.Principal.WindowsIdentity]::GetCurrent().Name)
 )
 
 $ErrorActionPreference = 'Stop'
-$installRoot = 'C:\ProgramData\Sklavounos\WarehouseHprtAgent'
-$taskName = 'Sklavounos Warehouse HPRT Agent'
+$stationNorm = $Station.Trim().ToUpperInvariant()
+if ($stationNorm -notin @('WORKSHOP', 'CENTRAL')) { throw 'HPRT Agent station must be WORKSHOP or CENTRAL.' }
+if ($stationNorm -eq 'CENTRAL') {
+    $installRoot = 'C:\ProgramData\Sklavounos\WarehouseHprtAgent-Central'
+    $taskName = 'Sklavounos Warehouse HPRT Agent CENTRAL'
+    $shortcutName = 'EFET Print Agent CENTRAL - Status.lnk'
+}
+else {
+    $installRoot = 'C:\ProgramData\Sklavounos\WarehouseHprtAgent'
+    $taskName = 'Sklavounos Warehouse HPRT Agent'
+    $shortcutName = 'EFET Print Agent - Status.lnk'
+}
 $currentAccount = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 try {
@@ -61,7 +73,7 @@ try {
         catch { $serializedToken = '' }
     }
     if (-not $serializedToken) {
-        $token = Read-Host 'Warehouse WORKSHOP agent token (stored once with Windows DPAPI)' -AsSecureString
+        $token = Read-Host ("Warehouse {0} agent token (stored once with Windows DPAPI)" -f $stationNorm) -AsSecureString
         if ($null -eq $token -or $token.Length -lt 8) { throw 'Το token δεν είναι έγκυρο.' }
         $serializedToken = $token | ConvertFrom-SecureString
     }
@@ -93,7 +105,7 @@ try {
     [IO.File]::WriteAllText($tokenOriginPath, $normalizedBaseUrl, $utf8WithoutBom)
     $config = [ordered]@{
         base_url = $normalizedBaseUrl
-        station = 'WORKSHOP'
+        station = $stationNorm
         printer_name = $PrinterName.Trim()
         poll_seconds = 5
         token_file = 'agent-token.dpapi'
@@ -103,7 +115,7 @@ try {
     $powerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $agent = Join-Path $installRoot 'WarehouseHprtAgent.ps1'
     $configPath = Join-Path $installRoot 'config.json'
-    $arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -ConfigPath "{1}"' -f $agent, $configPath
+    $arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -ConfigPath "{1}" -Station {2}' -f $agent, $configPath, $stationNorm
     $action = New-ScheduledTaskAction -Execute $powerShell -Argument $arguments -WorkingDirectory $installRoot
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $WindowsAccount
     $principal = New-ScheduledTaskPrincipal -UserId $WindowsAccount -LogonType Interactive -RunLevel Limited
@@ -113,11 +125,11 @@ try {
 
     $statusScript = Join-Path $installRoot 'WarehouseHprtAgent.Status.ps1'
     $desktopPath = [Environment]::GetFolderPath('Desktop')
-    $shortcutPath = Join-Path $desktopPath 'EFET Print Agent - Status.lnk'
+    $shortcutPath = Join-Path $desktopPath $shortcutName
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = $powerShell
-    $shortcut.Arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $statusScript
+    $shortcut.Arguments = '-NoLogo -NoProfile -ExecutionPolicy Bypass -File "{0}" -InstallRoot "{1}" -TaskName "{2}"' -f $statusScript, $installRoot, $taskName
     $shortcut.WorkingDirectory = $installRoot
     $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,138"
     $shortcut.Description = 'Sklavounos EFET Print Agent status — Created by Christos Fragoulis'
@@ -126,6 +138,8 @@ try {
     Write-Host ''
     Write-Host 'Η εγκατάσταση ολοκληρώθηκε.' -ForegroundColor Green
     Write-Host "Printer: $PrinterName"
+    Write-Host "Station: $stationNorm"
+    Write-Host "Install: $installRoot"
     Write-Host 'Agent: RUNNING — οι HPRT ετικέτες θα εκτυπώνονται αυτόματα από το Stock.'
     Write-Host 'UI: δημιουργήθηκε συντόμευση «EFET Print Agent - Status» στην επιφάνεια εργασίας.'
     Write-Host 'Created by Christos Fragoulis'

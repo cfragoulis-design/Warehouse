@@ -1,6 +1,7 @@
 {
   "product": "Sklavounos Warehouse HPRT Agent",
-  "version": "1.0.20",
+  "version": "1.0.21",
+  "stations": ["WORKSHOP", "CENTRAL"],
   "environment": "production",
   "base_url": "https://sklavounoswh.up.railway.app",
   "creator": "Christos Fragoulis",

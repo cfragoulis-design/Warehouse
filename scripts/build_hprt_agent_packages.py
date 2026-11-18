@@ -148,10 +148,14 @@ def build(source_commit: str) -> tuple[Path, Path]:
     ) != approved_english_hash:
         raise RuntimeError("English shop logo must match the approved PDF-derived asset")
 
-    if staging_manifest.get("version") != "1.0.20-staging":
+    if staging_manifest.get("version") != "1.0.21-staging":
         raise RuntimeError("Unexpected staging Agent version")
-    if production_manifest.get("version") != "1.0.20":
+    if production_manifest.get("version") != "1.0.21":
         raise RuntimeError("Unexpected production Agent version")
+    if staging_manifest.get("stations") != ["WORKSHOP", "CENTRAL"]:
+        raise RuntimeError("Agent package must allow only WORKSHOP and CENTRAL")
+    if production_manifest.get("stations") != ["WORKSHOP", "CENTRAL"]:
+        raise RuntimeError("Agent package must allow only WORKSHOP and CENTRAL")
     if staging_manifest.get("environment") != "staging":
         raise RuntimeError("Staging package manifest must target staging")
     if production_manifest.get("environment") != "production":
@@ -178,21 +182,40 @@ def build(source_commit: str) -> tuple[Path, Path]:
     production_setup = (SOURCE / "SETUP-PRODUCTION.cmd").read_text(
         encoding="utf-8-sig"
     )
+    staging_central_setup = (SOURCE / "SETUP-CENTRAL.cmd").read_text(encoding="utf-8-sig")
+    production_central_setup = (SOURCE / "SETUP-CENTRAL-PRODUCTION.cmd").read_text(
+        encoding="utf-8-sig"
+    )
     staging_origin = "warehouse-full-ui-staging-characterization.up.railway.app"
     production_origin = "https://sklavounoswh.up.railway.app"
     if staging_origin not in staging_setup or production_origin in staging_setup:
         raise RuntimeError("Staging setup does not target only the staging Warehouse")
     if production_origin not in production_setup or staging_origin in production_setup:
         raise RuntimeError("Production setup does not target only the production Warehouse")
+    if (
+        "-Station CENTRAL" not in staging_central_setup
+        or staging_origin not in staging_central_setup
+        or production_origin in staging_central_setup
+    ):
+        raise RuntimeError("Staging CENTRAL setup is not limited to the staging Warehouse")
+    if (
+        "-Station CENTRAL" not in production_central_setup
+        or production_origin not in production_central_setup
+        or staging_origin in production_central_setup
+    ):
+        raise RuntimeError("Production CENTRAL setup is not limited to the production Warehouse")
+    if "-Station" in staging_setup or "-Station" in production_setup:
+        raise RuntimeError("Default SETUP must keep the existing WORKSHOP install")
 
-    staging = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20-STAGING.zip"
-    production = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.20.zip"
+    staging = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21-STAGING.zip"
+    production = DOWNLOADS / "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21.zip"
     _build_zip(
         staging,
         {
             **COMMON_FILES,
             "PACKAGE-MANIFEST.json": "PACKAGE-MANIFEST.json",
             "SETUP.cmd": "SETUP.cmd",
+            "SETUP-CENTRAL.cmd": "SETUP-CENTRAL.cmd",
         },
     )
     _build_zip(
@@ -201,18 +224,19 @@ def build(source_commit: str) -> tuple[Path, Path]:
             **COMMON_FILES,
             "PACKAGE-MANIFEST.json": "PACKAGE-MANIFEST-PRODUCTION.json",
             "SETUP.cmd": "SETUP-PRODUCTION.cmd",
+            "SETUP-CENTRAL.cmd": "SETUP-CENTRAL-PRODUCTION.cmd",
         },
     )
     _write_release_manifest(
         DOWNLOADS / "HPRT-AGENT-RELEASE-MANIFEST.json",
-        version="1.0.20-staging",
+        version="1.0.21-staging",
         source_commit=source_commit,
         package=staging,
         production=False,
     )
     _write_release_manifest(
         DOWNLOADS / "HPRT-AGENT-PRODUCTION-RELEASE-MANIFEST.json",
-        version="1.0.20",
+        version="1.0.21",
         source_commit=source_commit,
         package=production,
         production=True,

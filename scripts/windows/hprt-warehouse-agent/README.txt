@@ -13,9 +13,18 @@ Created by Christos Fragoulis
 2. Πατήστε δεξί κλικ στο SETUP.cmd και Run as administrator.
 3. Δώστε τη διεύθυνση HTTPS του Warehouse. Αν υπάρχει ένας HPRT στα Windows,
    επιλέγεται αυτόματα· αλλιώς ζητείται το ακριβές όνομά του.
-4. Επικολλήστε μία φορά το WORKSHOP agent token. Αποθηκεύεται με Windows DPAPI.
-   Σε επόμενη αναβάθμιση στο ίδιο Warehouse URL το υπάρχον DPAPI token επαναχρησιμοποιείται αυτόματα.
-   Αν αλλάξει περιβάλλον (π.χ. Staging → Production), ζητείται το σωστό token του νέου περιβάλλοντος.
+4. Επικολλήστε μία φορά το agent token του σταθμού. Το WORKSHOP token και το
+   CENTRAL token αποθηκεύονται χωριστά, με Windows DPAPI, μέσα στον φάκελο του
+   σταθμού. Σε επόμενη αναβάθμιση στο ίδιο Warehouse URL και στον ίδιο σταθμό
+   το υπάρχον DPAPI token επαναχρησιμοποιείται αυτόματα.
+   Αν αλλάξει περιβάλλον (π.χ. άλλο Warehouse URL), ζητείται το σωστό token.
+5. Το SETUP.cmd εγκαθιστά μόνο WORKSHOP, στην υπάρχουσα διαδρομή
+   C:\ProgramData\Sklavounos\WarehouseHprtAgent και στην εργασία
+   «Sklavounos Warehouse HPRT Agent». Δεν πειράζει εγκατάσταση CENTRAL.
+6. Για CENTRAL τρέξτε SETUP-CENTRAL.cmd. Χρησιμοποιεί ξεχωριστό φάκελο
+   C:\ProgramData\Sklavounos\WarehouseHprtAgent-Central, ξεχωριστή εργασία
+   «Sklavounos Warehouse HPRT Agent CENTRAL» και ξεχωριστό token. Η εγκατάσταση
+   WORKSHOP, αν υπάρχει ήδη, μένει ως έχει.
 
 Λειτουργία
 ----------
@@ -50,6 +59,16 @@ Created by Christos Fragoulis
 - τελευταία εκτύπωση και σφάλμα,
 - ιστορικό των τελευταίων 10 ετικετών.
 Περιλαμβάνει Ανανέωση, Επανεκκίνηση Agent και Άνοιγμα διαγνωστικών.
+
+Έκδοση 1.0.21
+-------------
+- Ο ίδιος Agent δέχεται σταθμό WORKSHOP ή CENTRAL. Άλλος σταθμός απορρίπτεται.
+- Η παράμετρος -Station επιλέγει ξεχωριστό φάκελο εγκατάστασης, εργασία Windows
+  και αποθήκευση token. Το WORKSHOP μένει στο σημερινό φάκελο και στην ίδια εργασία.
+- Το μέγεθος ετικέτας παραμένει ενιαίο 50×70. Δεν αλλάζει διάταξη ή προφίλ.
+- Μην εγκαταστήσετε αυτή την έκδοση και μην κάνετε δοκιμαστική εκτύπωση πριν
+  από ξεχωριστή έγκριση. Η υπάρχουσα εγκατάσταση WORKSHOP δεν αντικαθίσταται
+  αν δεν ξανατρέξει το SETUP του WORKSHOP.
 
 Έκδοση 1.0.20
 -------------
@@ -87,5 +106,7 @@ Created by Christos Fragoulis
 Διαγνωστικά
 -----------
 Εκτελέστε .\Diagnose-WarehouseHprtAgent.ps1
+Για CENTRAL: .\Diagnose-WarehouseHprtAgent.ps1 -Station CENTRAL
+Χωρίς παράμετρο, από το πακέτο πριν την εγκατάσταση, ελέγχεται ο WORKSHOP.
 
 Το πακέτο δεν περιέχει token.
