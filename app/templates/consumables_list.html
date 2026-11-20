@@ -37,6 +37,9 @@
     .group.collapsed .grow,.grow.miss,.group.miss{display:none}
     .gCount{color:var(--muted);font-weight:700}
     .gSug{color:#fde68a;font-size:12px;font-weight:700}
+    .gValue{margin-left:auto;color:#bfdbfe;font-size:12px;font-weight:800}
+    .valueBar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+    .valueBar .chip{cursor:default}
     .grow{border-top:1px solid rgba(36,48,85,.45)}
     .grow:hover{background:rgba(255,255,255,.025)}
     .name{font-weight:750;font-size:14px}
@@ -94,6 +97,7 @@
         <a class="pill" href="/movements">Movements</a>
         <a class="pill" href="/products">Products</a>
         <a class="pill" href="/consumables"><b>Αναλώσιμα</b></a>
+        {% if is_admin %}<a class="pill" href="/consumables/orders">Λίστα παραγγελίας</a>{% endif %}
         <a class="pill" href="/consumables/take">Λήψη</a>
         <a class="pill" href="/consumables/movements">Ιστορικό</a>
         <a class="pill" href="/workers">Εργαζόμενοι</a>
@@ -115,6 +119,13 @@
           <option value="{{ s.id }}">{{ s.name }}</option>
           {% endfor %}
         </select>
+      </div>
+      <div class="valueBar" aria-label="Αξία αποθέματος">
+        <span class="chip">Αξία αποθέματος</span>
+        {% for supplier in supplier_values %}
+        <span class="chip">{{ supplier.name }} <b>€{{ supplier.stock_value_eur }}</b></span>
+        {% endfor %}
+        <span class="chip">Σύνολο <b>€{{ stock_value_total_eur }}</b></span>
       </div>
       <div class="catbar" id="catbar" role="tablist" aria-label="Κατηγορίες">
         <button type="button" class="chip active" data-cat="" aria-pressed="true"><span>Όλα</span> <span class="n" data-count="all">{{ rows|length }}</span>{% if low_count %} <span class="catLow" data-low="all">{{ low_count }}</span>{% endif %}</button>
@@ -144,6 +155,7 @@
           <span class="gCount">{{ g.count }}</span>
           {% if g.low %}<span class="catLow">{{ g.low }}</span>{% endif %}
           {% if g.suggested_packs %}<span class="gSug">πρόταση {{ g.suggested_packs }}</span>{% endif %}
+          <span class="gValue">αξία €{{ g.stock_value_eur }}</span>
         </button>
         {% for r in g.rows %}
         <div class="cols grow"
