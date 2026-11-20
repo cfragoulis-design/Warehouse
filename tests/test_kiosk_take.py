@@ -283,6 +283,10 @@ def test_take_page_is_greek_touch_and_kiosk_hides_other_chrome(db: Session) -> N
     assert 'id="kioskHome"' in html
     assert "← Κατηγορίες" in html
     assert "KIOSK_IDLE_MS = 90000" in html
+    assert "KIOSK_SCREEN_MS = 120000" in html
+    assert 'id="idleScreen"' in html
+    assert "Τι λείπει" in html
+    assert "idleDrift" in html
     assert "min-height:140px" in html
     assert "Ποιος είσαι;" in html
 
@@ -293,6 +297,7 @@ def test_take_page_is_greek_touch_and_kiosk_hides_other_chrome(db: Session) -> N
     )
     warehouse_html = warehouse_normal.body.decode("utf-8")
     assert 'data-kiosk="1"' not in warehouse_html
+    assert 'id="idleScreen"' not in warehouse_html
     assert "Αποσύνδεση" in warehouse_html
     assert "Πίνακας" not in warehouse_html
 

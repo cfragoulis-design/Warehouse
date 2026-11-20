@@ -13,6 +13,8 @@ try:
     from app.auth import require_user, require_role, is_warehouse_only
     from app.kiosk_session import fold_search, kiosk_ui_enabled
     from app.consumable_images import initials, jpeg_thumbnail
+    from app.consumption_forecast import days_phrase, forecast_flags
+    from app.order_sheet import build_order_sheet
     from app.worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
     from app.models import (
         User,
@@ -30,6 +32,8 @@ except ImportError:
     from auth import require_user, require_role, is_warehouse_only
     from kiosk_session import fold_search, kiosk_ui_enabled
     from consumable_images import initials, jpeg_thumbnail
+    from consumption_forecast import days_phrase, forecast_flags
+    from order_sheet import build_order_sheet
     from worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
     from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement, Worker
     from templating import WarehouseJinja2Templates
@@ -292,8 +296,24 @@ def _admin_groups(rows: list[dict]) -> list[dict]:
             "count": len(items),
             "low": sum(1 for item in items if item["is_low"]),
             "suggested_packs": sum(int(item["suggested_packs"]) for item in items),
+            "stock_value_eur": _money(sum((item["stock_value"] for item in items), Decimal("0"))),
         })
     return groups
+
+
+def _supplier_stock_values(rows: list[dict]) -> tuple[list[dict], str]:
+    totals: dict[str, Decimal] = {}
+    grand = Decimal("0")
+    for row in rows:
+        value = _d(row["stock_value"])
+        grand += value
+        name = (row.get("supplier_name") or "").strip() or "Χωρίς προμηθευτή"
+        totals[name] = totals.get(name, Decimal("0")) + value
+    names = sorted((name for name in totals if name != "Χωρίς προμηθευτή"), key=fold_search)
+    if "Χωρίς προμηθευτή" in totals:
+        names.append("Χωρίς προμηθευτή")
+    summary = [{"name": name, "stock_value_eur": _money(totals[name])} for name in names]
+    return summary, _money(grand)
 
 
 def _admin_row_payload(db: Session, consumable: Consumable) -> dict:
@@ -332,6 +352,16 @@ def _admin_row_payload(db: Session, consumable: Consumable) -> dict:
     }
 
 
+def _attach_forecast(db: Session, rows: list[dict]) -> None:
+    flags = forecast_flags(db, [int(row["id"]) for row in rows])
+    for row in rows:
+        info = flags.get(int(row["id"]))
+        row["days_left"] = None if info is None else info["days_left"]
+        row["days_phrase"] = "" if info is None else days_phrase(info["days_left"])
+        row["runs_out_before_order"] = bool(info and info["runs_out_before_order"])
+        row["weekly_qty"] = "" if info is None else info["weekly_qty"]
+
+
 @router.get("/consumables")
 def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
     if is_warehouse_only(user):
@@ -340,7 +370,9 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
     consumables = db.query(Consumable).order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc()).all()
     rows = [_admin_row(c, stock_map, on_order_map, suppliers) for c in consumables if c.is_active]
     _attach_images(rows, _image_ids(db))
+    _attach_forecast(db, rows)
     groups = _admin_groups(rows)
+    supplier_values, stock_value_total_eur = _supplier_stock_values(rows)
     return templates.TemplateResponse("consumables_list.html", {
         "request": request,
         "user": user,
@@ -353,7 +385,26 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
         ],
         "category_names": [group["name"] for group in groups if group["name"] != OTHER_CATEGORY_LABEL],
         "low_count": sum(1 for row in rows if row["is_low"]),
+        "supplier_values": supplier_values,
+        "stock_value_total_eur": stock_value_total_eur,
     })
+
+
+@router.get("/consumables/orders")
+def consumables_order_sheet(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_editor),
+):
+    stock_map, on_order_map, _suppliers_list, suppliers = _admin_context_maps(db)
+    consumables = db.query(Consumable).order_by(Consumable.name.asc()).all()
+    rows = [_admin_row(item, stock_map, on_order_map, suppliers) for item in consumables if item.is_active]
+    flags = forecast_flags(db, [row["id"] for row in rows])
+    sheets = build_order_sheet(rows, flags)
+    return templates.TemplateResponse(
+        "consumables_orders.html",
+        {"request": request, "user": user, "sheets": sheets},
+    )
 
 
 @router.post("/consumables/new")
@@ -526,6 +577,7 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
             "search_text": fold_search(f"{c.name} {category}"),
         })
     _attach_images(rows, _image_ids(db))
+    _attach_forecast(db, rows)
     return rows, low_count
 
 
@@ -589,6 +641,11 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "kiosk_cat": request.query_params.get("cat") if kiosk_ui_enabled(request, user) else None,
             "categories": _take_categories(rows),
             "workers": worker_choices(active_workers(db)),
+            "runout_items": [
+                {"id": row["id"], "name": row["name"], "days_left": row["days_left"]}
+                for row in rows
+                if row.get("days_left") is not None
+            ],
         },
     )
 
