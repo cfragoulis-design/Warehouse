@@ -28,6 +28,7 @@ if not runtime_settings.operations_source_mode:
     try:
         from app.auth import router as auth_router
         from app.auth import seed_admins
+        from app.worker_service import seed_workers
         from app.catalog_service import router as catalog_router
         from app.consumables_service import router as consumables_router
         from app.digest_service import router as digest_router
@@ -39,6 +40,7 @@ if not runtime_settings.operations_source_mode:
     except ImportError:
         from auth import router as auth_router
         from auth import seed_admins
+        from worker_service import seed_workers
         from catalog_service import router as catalog_router
         from consumables_service import router as consumables_router
         from digest_service import router as digest_router
@@ -107,6 +109,7 @@ def startup() -> None:
     db = SessionLocal()
     try:
         seed_admins(db)
+        seed_workers(db)
 
         # seed_locations may be implemented as seed_locations(db) or seed_locations()
         try:
@@ -152,6 +155,11 @@ if not runtime_settings.operations_source_mode:
     app.include_router(freezer_router)
     app.include_router(workshop_message_router)
     app.include_router(consumables_router)
+    try:
+        from app.worker_service import router as workers_router
+    except ImportError:
+        from worker_service import router as workers_router
+    app.include_router(workers_router)
     app.include_router(digest_router)
     app.include_router(production_report_router)
 app.include_router(operations_summary_router)

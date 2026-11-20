@@ -14,7 +14,10 @@ from app.schema_migrations import (
 def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     catalog = migration_catalog()
 
-    assert [migration.version for migration in catalog] == ["20260803_001"]
+    assert [migration.version for migration in catalog] == [
+        "20260803_001",
+        "20261120_002",
+    ]
     migration = catalog[0]
     assert migration.checksum == hashlib.sha256(
         migration.sql.encode("utf-8")
@@ -25,6 +28,13 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "TRUNCATE" not in upper_sql
     assert "DELETE FROM" not in upper_sql
     assert len(BASELINE_SCHEMA_FINGERPRINT) == 64
+    workers = catalog[1]
+    workers_sql = workers.sql.upper()
+    assert "CREATE TABLE IF NOT EXISTS WORKERS" in workers_sql
+    assert "ADD COLUMN IF NOT EXISTS WORKER_ID" in workers_sql
+    assert "DROP TABLE" not in workers_sql
+    assert "DELETE FROM" not in workers_sql
+    assert workers.checksum == hashlib.sha256(workers.sql.encode("utf-8")).hexdigest()
 
 
 def test_restore_target_must_be_exact_and_isolated() -> None:

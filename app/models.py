@@ -1,6 +1,7 @@
 # app/models.py
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from decimal import Decimal
 
@@ -12,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Numeric,
     Date,
+    Uuid,
     CheckConstraint,
     UniqueConstraint,
     func,
@@ -355,6 +357,30 @@ class ConsumableStock(Base):
     )
 
 
+class Worker(Base):
+    """Person who can be chosen on the storeroom kiosk.
+
+    ``one_employee_id`` is reserved for the full One employee UUID. Only an
+    8-character prefix is known today, so that prefix lives in
+    ``one_employee_ref`` and the UUID stays empty until it can be backfilled.
+    """
+
+    __tablename__ = "workers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    one_employee_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), unique=True, nullable=True)
+    one_employee_ref: Mapped[str | None] = mapped_column(String(16), unique=True, nullable=True)
+    location: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
 class ConsumableMovement(Base):
     __tablename__ = "consumable_movements"
     __table_args__ = (
@@ -384,6 +410,11 @@ class ConsumableMovement(Base):
 
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    worker_id: Mapped[int | None] = mapped_column(
+        ForeignKey("workers.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

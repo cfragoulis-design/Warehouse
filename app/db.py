@@ -283,3 +283,29 @@ def init_db() -> None:
     except Exception as exc:
         _handle_startup_ddl_failure("workshop_messages", exc)
 
+    # Kiosk workers. Nullable worker_id keeps old movements valid.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS workers (
+                    id SERIAL PRIMARY KEY,
+                    display_name VARCHAR(80) NOT NULL,
+                    one_employee_id UUID UNIQUE,
+                    one_employee_ref VARCHAR(16) UNIQUE,
+                    location VARCHAR(80),
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE consumable_movements ADD COLUMN IF NOT EXISTS worker_id INTEGER REFERENCES workers(id) ON DELETE SET NULL"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_consumable_movements_worker_id ON consumable_movements(worker_id);"
+            )
+    except Exception as exc:
+        _handle_startup_ddl_failure("workers", exc)
+
