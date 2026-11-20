@@ -18,6 +18,8 @@
     .wrap{max-width:980px;margin:0 auto;padding:16px}
     .card{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:14px;margin-bottom:14px}
     form.row, .worker{display:grid;grid-template-columns:1.4fr 1fr auto auto auto;gap:8px;align-items:center;margin-top:8px}
+    .cardRow{display:flex;gap:8px;align-items:center;margin:4px 0 10px}
+    .cardRow input{flex:1}
     input,select,button{font:inherit;color:inherit;background:#0e1530;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
     button{cursor:pointer}
     .hidden{opacity:.55}
@@ -57,10 +59,43 @@
           <button type="submit" formaction="/workers/{{ w.id }}/move" name="direction" value="up" aria-label="Πάνω">↑</button>
           <button type="submit" formaction="/workers/{{ w.id }}/move" name="direction" value="down" aria-label="Κάτω">↓</button>
         </span>
+        <input class="cardUid" name="card_uid" value="{{ w.card_uid or '' }}" placeholder="Κάρτα NFC" aria-label="Κάρτα NFC" style="grid-column:1 / span 2" />
+        <button type="button" class="armCard">σάρωσε τώρα</button>
+        <button type="submit" formaction="/workers/{{ w.id }}/card">Αποθήκευση κάρτας</button>
       </form>
       {% if w.one_employee_ref %}<div class="muted">{{ w.one_employee_ref }} · {{ location_labels.get(w.location, w.location or '') }}</div>{% endif %}
       {% endfor %}
     </section>
   </main>
+  <script>
+    document.querySelectorAll('.armCard').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.armCard').forEach(other => { other.textContent = 'σάρωσε τώρα'; other.removeAttribute('data-armed'); });
+        button.textContent = 'Σαρώνω…';
+        button.dataset.armed = '1';
+      });
+    });
+    let buf = '';
+    let at = 0;
+    document.addEventListener('keydown', event => {
+      const armed = document.querySelector('.armCard[data-armed="1"]');
+      if(!armed) return;
+      const input = armed.parentElement.querySelector('.cardUid');
+      if(event.key === 'Enter'){
+        event.preventDefault();
+        if(input && buf) input.value = buf;
+        buf = '';
+        armed.textContent = 'σάρωσε τώρα';
+        delete armed.dataset.armed;
+        return;
+      }
+      if(event.key.length !== 1 || event.ctrlKey || event.metaKey) return;
+      const now = Date.now();
+      if(at && now - at > 80) buf = '';
+      at = now;
+      buf += event.key;
+      event.preventDefault();
+    });
+  </script>
 </body>
 </html>

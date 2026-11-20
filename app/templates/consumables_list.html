@@ -65,6 +65,9 @@
     .num{font-variant-numeric:tabular-nums}
     .sugMeta,.costUnit{display:block;color:var(--muted);font-size:11px}
     .menuWrap{position:relative}
+    .scanLabel{display:grid;gap:4px;padding:8px;color:var(--muted);font-size:12px}
+    .barcodeInput{width:100%;background:#0e1530;border:1px solid var(--line);border-radius:8px;padding:6px}
+    .armScan{text-align:left;background:transparent;border:0;border-radius:8px;padding:8px;cursor:pointer;font-weight:800}
     .menuPop{position:absolute;right:0;top:32px;z-index:50;min-width:230px;background:#0f172a;border:1px solid var(--line);border-radius:10px;padding:6px;display:grid;gap:4px;box-shadow:0 12px 30px rgba(0,0,0,.35)}
     .menuPop a,.menuPop button,.photoPick{text-align:left;background:transparent;border:0;border-radius:8px;padding:8px;cursor:pointer;white-space:nowrap}
     .menuPop a:hover,.menuPop button:hover{background:rgba(255,255,255,.06)}
@@ -238,6 +241,10 @@
             <div class="menuPop" hidden>
               <a href="/consumables/movements">Ιστορικό</a>
               {% if is_admin %}
+              <label class="scanLabel">Barcode
+                <input class="barcodeInput" value="{{ r.barcode }}" autocomplete="off" spellcheck="false" aria-label="Barcode" />
+              </label>
+              <button type="button" class="armScan">σάρωσε τώρα</button>
               <label class="photoPick">Φωτογραφία<input class="photoInput" type="file" accept="image/*" hidden /></label>
               <button type="button" class="clearPhoto">Αφαίρεση φωτογραφίας</button>
               <button type="button" class="disableBtn">Απενεργοποίηση</button>
@@ -731,6 +738,55 @@
     });
   });
 
+  document.querySelectorAll('.armScan').forEach(button => {
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      document.querySelectorAll('.armScan').forEach(other => { other.textContent = 'σάρωσε τώρα'; });
+      button.textContent = 'Σαρώνω…';
+      button.dataset.armed = '1';
+      const input = button.parentElement.querySelector('.barcodeInput');
+      if(input) input.focus();
+    });
+  });
+  let scanBuf = '';
+  let scanAt = 0;
+  document.addEventListener('keydown', event => {
+    const armed = document.querySelector('.armScan[data-armed="1"]');
+    if(!armed) return;
+    const input = armed.parentElement.querySelector('.barcodeInput');
+    if(event.key === 'Enter'){
+      event.preventDefault();
+      armed.textContent = 'σάρωσε τώρα';
+      delete armed.dataset.armed;
+      if(input && scanBuf) input.value = scanBuf;
+      scanBuf = '';
+      if(input) input.dispatchEvent(new Event('change', {bubbles:true}));
+      return;
+    }
+    if(event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return;
+    const now = Date.now();
+    if(scanAt && now - scanAt > 80) scanBuf = '';
+    scanAt = now;
+    scanBuf += event.key;
+    if(now - (scanAt - 1) < 80 || scanBuf.length > 1) event.preventDefault();
+  });
+  document.querySelectorAll('.barcodeInput').forEach(input => {
+    input.addEventListener('click', event => event.stopPropagation());
+    input.addEventListener('change', async () => {
+      const row = input.closest('.grow');
+      const body = new FormData();
+      body.append('barcode', input.value.trim());
+      try {
+        const res = await fetch('/consumables/' + row.dataset.id + '/barcode', {method:'POST', body, headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        const data = await res.json().catch(() => ({ok:false}));
+        if(!res.ok || data.ok === false) throw new Error('Ο κωδικός δεν αποθηκεύτηκε');
+        input.value = data.barcode || '';
+        showToast('Barcode αποθηκεύτηκε', false);
+      } catch (err) {
+        showToast(err.message || 'Ο κωδικός δεν αποθηκεύτηκε', true);
+      }
+    });
+  });
   document.querySelectorAll('.photoInput').forEach(input => {
     input.addEventListener('click', event => event.stopPropagation());
     input.addEventListener('change', async () => {

@@ -18,6 +18,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20260803_001",
         "20261120_002",
         "20261120_003",
+        "20261120_004",
     ]
     migration = catalog[0]
     assert migration.checksum == hashlib.sha256(
@@ -44,6 +45,15 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "GRANT SELECT ON TABLE WORKERS TO WAREHOUSE_OPERATIONS_PROD_READER" in images_sql
     assert "DROP TABLE" not in images_sql
     assert "DELETE FROM" not in images_sql
+    scans = catalog[3]
+    scans_sql = scans.sql.upper()
+    assert "ADD COLUMN IF NOT EXISTS BARCODE VARCHAR(64)" in scans_sql
+    assert "ADD COLUMN IF NOT EXISTS CARD_UID VARCHAR(64)" in scans_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE WORKERS TO WAREHOUSE_PRODUCTION_APP" in scans_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE WORKERS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in scans_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLES TO WAREHOUSE_OPERATIONS_PROD_READER" in scans_sql
+    assert "DROP TABLE" not in scans_sql
+    assert "DELETE FROM" not in scans_sql
 
 
 def test_restore_target_must_be_exact_and_isolated() -> None:
