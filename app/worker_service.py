@@ -108,6 +108,7 @@ def worker_choices(workers: list[Worker]) -> list[dict]:
             "id": worker.id,
             "display_name": worker.display_name,
             "location": LOCATION_LABELS.get(worker.location or "", worker.location or ""),
+            "card_uid": worker.card_uid or "",
         }
         for worker in workers
     ]
@@ -173,6 +174,31 @@ def worker_toggle(wid: int, db: Session = Depends(get_db), user=Depends(require_
     if worker is None:
         raise HTTPException(404)
     worker.is_active = not bool(worker.is_active)
+    db.commit()
+    return RedirectResponse("/workers", status_code=303)
+
+
+@router.post("/workers/{wid}/card")
+def worker_card(
+    wid: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("admin")),
+    card_uid: str = Form(""),
+):
+    del user
+    worker = db.get(Worker, wid)
+    if worker is None:
+        raise HTTPException(404)
+    clean = (card_uid or "").strip() or None
+    if clean and len(clean) > 64:
+        raise HTTPException(status_code=400, detail="Card code is too long")
+    if clean:
+        clash = db.execute(
+            select(Worker).where(Worker.card_uid == clean, Worker.id != worker.id)
+        ).scalar_one_or_none()
+        if clash is not None:
+            raise HTTPException(status_code=400, detail="Card already assigned")
+    worker.card_uid = clean
     db.commit()
     return RedirectResponse("/workers", status_code=303)
 

@@ -331,6 +331,7 @@ class Consumable(Base):
 
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    barcode: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class ConsumableStock(Base):
@@ -371,6 +372,7 @@ class Worker(Base):
     display_name: Mapped[str] = mapped_column(String(80), nullable=False)
     one_employee_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), unique=True, nullable=True)
     one_employee_ref: Mapped[str | None] = mapped_column(String(16), unique=True, nullable=True)
+    card_uid: Mapped[str | None] = mapped_column(String(64), nullable=True)
     location: Mapped[str | None] = mapped_column(String(80), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)

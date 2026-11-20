@@ -267,6 +267,7 @@ def _admin_row(c: Consumable, stock_map: dict, on_order_map: dict, suppliers: di
         "suggested_value": suggested_value,
         "suggested_value_eur": _money(suggested_value),
         "notes": c.notes or "",
+        "barcode": c.barcode or "",
         "is_low": bool(at_or_below_min),
         "needs_order": bool(at_or_below_min or suggested_packs > 0),
         "search_text": fold_search(f"{c.name} {category_label} {supplier_name} {c.unit or ''}"),
@@ -414,6 +415,42 @@ def consumable_new(
     return RedirectResponse("/consumables", status_code=303)
 
 
+def _clean_code(raw: str) -> str | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if len(text) > 64:
+        raise HTTPException(status_code=400, detail="Code is too long")
+    return text
+
+
+@router.post("/consumables/{cid}/barcode")
+def consumable_barcode(
+    cid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_editor),
+    barcode: str = Form(""),
+):
+    del user
+    item = db.get(Consumable, cid)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown consumable")
+    clean = _clean_code(barcode)
+    if clean:
+        clash = (
+            db.query(Consumable)
+            .filter(Consumable.barcode == clean, Consumable.id != item.id)
+            .first()
+        )
+        if clash is not None:
+            raise HTTPException(status_code=400, detail="Barcode already assigned")
+    item.barcode = clean
+    db.commit()
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "id": item.id, "barcode": clean or ""})
+    return RedirectResponse("/consumables", status_code=303)
+
 
 def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
@@ -453,6 +490,7 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
             "on_hand_display": _fmt_qty(on_hand),
             "is_low": is_low,
             "notes": c.notes or "",
+            "barcode": c.barcode or "",
             "search_text": fold_search(f"{c.name} {category}"),
         })
     return rows, low_count

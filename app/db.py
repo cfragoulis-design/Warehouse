@@ -306,6 +306,12 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "CREATE INDEX IF NOT EXISTS ix_consumable_movements_worker_id ON consumable_movements(worker_id);"
             )
+            conn.exec_driver_sql(
+                "ALTER TABLE workers ADD COLUMN IF NOT EXISTS card_uid VARCHAR(64)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE consumables ADD COLUMN IF NOT EXISTS barcode VARCHAR(64)"
+            )
     except Exception as exc:
         _handle_startup_ddl_failure("workers", exc)
 

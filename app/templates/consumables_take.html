@@ -42,7 +42,7 @@
     .item.is-searching .catLabel{color:#e0f2fe;background:rgba(2,132,199,.2);border-radius:999px;padding:2px 8px}
     .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
     .item{border:1px solid var(--line);background:linear-gradient(180deg,var(--panel),#0f1732);border-radius:18px;padding:12px;box-shadow:0 8px 24px rgba(0,0,0,.14)}
-    .item.low{border-color:rgba(239,68,68,.55)}
+    .item.scanHit{outline:3px solid #38bdf8;outline-offset:2px}
     .item h3{margin:0;font-size:22px;line-height:1.2}
     .meta{color:var(--muted);font-size:18px;margin-top:4px}
     .stockrow{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0}
@@ -228,7 +228,7 @@
     {% else %}
     <section class="cards" id="cards">
       {% for r in rows %}
-      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}">
+      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}"{% if r.barcode %} data-barcode="{{ r.barcode }}"{% endif %}>
         <div class="catLabel">{{ r.category }}</div>
         <h3>{{ r.name }}</h3>
         <div class="meta">συσκευασία {{ r.pack_display }} {{ r.unit }}</div>
@@ -278,7 +278,7 @@
       <h2 id="whoTitle">Ποιος είσαι;</h2>
       <div class="whoGrid">
         {% for w in workers %}
-        <button type="button" class="whoBtn" data-worker="{{ w.id }}">{{ w.display_name }}<small>{{ w.location }}</small></button>
+        <button type="button" class="whoBtn" data-worker="{{ w.id }}"{% if w.card_uid %} data-card="{{ w.card_uid }}"{% endif %}>{{ w.display_name }}<small>{{ w.location }}</small></button>
         {% endfor %}
       </div>
       <button type="button" class="whoCancel" id="whoCancel">Άκυρο</button>
@@ -617,6 +617,7 @@
   const whoCancel=document.getElementById('whoCancel');
   let whoTimer=null;
   let pendingTake=null;
+  let pendingWorker=null;
   function closeWho(){
     pendingTake=null;
     clearTimeout(whoTimer);
@@ -624,6 +625,10 @@
   }
   function openWho(action){
     pendingTake=action;
+    if(pendingWorker){
+      confirmWho(String(pendingWorker.id), pendingWorker.name);
+      return;
+    }
     if(!whoOverlay) return;
     whoOverlay.hidden=false;
     clearTimeout(whoTimer);
@@ -667,6 +672,74 @@
     btn.addEventListener('click', ()=>confirmWho(btn.dataset.worker, (btn.childNodes[0] && btn.childNodes[0].textContent || '').trim()));
   });
   if(whoCancel) whoCancel.addEventListener('click', closeWho);
+  const SCAN_GAP_MS = 40;
+  let scanBuffer='';
+  let scanAt=0;
+  let scanFast=false;
+  let scanLeaked=0;
+  function resetScan(){
+    scanBuffer='';
+    scanFast=false;
+    scanLeaked=0;
+  }
+  function handleScan(code){
+    const want=code.trim().toLowerCase();
+    if(!want) return;
+    const workerBtn=[...document.querySelectorAll('.whoBtn[data-card]')].find(btn => (btn.dataset.card||'').toLowerCase()===want);
+    const item=[...document.querySelectorAll('.item[data-barcode]')].find(el => (el.dataset.barcode||'').toLowerCase()===want);
+    if(workerBtn){
+      pendingWorker={id:workerBtn.dataset.worker, name:(workerBtn.childNodes[0] && workerBtn.childNodes[0].textContent || '').trim()};
+      if(pendingTake){
+        confirmWho(pendingWorker.id, pendingWorker.name);
+        return;
+      }
+      showToast(pendingWorker.name, false, null);
+    }
+    if(item){
+      if(isKiosk) openKioskCategory(item.dataset.category||'');
+      item.classList.add('scanHit');
+      item.scrollIntoView({block:'center'});
+      setTimeout(()=>item.classList.remove('scanHit'), 1600);
+    }
+    if(!workerBtn && !item) showToast('Άγνωστος κωδικός', true, null);
+  }
+  document.addEventListener('keydown', (event)=>{
+    if(!isKiosk) return;
+    if(event.ctrlKey || event.metaKey || event.altKey) return;
+    const target=event.target;
+    const field=target && (target.tagName==='INPUT' || target.tagName==='TEXTAREA') && !target.readOnly ? target : null;
+    const now=Date.now();
+    const gap=scanAt ? now-scanAt : 1000;
+    scanAt=now;
+    if(event.key==='Enter'){
+      if(scanFast && scanBuffer.length>=3){
+        event.preventDefault();
+        event.stopPropagation();
+        if(field && scanLeaked && typeof field.value==='string'){
+          field.value=field.value.slice(0, Math.max(0, field.value.length-scanLeaked));
+          field.dispatchEvent(new Event('input', {bubbles:true}));
+        }
+        const code=scanBuffer;
+        resetScan();
+        handleScan(code);
+      } else {
+        resetScan();
+      }
+      return;
+    }
+    if(event.key.length!==1) return;
+    if(scanBuffer && gap>SCAN_GAP_MS){
+      resetScan();
+    }
+    const fast=scanBuffer.length>=1 && gap<=SCAN_GAP_MS;
+    scanBuffer+=event.key;
+    if(fast) scanFast=true;
+    if(scanFast){
+      event.preventDefault();
+    } else if(field){
+      scanLeaked=scanBuffer.length;
+    }
+  }, true);
   document.addEventListener('contextmenu', (event)=>{
     if(event.target.closest && event.target.closest('button, .toggle, .qty, .pill, .badge')) event.preventDefault();
   });
