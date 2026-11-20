@@ -506,6 +506,7 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "low_count": low_count,
             "recent": recent,
             "kiosk": kiosk_ui_enabled(request, user),
+            "kiosk_cat": request.query_params.get("cat") if kiosk_ui_enabled(request, user) else None,
             "categories": _take_categories(rows),
             "workers": worker_choices(active_workers(db)),
         },
