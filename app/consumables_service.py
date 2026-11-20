@@ -34,6 +34,7 @@ templates = WarehouseJinja2Templates(directory="app/templates")
 
 OPEN_PO_STATUSES = {"DRAFT", "SUBMITTED", "PARTIAL"}
 WORKSHOP_CODE = "WORKSHOP"
+OTHER_CATEGORY_LABEL = "Λοιπά"
 
 
 def require_consumables_editor(user: User = Depends(require_user)) -> User:
@@ -352,7 +353,7 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
         if is_low:
             low_count += 1
         pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
-        category = c.category or ""
+        category = _category_label(c.category)
         unit = c.unit or "τεμ"
         rows.append({
             "id": c.id,
@@ -371,6 +372,31 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
             "search_text": fold_search(f"{c.name} {category}"),
         })
     return rows, low_count
+
+
+def _category_label(raw: str | None) -> str:
+    label = (raw or "").strip()
+    return label or OTHER_CATEGORY_LABEL
+
+
+def _take_categories(rows: list[dict]) -> list[dict]:
+    """One button per active category. Blank categories share «Λοιπά», last."""
+    buckets: dict[str, dict] = {}
+    for row in rows:
+        label = _category_label(row.get("category"))
+        bucket = buckets.get(label)
+        if bucket is None:
+            bucket = {"key": label, "name": label, "count": 0, "low": 0}
+            buckets[label] = bucket
+        bucket["count"] += 1
+        if row.get("is_low"):
+            bucket["low"] += 1
+    named = [bucket for label, bucket in buckets.items() if label != OTHER_CATEGORY_LABEL]
+    named.sort(key=lambda bucket: fold_search(bucket["name"]))
+    other = buckets.get(OTHER_CATEGORY_LABEL)
+    if other is not None:
+        named.append(other)
+    return named
 
 
 @router.get("/consumables/take")
@@ -395,6 +421,7 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "low_count": low_count,
             "recent": recent,
             "kiosk": kiosk_ui_enabled(request, user),
+            "categories": _take_categories(rows),
         },
     )
 

@@ -31,6 +31,15 @@
     .toggles{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
     .toggle{white-space:nowrap;border:1px solid var(--line);background:var(--panel);border-radius:999px;min-height:56px;padding:0 16px;color:var(--text);font-size:18px;font-weight:700;display:inline-flex;align-items:center;gap:8px}
     .toggle input{width:22px;height:22px;margin:0}
+    .catbar{display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap;margin-top:10px;padding:2px 2px 8px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;overscroll-behavior-x:contain;scrollbar-width:thin}
+    .catBtn{flex:0 0 auto;min-height:56px;padding:8px 14px;border-radius:16px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--text);font-size:18px;font-weight:800;display:inline-flex;align-items:center;gap:8px;scroll-snap-align:start;white-space:nowrap}
+    .catBtn.active{background:rgba(47,124,246,.22);border-color:rgba(47,124,246,.75);color:#fff}
+    .catBtn:active{transform:scale(0.98)}
+    .catCount{font-size:18px;color:var(--muted);font-weight:800}
+    .catBtn.active .catCount{color:#dbeafe}
+    .catLow{min-width:28px;height:28px;padding:0 7px;border-radius:999px;background:rgba(239,68,68,.16);border:1px solid rgba(245,158,11,.7);color:#fecdd3;font-size:16px;font-weight:900;display:inline-flex;align-items:center;justify-content:center}
+    .catLabel{display:inline-flex;align-items:center;margin:0 0 4px;font-size:16px;font-weight:800;color:#9ec1ff}
+    .item.is-searching .catLabel{color:#e0f2fe;background:rgba(2,132,199,.2);border-radius:999px;padding:2px 8px}
     .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
     .item{border:1px solid var(--line);background:linear-gradient(180deg,var(--panel),#0f1732);border-radius:18px;padding:12px;box-shadow:0 8px 24px rgba(0,0,0,.14)}
     .item.low{border-color:rgba(239,68,68,.55)}
@@ -136,6 +145,22 @@
         <label class="toggle"><input id="onlyLow" type="checkbox">Μόνο χαμηλά</label>
         <label class="toggle"><input id="onlyAvailable" type="checkbox">Μόνο διαθέσιμα</label>
       </div>
+      {% if rows|length %}
+      <div class="catbar" id="catbar" role="tablist" aria-label="Κατηγορίες">
+        <button type="button" class="catBtn active" data-cat="" aria-pressed="true" aria-label="Όλα, {{ rows|length }} είδη{% if low_count %}, {{ low_count }} χαμηλά{% endif %}">
+          <span class="catName">Όλα</span>
+          <span class="catCount">{{ rows|length }}</span>
+          {% if low_count %}<span class="catLow">{{ low_count }}</span>{% endif %}
+        </button>
+        {% for cat in categories %}
+        <button type="button" class="catBtn" data-cat="{{ cat.key }}" aria-pressed="false" aria-label="{{ cat.name }}, {{ cat.count }} είδη{% if cat.low %}, {{ cat.low }} χαμηλά{% endif %}">
+          <span class="catName">{{ cat.name }}</span>
+          <span class="catCount">{{ cat.count }}</span>
+          {% if cat.low %}<span class="catLow">{{ cat.low }}</span>{% endif %}
+        </button>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
 
     {% if rows|length == 0 %}
@@ -143,9 +168,10 @@
     {% else %}
     <section class="cards" id="cards">
       {% for r in rows %}
-      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}">
+      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}">
+        <div class="catLabel">{{ r.category }}</div>
         <h3>{{ r.name }}</h3>
-        <div class="meta">{{ r.category or 'Χωρίς κατηγορία' }} • συσκευασία {{ r.pack_display }} {{ r.unit }}</div>
+        <div class="meta">συσκευασία {{ r.pack_display }} {{ r.unit }}</div>
         <div class="stockrow">
           <div><div class="stock stockValue">{{ r.on_hand_display }}</div><div class="meta">{{ r.unit }} διαθέσιμα</div></div>
           <span class="badge statusBadge {% if r.is_low %}low{% else %}ok{% endif %}">{% if r.is_low %}ΧΑΜΗΛΟ • ελάχ. {{ r.min_qty_display }}{% else %}OK{% endif %}</span>
@@ -167,6 +193,7 @@
       </article>
       {% endfor %}
     </section>
+    <p id="filterEmpty" class="empty" hidden>Κανένα είδος με αυτά τα φίλτρα.</p>
     {% endif %}
 
     {% if not kiosk %}
@@ -190,7 +217,9 @@
 (function(){
   var STOCK_REFRESH_MS = 180000;
   var UNDO_MS = 5000;
+  var CATEGORY_STORAGE_KEY = 'wh_take_category';
   const q=document.getElementById('q'), onlyLow=document.getElementById('onlyLow'), onlyAvailable=document.getElementById('onlyAvailable');
+  let selectedCat='';
   function foldSearch(value){
     return (value || '')
       .toLocaleLowerCase('el')
@@ -198,16 +227,100 @@
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/ς/g, 'σ');
   }
+  function knownCategory(value){
+    if(!value) return '';
+    const match=[...document.querySelectorAll('.catBtn')].some(btn=>(btn.dataset.cat||'')===value);
+    return match ? value : '';
+  }
+  function categoryFromLocation(){
+    if((location.hash||'').indexOf('#cat=')===0){
+      try{return decodeURIComponent(location.hash.slice(5));}catch(err){return '';}
+    }
+    try{return localStorage.getItem(CATEGORY_STORAGE_KEY)||'';}catch(err){return '';}
+  }
+  function markCategory(value){
+    selectedCat=knownCategory(value);
+    document.querySelectorAll('.catBtn').forEach(btn=>{
+      const on=(btn.dataset.cat||'')===selectedCat;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on?'true':'false');
+    });
+    const active=document.querySelector('.catBtn.active');
+    const bar=active && active.closest('.catbar');
+    if(active && bar){
+      const left=active.offsetLeft-(bar.clientWidth-active.offsetWidth)/2;
+      bar.scrollLeft=Math.max(0, left);
+    }
+  }
+  function rememberCategory(value){
+    markCategory(value);
+    try{localStorage.setItem(CATEGORY_STORAGE_KEY, selectedCat);}catch(err){}
+    const next=selectedCat ? '#cat='+encodeURIComponent(selectedCat) : location.pathname+location.search;
+    if((location.pathname+location.search+location.hash)!==next && (selectedCat || location.hash)){
+      history.replaceState(null, '', next);
+    }
+    filter();
+  }
+  function refreshCategoryCounts(){
+    const counts={};
+    let total=0, totalLow=0;
+    document.querySelectorAll('.item').forEach(card=>{
+      const key=card.dataset.category||'Λοιπά';
+      const bucket=counts[key]||(counts[key]={count:0, low:0});
+      bucket.count+=1;
+      total+=1;
+      if(card.dataset.low==='1'){bucket.low+=1;totalLow+=1;}
+    });
+    document.querySelectorAll('.catBtn').forEach(btn=>{
+      const key=btn.dataset.cat||'';
+      const stat=key ? (counts[key]||{count:0, low:0}) : {count:total, low:totalLow};
+      const countEl=btn.querySelector('.catCount');
+      if(countEl) countEl.textContent=String(stat.count);
+      let lowEl=btn.querySelector('.catLow');
+      if(stat.low>0){
+        if(!lowEl){
+          lowEl=document.createElement('span');
+          lowEl.className='catLow';
+          btn.appendChild(lowEl);
+        }
+        lowEl.textContent=String(stat.low);
+      }else if(lowEl){
+        lowEl.remove();
+      }
+    });
+  }
   function filter(){
     const term=foldSearch((q && q.value || '').trim());
-    document.querySelectorAll('.item').forEach(card=>{
+    const searching=term.length>0;
+    let visible=0;
+    const cards=document.querySelectorAll('.item');
+    cards.forEach(card=>{
       const hay=foldSearch(card.dataset.name || '');
       const okText=!term || hay.includes(term);
       const okLow=!onlyLow || !onlyLow.checked || card.dataset.low==='1';
       const okAvail=!onlyAvailable || !onlyAvailable.checked || card.dataset.available==='1';
-      card.style.display=(okText&&okLow&&okAvail)?'':'none';
+      const okCat=searching || !selectedCat || (card.dataset.category||'')===selectedCat;
+      const show=okText&&okLow&&okAvail&&okCat;
+      card.style.display=show?'':'none';
+      card.classList.toggle('is-searching', searching);
+      if(show) visible+=1;
     });
+    const empty=document.getElementById('filterEmpty');
+    if(empty) empty.hidden=!(cards.length && visible===0);
+    refreshCategoryCounts();
   }
+  document.querySelectorAll('.catBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>rememberCategory(btn.dataset.cat||''));
+  });
+  markCategory(categoryFromLocation());
+  if(selectedCat){
+    try{localStorage.setItem(CATEGORY_STORAGE_KEY, selectedCat);}catch(err){}
+  }
+  filter();
+  window.addEventListener('hashchange', ()=>{
+    markCategory(categoryFromLocation());
+    filter();
+  });
   [q,onlyLow,onlyAvailable].forEach(el=>el&&el.addEventListener('input',filter));
   [onlyLow,onlyAvailable].forEach(el=>el&&el.addEventListener('change',filter));
   const toast=document.getElementById('ajaxToast');
