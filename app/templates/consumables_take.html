@@ -125,6 +125,19 @@
     @media(min-width:1200px){
       .kioskHome{grid-template-columns:1fr 1fr 1fr}
     }
+    .idleScreen{position:fixed;inset:0;z-index:140;background:#070b16;color:var(--text);display:flex;align-items:center;justify-content:center;padding:28px}
+    .idleScreen[hidden]{display:none !important}
+    .idleInner{width:min(920px,100%);animation:idleDrift 80s ease-in-out infinite}
+    @keyframes idleDrift{0%{transform:translate(0,0)}50%{transform:translate(22px,-16px)}100%{transform:translate(0,0)}}
+    .idleClock{font-size:92px;font-weight:900;letter-spacing:-1px;line-height:1}
+    .idleDate{font-size:28px;color:var(--muted);margin:6px 0 22px;text-transform:capitalize}
+    .idleCols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    .idleScreen.idleSingle .idleCols{grid-template-columns:1fr}
+    .idleCol h2{margin:0 0 8px;font-size:26px}
+    .idleCol ul{margin:0;padding:0;list-style:none;display:grid;gap:8px}
+    .idleCol li{font-size:22px;font-weight:700}
+    .idleHint{margin-top:22px;color:var(--muted);font-size:18px}
+    @media(max-width:720px){.idleClock{font-size:64px}.idleCols{grid-template-columns:1fr}}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
@@ -273,6 +286,26 @@
     {% endif %}
   </main>
 
+  {% if kiosk %}
+  <div id="idleScreen" class="idleScreen" hidden>
+    <div class="idleInner">
+      <div id="idleClock" class="idleClock">--:--</div>
+      <div id="idleDate" class="idleDate"></div>
+      <div class="idleCols">
+        <section class="idleCol">
+          <h2>Τι λείπει</h2>
+          <ul id="idleLow"></ul>
+        </section>
+        <section class="idleCol" id="idleSoon" hidden>
+          <h2>Τελειώνει σύντομα</h2>
+          <ul id="idleSoonList"></ul>
+        </section>
+      </div>
+      <div class="idleHint">Άγγιξε την οθόνη για να συνεχίσεις</div>
+    </div>
+  </div>
+  {% endif %}
+
   <div id="whoOverlay" class="whoOverlay" hidden>
     <div class="whoCard" role="dialog" aria-modal="true" aria-labelledby="whoTitle">
       <h2 id="whoTitle">Ποιος είσαι;</h2>
@@ -293,6 +326,7 @@
   var UNDO_MS = 5000;
   var WHO_TIMEOUT_MS = 30000;
   var KIOSK_IDLE_MS = 90000;
+  var KIOSK_SCREEN_MS = 120000;
   var CATEGORY_STORAGE_KEY = 'wh_take_category';
   const isKiosk = document.body.dataset.kiosk === '1';
   let kioskHome = document.body.classList.contains('kiosk-home');
@@ -367,10 +401,63 @@
     filter();
   }
   let idleTimer=null;
-  function resetIdle(){
+  let screenTimer=null;
+  const idleScreen=document.getElementById('idleScreen');
+  function escapeIdle(value){
+    return String(value).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+  }
+  function tickIdleClock(){
+    const clock=document.getElementById('idleClock');
+    const date=document.getElementById('idleDate');
+    if(!clock || !date) return;
+    const now=new Date();
+    clock.textContent=now.toLocaleTimeString('el-GR', {hour:'2-digit', minute:'2-digit'});
+    date.textContent=now.toLocaleDateString('el-GR', {weekday:'long', day:'numeric', month:'long'});
+  }
+  function fillIdleLists(){
+    const low=[];
+    document.querySelectorAll('.item[data-low="1"] h3').forEach(node => low.push(node.textContent.trim()));
+    const lowList=document.getElementById('idleLow');
+    if(lowList) lowList.innerHTML = low.length ? low.map(name => '<li>'+escapeIdle(name)+'</li>').join('') : '<li>Τίποτα χαμηλό</li>';
+    const soon=[];
+    const blob=document.getElementById('runoutData');
+    if(blob){
+      try{
+        JSON.parse(blob.textContent||'[]').forEach(item => {
+          if(item && item.days_left != null && Number(item.days_left) <= 7 && low.indexOf(item.name) === -1){
+            soon.push(item.name+' · ~'+item.days_left+' μέρες');
+          }
+        });
+      }catch(err){}
+    }
+    const soonBox=document.getElementById('idleSoon');
+    const soonList=document.getElementById('idleSoonList');
+    if(soonBox) soonBox.hidden = soon.length === 0;
+    if(idleScreen) idleScreen.classList.toggle('idleSingle', soon.length === 0);
+    if(soonList) soonList.innerHTML = soon.map(name => '<li>'+escapeIdle(name)+'</li>').join('');
+  }
+  function showIdle(){
+    if(!idleScreen) return;
+    fillIdleLists();
+    tickIdleClock();
+    idleScreen.hidden=false;
+  }
+  function hideIdle(){
+    if(idleScreen) idleScreen.hidden=true;
+  }
+  function resetIdle(fromAutoHome){
     if(!isKiosk) return;
     clearTimeout(idleTimer);
     idleTimer=setTimeout(()=>openKioskHome(true), KIOSK_IDLE_MS);
+    if(fromAutoHome===true) return;
+    clearTimeout(screenTimer);
+    hideIdle();
+    screenTimer=setTimeout(showIdle, KIOSK_SCREEN_MS);
+  }
+  function noteActivity(){
+    const wasOpen=!!(idleScreen && !idleScreen.hidden);
+    resetIdle(false);
+    if(wasOpen) openKioskHome(true);
   }
   function categoryFromLocation(){
     if((location.hash||'').indexOf('#cat=')===0){
@@ -488,9 +575,10 @@
     markCategory(view.cat);
     applyKioskChrome();
     ['pointerdown','keydown','touchstart'].forEach(name=>{
-      document.addEventListener(name, resetIdle, {passive:true});
+      document.addEventListener(name, noteActivity, {passive:true});
     });
-    resetIdle();
+    setInterval(tickIdleClock, 1000);
+    resetIdle(false);
   }else{
     markCategory(categoryFromLocation());
     if(selectedCat){
