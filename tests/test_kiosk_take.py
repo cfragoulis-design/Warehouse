@@ -304,6 +304,84 @@ def test_take_page_is_greek_touch_and_kiosk_hides_other_chrome(db: Session) -> N
     assert 'class="hero"' in admin_html
 
 
+def test_take_categories_sort_in_greek_and_count_low_stock(db: Session) -> None:
+    user = _user(db, "warehouse")
+
+    def add_item(
+        name: str,
+        category: str | None,
+        qty: str,
+        minimum: str,
+        *,
+        active: bool = True,
+    ) -> None:
+        item = Consumable(
+            name=name,
+            category=category,
+            unit="τεμ",
+            pack_size=Decimal("1"),
+            min_qty=Decimal(minimum),
+            is_active=active,
+        )
+        db.add(item)
+        db.flush()
+        db.add(
+            ConsumableStock(
+                consumable_id=item.id,
+                location_code="WORKSHOP",
+                qty=Decimal(qty),
+            )
+        )
+
+    add_item("Λάδι", "Έλαια", "1", "5")
+    add_item("Υγρό πιάτων", "Απορρυπαντικά", "8", "2")
+    add_item("Χαρτί", None, "3", "0")
+    add_item("Κουτί", "   ", "2", "0")
+    add_item("Χρώμα", "Βαφές", "6", "2")
+    add_item("Παλιό λάδι", "Έλαια", "9", "1", active=False)
+    db.commit()
+
+    html = consumables_take_page(
+        request=_request(query=b"kiosk=1"),
+        db=db,
+        user=user,
+    ).body.decode("utf-8")
+
+    def at(needle: str) -> int:
+        found = html.find(needle)
+        assert found >= 0, needle
+        return found
+
+    assert at('data-cat=""') < at('data-cat="Απορρυπαντικά"')
+    assert at('data-cat="Απορρυπαντικά"') < at('data-cat="Βαφές"')
+    assert at('data-cat="Βαφές"') < at('data-cat="Έλαια"')
+    assert at('data-cat="Έλαια"') < at('data-cat="Λοιπά"')
+    assert "Παλιό λάδι" not in html
+
+    def button(key: str) -> str:
+        start = html.index(f'data-cat="{key}"')
+        return html[start : html.index("</button>", start)]
+
+    everything = button("")
+    assert ">5</span>" in everything
+    assert 'class="catLow">1<' in everything
+    oils = button("Έλαια")
+    assert ">1</span>" in oils
+    assert 'class="catLow">1<' in oils
+    soap = button("Απορρυπαντικά")
+    assert "catLow" not in soap
+    other = button("Λοιπά")
+    assert ">2</span>" in other
+    assert "catLow" not in other
+    assert 'data-category="Λοιπά"' in html
+    assert 'class="catLabel">Λοιπά' in html
+    assert "wh_take_category" in html
+    assert "searching || !selectedCat" in html
+    assert ".catBtn{flex:0 0 auto;min-height:56px" in html
+    assert "overflow-x:auto" in html
+    assert "flex-wrap:nowrap" in html
+
+
 class _Db:
     def __init__(self, session: Session) -> None:
         self._session = session
