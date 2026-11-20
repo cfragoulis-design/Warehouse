@@ -11,6 +11,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    LargeBinary,
     Numeric,
     Date,
     Uuid,
@@ -331,6 +332,8 @@ class Consumable(Base):
 
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    image_bytes: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, nullable=True)
+    image_content_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class ConsumableStock(Base):

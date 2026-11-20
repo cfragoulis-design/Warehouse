@@ -3,8 +3,8 @@ from __future__ import annotations
 from decimal import Decimal
 from collections import defaultdict
 
-from fastapi import APIRouter, Request, Depends, Form, HTTPException
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi import APIRouter, Request, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import RedirectResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -12,6 +12,7 @@ try:
     from app.db import acquire_transaction_lock, get_db
     from app.auth import require_user, require_role, is_warehouse_only
     from app.kiosk_session import fold_search, kiosk_ui_enabled
+    from app.consumable_images import initials, jpeg_thumbnail
     from app.consumption_forecast import days_phrase, forecast_flags
     from app.order_sheet import build_order_sheet
     from app.worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
@@ -30,6 +31,7 @@ except ImportError:
     from db import acquire_transaction_lock, get_db
     from auth import require_user, require_role, is_warehouse_only
     from kiosk_session import fold_search, kiosk_ui_enabled
+    from consumable_images import initials, jpeg_thumbnail
     from consumption_forecast import days_phrase, forecast_flags
     from order_sheet import build_order_sheet
     from worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
@@ -367,6 +369,7 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
     stock_map, on_order_map, suppliers_list, suppliers = _admin_context_maps(db)
     consumables = db.query(Consumable).order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc()).all()
     rows = [_admin_row(c, stock_map, on_order_map, suppliers) for c in consumables if c.is_active]
+    _attach_images(rows, _image_ids(db))
     _attach_forecast(db, rows)
     groups = _admin_groups(rows)
     supplier_values, stock_value_total_eur = _supplier_stock_values(rows)
@@ -465,6 +468,73 @@ def consumable_new(
     return RedirectResponse("/consumables", status_code=303)
 
 
+def _image_ids(db: Session) -> set[int]:
+    return {
+        row[0]
+        for row in db.query(Consumable.id).filter(Consumable.image_bytes.isnot(None)).all()
+    }
+
+
+def _attach_images(rows: list[dict], image_ids: set[int]) -> None:
+    for row in rows:
+        row["has_image"] = row["id"] in image_ids
+        row["initials"] = initials(row["name"])
+
+
+@router.post("/consumables/{cid}/image")
+def consumable_image_upload(
+    cid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_editor),
+    file: UploadFile = File(...),
+):
+    del user
+    item = db.get(Consumable, cid)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown consumable")
+    raw = file.file.read()
+    try:
+        item.image_bytes = jpeg_thumbnail(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Η εικόνα δεν διαβάστηκε") from exc
+    item.image_content_type = "image/jpeg"
+    db.commit()
+    return JSONResponse({"ok": True, "id": item.id, "has_image": True, "initials": initials(item.name)})
+
+
+@router.post("/consumables/{cid}/image/clear")
+def consumable_image_clear(
+    cid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_editor),
+):
+    del user
+    item = db.get(Consumable, cid)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown consumable")
+    item.image_bytes = None
+    item.image_content_type = None
+    db.commit()
+    return JSONResponse({"ok": True, "id": item.id, "has_image": False, "initials": initials(item.name)})
+
+
+@router.get("/consumables/{cid}/image")
+def consumable_image(
+    cid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+):
+    del user
+    item = db.get(Consumable, cid)
+    blob = item.image_bytes if item is not None else None
+    if not blob:
+        raise HTTPException(status_code=404, detail="No image")
+    return Response(
+        content=blob,
+        media_type=item.image_content_type or "image/jpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
 
 def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
@@ -506,6 +576,7 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
             "notes": c.notes or "",
             "search_text": fold_search(f"{c.name} {category}"),
         })
+    _attach_images(rows, _image_ids(db))
     _attach_forecast(db, rows)
     return rows, low_count
 
@@ -522,11 +593,20 @@ def _take_categories(rows: list[dict]) -> list[dict]:
         label = _category_label(row.get("category"))
         bucket = buckets.get(label)
         if bucket is None:
-            bucket = {"key": label, "name": label, "count": 0, "low": 0}
+            bucket = {
+                "key": label,
+                "name": label,
+                "count": 0,
+                "low": 0,
+                "image_id": None,
+                "initials": initials(label),
+            }
             buckets[label] = bucket
         bucket["count"] += 1
         if row.get("is_low"):
             bucket["low"] += 1
+        if row.get("has_image") and bucket["image_id"] is None:
+            bucket["image_id"] = row["id"]
     named = [bucket for label, bucket in buckets.items() if label != OTHER_CATEGORY_LABEL]
     named.sort(key=lambda bucket: fold_search(bucket["name"]))
     other = buckets.get(OTHER_CATEGORY_LABEL)
