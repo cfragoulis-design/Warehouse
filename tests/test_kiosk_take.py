@@ -280,6 +280,11 @@ def test_take_page_is_greek_touch_and_kiosk_hides_other_chrome(db: Session) -> N
     assert "Logout" not in html
     assert 'class="hero"' not in html
     assert 'class="history"' not in html
+    assert 'id="kioskHome"' in html
+    assert "← Κατηγορίες" in html
+    assert "KIOSK_IDLE_MS = 90000" in html
+    assert "min-height:140px" in html
+    assert "Ποιος είσαι;" in html
 
     warehouse_normal = consumables_take_page(
         request=_request(),
@@ -302,6 +307,8 @@ def test_take_page_is_greek_touch_and_kiosk_hides_other_chrome(db: Session) -> N
     assert "Πίνακας" in admin_html
     assert "Διαχείριση" in admin_html
     assert 'class="hero"' in admin_html
+    assert 'id="kioskHome"' not in admin_html
+    assert 'id="kioskHome"' not in warehouse_html
 
 
 def test_take_categories_sort_in_greek_and_count_low_stock(db: Session) -> None:
@@ -346,9 +353,10 @@ def test_take_categories_sort_in_greek_and_count_low_stock(db: Session) -> None:
         db=db,
         user=user,
     ).body.decode("utf-8")
+    bar = html[html.index('id="catbar"') : html.index("</div>", html.index('id="catbar"'))]
 
     def at(needle: str) -> int:
-        found = html.find(needle)
+        found = bar.find(needle)
         assert found >= 0, needle
         return found
 
@@ -359,8 +367,8 @@ def test_take_categories_sort_in_greek_and_count_low_stock(db: Session) -> None:
     assert "Παλιό λάδι" not in html
 
     def button(key: str) -> str:
-        start = html.index(f'data-cat="{key}"')
-        return html[start : html.index("</button>", start)]
+        start = bar.index(f'data-cat="{key}"')
+        return bar[start : bar.index("</button>", start)]
 
     everything = button("")
     assert ">5</span>" in everything
