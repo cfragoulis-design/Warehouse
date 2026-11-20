@@ -40,6 +40,11 @@
     .grow{border-top:1px solid rgba(36,48,85,.45)}
     .grow:hover{background:rgba(255,255,255,.025)}
     .name{font-weight:750;font-size:14px}
+    .nameLine{display:flex;gap:8px;align-items:center}
+    .thumb{width:36px;height:36px;border-radius:8px;object-fit:cover;flex:0 0 auto;background:#1e293b;color:#e2e8f0;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800}
+    img.thumb{display:block}
+    .photoPick{display:block;text-align:left;border-radius:8px;padding:8px;cursor:pointer}
+    .photoPick:hover{background:rgba(255,255,255,.06)}
     .packLine{color:var(--muted);font-size:12px;margin-top:2px}
     .cell{display:inline-flex;align-items:center;min-height:28px;padding:2px 4px;border-radius:6px;border:1px solid transparent;background:transparent;cursor:text;text-align:left}
     button.cell:hover,button.cell:focus-visible{border-color:var(--line);background:rgba(255,255,255,.03);outline:none}
@@ -56,8 +61,8 @@
     .num{font-variant-numeric:tabular-nums}
     .sugMeta,.costUnit{display:block;color:var(--muted);font-size:11px}
     .menuWrap{position:relative}
-    .menuPop{position:absolute;right:0;top:32px;z-index:50;min-width:180px;background:#0f172a;border:1px solid var(--line);border-radius:10px;padding:6px;display:grid;gap:4px;box-shadow:0 12px 30px rgba(0,0,0,.35)}
-    .menuPop a,.menuPop button{text-align:left;background:transparent;border:0;border-radius:8px;padding:8px;cursor:pointer}
+    .menuPop{position:absolute;right:0;top:32px;z-index:50;min-width:230px;background:#0f172a;border:1px solid var(--line);border-radius:10px;padding:6px;display:grid;gap:4px;box-shadow:0 12px 30px rgba(0,0,0,.35)}
+    .menuPop a,.menuPop button,.photoPick{text-align:left;background:transparent;border:0;border-radius:8px;padding:8px;cursor:pointer;white-space:nowrap}
     .menuPop a:hover,.menuPop button:hover{background:rgba(255,255,255,.06)}
     .menuPop .disableBtn{color:#fecdd3}
     .empty{padding:28px 16px;color:var(--muted)}
@@ -163,12 +168,21 @@
              data-suggested="{{ r.suggested_packs }}"
              data-search="{{ r.search_text }}">
           <div>
+            <div class="nameLine">
+              {% if r.has_image %}
+              <img class="thumb" src="/consumables/{{ r.id }}/image" alt="" />
+              {% else %}
+              <span class="thumb fallback">{{ r.initials }}</span>
+              {% endif %}
+              <div>
             {% if is_admin %}
             <button type="button" class="cell name" data-field="name" data-value="{{ r.name }}" tabindex="0">{{ r.name }}</button>
             {% else %}
             <div class="name">{{ r.name }}</div>
             {% endif %}
             <div class="packLine">{{ r.pack_display }} {{ r.unit or 'μονάδες' }} / συσκευασία</div>
+              </div>
+            </div>
           </div>
           <div class="stockBox">
             {% if can_stock %}
@@ -206,7 +220,11 @@
             <button type="button" class="menuBtn" aria-label="Ενέργειες">⋮</button>
             <div class="menuPop" hidden>
               <a href="/consumables/movements">Ιστορικό</a>
-              {% if is_admin %}<button type="button" class="disableBtn">Απενεργοποίηση</button>{% endif %}
+              {% if is_admin %}
+              <label class="photoPick">Φωτογραφία<input class="photoInput" type="file" accept="image/*" hidden /></label>
+              <button type="button" class="clearPhoto">Αφαίρεση φωτογραφίας</button>
+              <button type="button" class="disableBtn">Απενεργοποίηση</button>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -692,6 +710,50 @@
         showToast('Απενεργοποιήθηκε', false);
       } catch (err) {
         showToast(err.message || 'Δεν απενεργοποιήθηκε', true);
+      }
+    });
+  });
+
+  document.querySelectorAll('.photoInput').forEach(input => {
+    input.addEventListener('click', event => event.stopPropagation());
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      const row = input.closest('.grow');
+      if (!file || !row) return;
+      const body = new FormData();
+      body.append('file', file);
+      try {
+        const res = await fetch('/consumables/' + row.dataset.id + '/image', {method:'POST', body, headers:{'X-Requested-With':'XMLHttpRequest'}});
+        const data = await res.json().catch(() => ({ok:false}));
+        if (!res.ok || data.ok === false) throw new Error('Η φωτογραφία δεν αποθηκεύτηκε');
+        const slot = row.querySelector('.thumb');
+        const img = document.createElement('img');
+        img.className = 'thumb';
+        img.alt = '';
+        img.src = '/consumables/' + row.dataset.id + '/image?v=' + Date.now();
+        if (slot) slot.replaceWith(img);
+        showToast('Φωτογραφία αποθηκεύτηκε', false);
+      } catch (err) {
+        showToast(err.message || 'Η φωτογραφία δεν αποθηκεύτηκε', true);
+      }
+      input.value = '';
+    });
+  });
+  document.querySelectorAll('.clearPhoto').forEach(button => {
+    button.addEventListener('click', async () => {
+      const row = button.closest('.grow');
+      try {
+        const res = await fetch('/consumables/' + row.dataset.id + '/image/clear', {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}});
+        const data = await res.json().catch(() => ({ok:false}));
+        if (!res.ok || data.ok === false) throw new Error('Δεν αφαιρέθηκε');
+        const slot = row.querySelector('.thumb');
+        const mark = document.createElement('span');
+        mark.className = 'thumb fallback';
+        mark.textContent = data.initials || '?';
+        if (slot) slot.replaceWith(mark);
+        showToast('Η φωτογραφία αφαιρέθηκε', false);
+      } catch (err) {
+        showToast(err.message || 'Δεν αφαιρέθηκε', true);
       }
     });
   });

@@ -309,3 +309,16 @@ def init_db() -> None:
     except Exception as exc:
         _handle_startup_ddl_failure("workers", exc)
 
+    # Consumable photos. Postgres BYTEA; SQLite tests use a blob column.
+    try:
+        image_type = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                f"ALTER TABLE consumables ADD COLUMN IF NOT EXISTS image_bytes {image_type}"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE consumables ADD COLUMN IF NOT EXISTS image_content_type VARCHAR(40)"
+            )
+    except Exception as exc:
+        _handle_startup_ddl_failure("consumables.image", exc)
+

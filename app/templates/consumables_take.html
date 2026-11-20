@@ -44,6 +44,12 @@
     .item{border:1px solid var(--line);background:linear-gradient(180deg,var(--panel),#0f1732);border-radius:18px;padding:12px;box-shadow:0 8px 24px rgba(0,0,0,.14)}
     .item.low{border-color:rgba(239,68,68,.55)}
     .item h3{margin:0;font-size:22px;line-height:1.2}
+    .itemHead{display:flex;gap:12px;align-items:flex-start}
+    .thumb{width:64px;height:64px;border-radius:16px;object-fit:cover;flex:0 0 auto;background:#1e293b;color:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900}
+    img.thumb{display:block}
+    .homeTop{display:flex;gap:12px;align-items:center;width:100%}
+    .homePhoto{width:72px;height:72px;border-radius:18px;object-fit:cover;flex:0 0 auto;background:#1e293b;color:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900}
+    img.homePhoto{display:block}
     .meta{color:var(--muted);font-size:18px;margin-top:4px}
     .stockrow{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0}
     .stock{font-size:32px;font-weight:900;line-height:1}
@@ -210,13 +216,23 @@
     <section id="kioskHome" class="kioskHome" aria-label="Κατηγορίες" {% if kiosk_cat %}hidden{% endif %}>
       {% for cat in categories %}
       <button type="button" class="homeCard" data-cat="{{ cat.key }}">
-        <span class="homeName">{{ cat.name }}</span>
+        <span class="homeTop">
+          {% if cat.image_id %}
+          <img class="homePhoto" src="/consumables/{{ cat.image_id }}/image" alt="" />
+          {% else %}
+          <span class="homePhoto fallback">{{ cat.initials }}</span>
+          {% endif %}
+          <span class="homeName">{{ cat.name }}</span>
+        </span>
         <span class="homeMeta"><span class="catCount">{{ cat.count }}</span> είδη</span>
         <span class="homeLow"{% if not cat.low %} hidden{% endif %}><b class="lowNum">{{ cat.low }}</b> χαμηλά</span>
       </button>
       {% endfor %}
       <button type="button" class="homeCard homeAll" data-cat="">
-        <span class="homeName">Όλα</span>
+        <span class="homeTop">
+          <span class="homePhoto fallback">ΟΛ</span>
+          <span class="homeName">Όλα</span>
+        </span>
         <span class="homeMeta"><span class="catCount">{{ rows|length }}</span> είδη</span>
         <span class="homeLow"{% if not low_count %} hidden{% endif %}><b class="lowNum">{{ low_count }}</b> χαμηλά</span>
       </button>
@@ -229,9 +245,18 @@
     <section class="cards" id="cards">
       {% for r in rows %}
       <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}">
-        <div class="catLabel">{{ r.category }}</div>
-        <h3>{{ r.name }}</h3>
-        <div class="meta">συσκευασία {{ r.pack_display }} {{ r.unit }}</div>
+        <div class="itemHead">
+          {% if r.has_image %}
+          <img class="thumb" src="/consumables/{{ r.id }}/image" alt="" />
+          {% else %}
+          <span class="thumb fallback">{{ r.initials }}</span>
+          {% endif %}
+          <div>
+            <div class="catLabel">{{ r.category }}</div>
+            <h3>{{ r.name }}</h3>
+            <div class="meta">συσκευασία {{ r.pack_display }} {{ r.unit }}</div>
+          </div>
+        </div>
         <div class="stockrow">
           <div><div class="stock stockValue">{{ r.on_hand_display }}</div><div class="meta">{{ r.unit }} διαθέσιμα</div></div>
           <span class="badge statusBadge {% if r.is_low %}low{% else %}ok{% endif %}">{% if r.is_low %}ΧΑΜΗΛΟ • ελάχ. {{ r.min_qty_display }}{% else %}OK{% endif %}</span>
