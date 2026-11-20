@@ -266,3 +266,17 @@ textarea:focus,
     background: rgba(16, 185, 129, 0.12) !important;
   }
 }
+
+@media print {
+  body.order-sheet,
+  body.order-sheet .sheet,
+  body.order-sheet pre.message {
+    background: #fff !important;
+    color: #111 !important;
+  }
+  body.order-sheet .top,
+  body.order-sheet .actions,
+  body.order-sheet .intro {
+    display: none !important;
+  }
+}
