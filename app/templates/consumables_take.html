@@ -260,7 +260,7 @@
       <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}"{% if r.days_left is not none %} data-days="{{ r.days_left }}"{% endif %}{% if r.barcode %} data-barcode="{{ r.barcode }}"{% endif %}>
         <div class="itemHead">
           {% if r.has_image %}
-          <img class="thumb" src="/consumables/{{ r.id }}/image" alt="" />
+          <img class="thumb" src="/consumables/{{ r.id }}/image" alt="" loading="lazy" decoding="async" />
           {% else %}
           <span class="thumb fallback">{{ r.initials }}</span>
           {% endif %}
