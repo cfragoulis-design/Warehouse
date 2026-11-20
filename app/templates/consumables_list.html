@@ -54,6 +54,7 @@
     .stockNum.is-low{background:rgba(239,68,68,.16);color:#fecdd3}
     .stockNum.is-edge,.stockNum.is-order{background:rgba(245,158,11,.14);color:#fde68a}
     .stockNum.is-ok{background:rgba(34,197,94,.12);color:#bbf7d0}
+    .runout{display:block;margin-top:3px;color:#fde68a;font-size:11px;font-weight:800;line-height:1.2}
     .step,.menuBtn{width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.04);cursor:pointer}
     .setStock{width:64px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 6px}
     .num{font-variant-numeric:tabular-nums}
@@ -182,7 +183,8 @@
             {% endif %}
             <div class="packLine">{{ r.pack_display }} {{ r.unit or 'μονάδες' }} / συσκευασία</div>
           </div>
-          <div class="stockBox">
+          <div>
+            <div class="stockBox">
             {% if can_stock %}
             <button type="button" class="step" data-dir="minus" aria-label="Μείον 1" {% if r.on_hand <= 0 %}disabled{% endif %}>−</button>
             {% endif %}
@@ -191,6 +193,8 @@
             <button type="button" class="step" data-dir="plus" aria-label="Συν 1">+</button>
             <input class="setStock" inputmode="decimal" aria-label="Ορισμός αποθέματος" placeholder="ορισμός" />
             {% endif %}
+            </div>
+            {% if r.days_phrase %}<div class="runout">{{ r.days_phrase }}</div>{% endif %}
           </div>
           <div class="num onOrder">{{ r.on_order_display }}</div>
           <div class="num">{% if is_admin %}<button type="button" class="cell" data-field="min_qty" data-value="{{ r.min_display }}" tabindex="0">{{ r.min_display }}</button>{% else %}{{ r.min_display }}{% endif %}</div>
