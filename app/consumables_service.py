@@ -12,6 +12,7 @@ try:
     from app.db import acquire_transaction_lock, get_db
     from app.auth import require_user, require_role, is_warehouse_only
     from app.kiosk_session import fold_search, kiosk_ui_enabled
+    from app.consumption_forecast import days_phrase, forecast_flags
     from app.worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
     from app.models import (
         User,
@@ -28,6 +29,7 @@ except ImportError:
     from db import acquire_transaction_lock, get_db
     from auth import require_user, require_role, is_warehouse_only
     from kiosk_session import fold_search, kiosk_ui_enabled
+    from consumption_forecast import days_phrase, forecast_flags
     from worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
     from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement, Worker
     from templating import WarehouseJinja2Templates
@@ -330,6 +332,16 @@ def _admin_row_payload(db: Session, consumable: Consumable) -> dict:
     }
 
 
+def _attach_forecast(db: Session, rows: list[dict]) -> None:
+    flags = forecast_flags(db, [int(row["id"]) for row in rows])
+    for row in rows:
+        info = flags.get(int(row["id"]))
+        row["days_left"] = None if info is None else info["days_left"]
+        row["days_phrase"] = "" if info is None else days_phrase(info["days_left"])
+        row["runs_out_before_order"] = bool(info and info["runs_out_before_order"])
+        row["weekly_qty"] = "" if info is None else info["weekly_qty"]
+
+
 @router.get("/consumables")
 def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
     if is_warehouse_only(user):
@@ -337,6 +349,7 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
     stock_map, on_order_map, suppliers_list, suppliers = _admin_context_maps(db)
     consumables = db.query(Consumable).order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc()).all()
     rows = [_admin_row(c, stock_map, on_order_map, suppliers) for c in consumables if c.is_active]
+    _attach_forecast(db, rows)
     groups = _admin_groups(rows)
     return templates.TemplateResponse("consumables_list.html", {
         "request": request,
@@ -455,6 +468,7 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
             "notes": c.notes or "",
             "search_text": fold_search(f"{c.name} {category}"),
         })
+    _attach_forecast(db, rows)
     return rows, low_count
 
 
@@ -509,6 +523,11 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "kiosk_cat": request.query_params.get("cat") if kiosk_ui_enabled(request, user) else None,
             "categories": _take_categories(rows),
             "workers": worker_choices(active_workers(db)),
+            "runout_items": [
+                {"id": row["id"], "name": row["name"], "days_left": row["days_left"]}
+                for row in rows
+                if row.get("days_left") is not None
+            ],
         },
     )
 

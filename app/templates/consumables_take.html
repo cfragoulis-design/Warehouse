@@ -228,7 +228,7 @@
     {% else %}
     <section class="cards" id="cards">
       {% for r in rows %}
-      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}">
+      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}"{% if r.days_left is not none %} data-days="{{ r.days_left }}"{% endif %}>
         <div class="catLabel">{{ r.category }}</div>
         <h3>{{ r.name }}</h3>
         <div class="meta">συσκευασία {{ r.pack_display }} {{ r.unit }}</div>
@@ -284,6 +284,8 @@
       <button type="button" class="whoCancel" id="whoCancel">Άκυρο</button>
     </div>
   </div>
+
+  <script type="application/json" id="runoutData">{{ runout_items | tojson }}</script>
 
 <script>
 (function(){
