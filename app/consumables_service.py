@@ -11,6 +11,7 @@ from sqlalchemy import func
 try:
     from app.db import acquire_transaction_lock, get_db
     from app.auth import require_user, require_role, is_warehouse_only
+    from app.kiosk_session import fold_search, kiosk_ui_enabled
     from app.models import (
         User,
         Supplier,
@@ -24,6 +25,7 @@ try:
 except ImportError:
     from db import acquire_transaction_lock, get_db
     from auth import require_user, require_role, is_warehouse_only
+    from kiosk_session import fold_search, kiosk_ui_enabled
     from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement
     from templating import WarehouseJinja2Templates
 
@@ -328,8 +330,7 @@ def consumable_new(
 
 
 
-@router.get("/consumables/take")
-def consumables_take_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
+def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
         ConsumableStock.location_code == WORKSHOP_CODE
     ).all()
@@ -350,18 +351,31 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
         is_low = min_qty > 0 and on_hand < min_qty
         if is_low:
             low_count += 1
+        pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
+        category = c.category or ""
+        unit = c.unit or "τεμ"
         rows.append({
             "id": c.id,
             "name": c.name,
-            "category": c.category or "",
-            "unit": c.unit or "units",
-            "pack_size": _d(c.pack_size) if c.pack_size is not None else Decimal("1"),
+            "category": category,
+            "unit": unit,
+            "pack_size": pack,
+            "pack_display": _fmt_qty(pack),
             "min_qty": min_qty,
+            "min_qty_display": _fmt_qty(min_qty),
             "desired_qty": _d(c.desired_qty),
             "on_hand": on_hand,
+            "on_hand_display": _fmt_qty(on_hand),
             "is_low": is_low,
             "notes": c.notes or "",
+            "search_text": fold_search(f"{c.name} {category}"),
         })
+    return rows, low_count
+
+
+@router.get("/consumables/take")
+def consumables_take_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
+    rows, low_count = _workshop_consumable_rows(db)
 
     recent = (
         db.query(ConsumableMovement, Consumable.name, User.username)
@@ -380,7 +394,37 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "rows": rows,
             "low_count": low_count,
             "recent": recent,
+            "kiosk": kiosk_ui_enabled(request, user),
         },
+    )
+
+
+@router.get("/consumables/take/stock")
+def consumables_take_stock(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+):
+    """Current on-hand numbers for the open take screen.
+
+    The browser patches these onto the cards already on screen. It does not
+    replace the page, so a quantity the worker is tapping stays put.
+    """
+    del user  # enforced by the dependency; the payload is not user-specific
+    rows, _low_count = _workshop_consumable_rows(db)
+    items = [
+        {
+            "id": row["id"],
+            "stock": row["on_hand_display"],
+            "stock_numeric": float(row["on_hand"]),
+            "is_low": bool(row["is_low"]),
+            "min_qty": row["min_qty_display"],
+            "unit": row["unit"],
+        }
+        for row in rows
+    ]
+    return JSONResponse(
+        {"ok": True, "items": items},
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -418,7 +462,7 @@ def consumable_take_submit(
         qty=amount,
         stock_after=_d(st.qty),
         user=user,
-        note=note or "Taken from mobile stock page",
+        note=note or "Λήψη από το ταμπλό αποθήκης",
     )
     db.commit()
     if _wants_json(request):
@@ -459,7 +503,7 @@ def consumable_add_submit(
         qty=amount,
         stock_after=_d(st.qty),
         user=user,
-        note=note or "Added from mobile stock page",
+        note=note or "Προσθήκη από το ταμπλό αποθήκης",
     )
     db.commit()
 

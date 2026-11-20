@@ -1,63 +1,140 @@
 <!doctype html>
-<html lang="en">
+<html lang="el">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Take Consumables</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Λήψη αναλωσίμων</title>
   <link rel="stylesheet" href="/static/datetime.css" />
   <script src="/static/js/datetime.js" defer></script>
   <style>
     :root{--bg:#0b1020;--panel:#111936;--panel2:#0e1530;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--good:#35c27d;--warn:#f59e0b;--danger:#ef4444;}
-    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;} a{color:#a9c7ff;text-decoration:none}
-    .top{position:sticky;top:0;z-index:30;background:rgba(11,16,32,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:12px max(14px,env(safe-area-inset-left));}
-    .toprow{display:flex;align-items:center;justify-content:space-between;gap:10px;max-width:1100px;margin:0 auto}.title{font-weight:900;font-size:18px}.sub{color:var(--muted);font-size:12px;margin-top:2px}.nav{display:flex;gap:8px;overflow:auto;padding-top:10px;max-width:1100px;margin:0 auto}.pill{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:8px 11px;background:rgba(255,255,255,.03);color:var(--text);font-weight:700;font-size:13px}.pill.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45)}
-    .wrap{max-width:1100px;margin:0 auto;padding:14px 14px 90px}.hero{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}.stat{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:12px}.stat b{display:block;font-size:24px}.stat span{color:var(--muted);font-size:12px}.searchbar{position:sticky;top:104px;z-index:20;background:linear-gradient(180deg,var(--bg) 70%,rgba(11,16,32,0));padding:0 0 12px}.searchbar input{width:100%;font-size:17px;padding:14px 16px;border-radius:16px;border:1px solid var(--line);background:var(--panel2);color:var(--text);outline:none}.toggles{display:flex;gap:8px;margin-top:8px;overflow:auto}.toggle{white-space:nowrap;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:8px 10px;color:var(--muted);font-size:13px}.toggle input{width:auto;margin-right:6px}
-    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}.item{border:1px solid var(--line);background:linear-gradient(180deg,var(--panel),#0f1732);border-radius:18px;padding:14px;box-shadow:0 8px 24px rgba(0,0,0,.14)}.item.low{border-color:rgba(239,68,68,.55)}.item h3{margin:0;font-size:18px;line-height:1.2}.meta{color:var(--muted);font-size:13px;margin-top:4px}.stockrow{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0}.stock{font-size:28px;font-weight:900}.badge{display:inline-flex;align-items:center;border-radius:999px;padding:4px 9px;border:1px solid var(--line);font-size:12px;color:var(--muted)}.badge.low{color:#ffd6d6;border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.10)}.badge.ok{color:#c8f7dd;border-color:rgba(53,194,125,.45);background:rgba(53,194,125,.10)}
-    .takeform{display:grid;gap:10px}.qtyline{display:grid;grid-template-columns:1fr auto auto auto;gap:8px}.qtyline input{min-width:0;font-size:20px;font-weight:800;text-align:center;border-radius:14px;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:12px}.smallbtn,.takebtn,.stockBtn{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.04);color:var(--text);font-weight:900;padding:12px 14px;cursor:pointer}.smallbtn:active,.takebtn:active,.stockBtn:active{transform:translateY(1px)}.takebtn{width:100%;background:var(--blue);border-color:rgba(47,124,246,.65);font-size:16px}.actionRow{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stockBtn{font-size:16px}.outBtn{background:var(--blue);border-color:rgba(47,124,246,.65)}.inBtn{background:rgba(53,194,125,.18);border-color:rgba(53,194,125,.55);color:#d8ffe9}.note{width:100%;border:1px solid var(--line);border-radius:14px;background:var(--panel2);color:var(--text);padding:11px 12px}.muted{color:var(--muted)}.history{margin-top:18px;border:1px solid var(--line);background:var(--panel);border-radius:18px;overflow:hidden}.history h2{font-size:16px;margin:0;padding:14px;border-bottom:1px solid var(--line)}.move{display:flex;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(36,48,85,.65)}.move:last-child{border-bottom:0}.move b{font-size:14px}.move small{display:block;color:var(--muted);margin-top:3px}.out{color:#ffd6d6}.in{color:#c8f7dd}.empty{padding:20px;border:1px dashed var(--line);border-radius:18px;color:var(--muted);text-align:center}
-    .toast{margin-bottom:12px;border:1px solid rgba(53,194,125,.45);background:rgba(53,194,125,.10);color:#c8f7dd;border-radius:14px;padding:10px 12px;font-weight:700}.toast.warn{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.10);color:#ffe7b7}
-    .addbox{border:1px solid var(--line);background:var(--panel);border-radius:18px;margin:0 0 12px;overflow:hidden}.addbox summary{list-style:none;cursor:pointer;padding:14px 16px;font-weight:900;display:flex;justify-content:space-between;gap:10px}.addbox summary::-webkit-details-marker{display:none}.addbox summary span{color:var(--muted);font-weight:700;font-size:13px}.addform{padding:0 16px 16px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:10px;align-items:end}.field label{display:block;color:var(--muted);font-size:12px;margin:0 0 5px}.field input{width:100%;border:1px solid var(--line);border-radius:14px;background:var(--panel2);color:var(--text);padding:12px;font-size:15px}.addsubmit{border:1px solid rgba(47,124,246,.65);background:var(--blue);color:white;border-radius:14px;padding:12px 14px;font-weight:900;cursor:pointer}.helptext{padding:0 16px 14px;color:var(--muted);font-size:12px}
-    @media(max-width:720px){.top{position:static}.hero{grid-template-columns:1fr 1fr}.hero .stat:first-child{grid-column:span 2}.cards{grid-template-columns:1fr}.title{font-size:16px}.searchbar{top:0}.qtyline{grid-template-columns:1fr repeat(3,58px)}.smallbtn{padding:12px 8px}.toprow{align-items:flex-start}.app-datetime{font-size:12px}.nav{overflow:visible;flex-wrap:wrap}.addform{grid-template-columns:1fr 1fr}.field.name{grid-column:span 2}.addsubmit{grid-column:span 2}.addbox summary{align-items:flex-start;flex-direction:column}}
-
-    .ajaxToast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;min-width:240px;max-width:calc(100vw - 28px);padding:12px 14px;border-radius:14px;border:1px solid rgba(53,194,125,.45);background:rgba(17,25,54,.96);box-shadow:0 10px 30px rgba(0,0,0,.35);color:#c8f7dd;font-weight:900;text-align:center;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease}.ajaxToast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}.ajaxToast.err{border-color:rgba(239,68,68,.55);color:#ffd3d3}.updating{opacity:.65;pointer-events:none}.flashStock{animation:flashStock .75s ease}@keyframes flashStock{0%{background:rgba(47,124,246,.28);border-radius:12px}100%{background:transparent}}
+    *{box-sizing:border-box}
+    html{font-size:18px}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;font-size:18px;line-height:1.35;-webkit-tap-highlight-color:transparent;overscroll-behavior-y:contain}
+    a{color:#a9c7ff;text-decoration:none}
+    button,.pill,.toggle,.qty,.badge{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
+    .top{position:sticky;top:0;z-index:30;background:rgba(11,16,32,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:10px max(14px,env(safe-area-inset-left))}
+    .toprow{display:flex;align-items:center;justify-content:space-between;gap:10px;max-width:1100px;margin:0 auto}
+    .title{font-weight:900;font-size:22px}
+    .sub{color:var(--muted);font-size:18px;margin-top:2px}
+    .app-datetime{font-size:18px}
+    .nav{display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;max-width:1100px;margin:0 auto}
+    .pill{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:0 16px;min-height:56px;background:rgba(255,255,255,.03);color:var(--text);font-weight:800;font-size:18px;display:inline-flex;align-items:center;justify-content:center}
+    .pill.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45)}
+    .wrap{max-width:1100px;margin:0 auto;padding:12px 14px 110px}
+    .hero{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+    .stat{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:12px}
+    .stat b{display:block;font-size:28px}
+    .stat span{color:var(--muted);font-size:18px}
+    .searchbar{position:sticky;top:72px;z-index:20;background:linear-gradient(180deg,var(--bg) 70%,rgba(11,16,32,0));padding:0 0 12px}
+    .searchbar input{width:100%;min-height:56px;font-size:20px;padding:12px 16px;border-radius:16px;border:1px solid var(--line);background:var(--panel2);color:var(--text);outline:none}
+    .toggles{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+    .toggle{white-space:nowrap;border:1px solid var(--line);background:var(--panel);border-radius:999px;min-height:56px;padding:0 16px;color:var(--text);font-size:18px;font-weight:700;display:inline-flex;align-items:center;gap:8px}
+    .toggle input{width:22px;height:22px;margin:0}
+    .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .item{border:1px solid var(--line);background:linear-gradient(180deg,var(--panel),#0f1732);border-radius:18px;padding:12px;box-shadow:0 8px 24px rgba(0,0,0,.14)}
+    .item.low{border-color:rgba(239,68,68,.55)}
+    .item h3{margin:0;font-size:22px;line-height:1.2}
+    .meta{color:var(--muted);font-size:18px;margin-top:4px}
+    .stockrow{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0}
+    .stock{font-size:32px;font-weight:900;line-height:1}
+    .badge{display:inline-flex;align-items:center;border-radius:999px;padding:6px 10px;border:1px solid var(--line);font-size:18px;font-weight:800;color:var(--muted)}
+    .badge.low{color:#ffd6d6;border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.10)}
+    .badge.ok{color:#c8f7dd;border-color:rgba(53,194,125,.45);background:rgba(53,194,125,.10)}
+    .takeform{display:grid;gap:8px}
+    .qtyline{display:grid;grid-template-columns:72px minmax(0,1fr) 72px 72px;gap:8px;align-items:stretch}
+    .qtyline input{min-width:0;font-size:28px;font-weight:900;text-align:center;border-radius:14px;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:0;min-height:64px;height:64px;pointer-events:none;caret-color:transparent}
+    .smallbtn,.stockBtn{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.04);color:var(--text);font-weight:900;min-height:64px;min-width:64px;padding:8px;cursor:pointer;font-size:22px}
+    .smallbtn:active,.stockBtn:active,.pill:active,.toggle:active{transform:scale(0.98)}
+    .smallbtn:disabled{opacity:.4}
+    .actionRow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .stockBtn{font-size:20px}
+    .outBtn{background:var(--blue);border-color:rgba(47,124,246,.65)}
+    .inBtn{background:rgba(53,194,125,.18);border-color:rgba(53,194,125,.55);color:#d8ffe9}
+    .note{width:100%;min-height:56px;border:1px solid var(--line);border-radius:14px;background:var(--panel2);color:var(--text);padding:12px;font-size:18px}
+    .muted{color:var(--muted)}
+    .history{margin-top:18px;border:1px solid var(--line);background:var(--panel);border-radius:18px;overflow:hidden}
+    .history h2{font-size:20px;margin:0;padding:14px;border-bottom:1px solid var(--line)}
+    .move{display:flex;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(36,48,85,.65);font-size:18px}
+    .move:last-child{border-bottom:0}
+    .move b{font-size:18px}
+    .move small{display:block;color:var(--muted);margin-top:3px;font-size:18px}
+    .out{color:#ffd6d6}
+    .in{color:#c8f7dd}
+    .empty{padding:20px;border:1px dashed var(--line);border-radius:18px;color:var(--muted);text-align:center;font-size:18px}
+    .toast{margin-bottom:12px;border:1px solid rgba(53,194,125,.45);background:rgba(53,194,125,.10);color:#c8f7dd;border-radius:14px;padding:12px 14px;font-weight:800;font-size:18px}
+    .toast.warn{border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.10);color:#ffe7b7}
+    button:focus-visible,.toggle:focus-visible,a.pill:focus-visible{outline:3px solid #38bdf8;outline-offset:2px}
+    @media(max-width:720px){
+      .top{position:static}
+      .hero{grid-template-columns:1fr 1fr}
+      .hero .stat:first-child{grid-column:span 2}
+      .cards{grid-template-columns:1fr}
+      .title{font-size:20px}
+      .searchbar{top:0}
+      .nav{overflow:visible;flex-wrap:wrap}
+    }
+    @media(min-width:1400px){
+      .cards{grid-template-columns:repeat(3,minmax(0,1fr))}
+    }
+    .ajaxToast{position:fixed;left:16px;right:16px;bottom:16px;z-index:99;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:12px 14px;border-radius:16px;border:1px solid rgba(16,185,129,.55);background:rgba(15,23,42,.98);box-shadow:0 10px 30px rgba(0,0,0,.35);color:#a7f3d0;font-weight:900;font-size:20px;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .18s ease,transform .18s ease}
+    .ajaxToast.show{opacity:1;pointer-events:auto;transform:none}
+    .ajaxToast.err{border-color:rgba(239,68,68,.55);color:#ffd3d3}
+    .undoBtn{min-height:56px;min-width:140px;padding:8px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.08);color:#fff;font-size:18px;font-weight:900}
+    .undoBtn[hidden]{display:none !important}
+    .updating{opacity:.65}
+    .flashStock{animation:flashStock .75s ease}
+    @keyframes flashStock{0%{background:rgba(47,124,246,.28);border-radius:12px}100%{background:transparent}}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
-<body>
+<body class="take-screen{% if kiosk %} kiosk{% endif %}" {% if kiosk %}data-kiosk="1"{% endif %}>
   <div class="top">
     <div class="toprow">
-      <div><div class="title">Take from stock</div><div class="sub">Logged in as {{ user.username }} • WORKSHOP</div></div>
+      <div>
+        <div class="title">Λήψη αναλωσίμων</div>
+        {% if not kiosk %}<div class="sub">Σύνδεση: {{ user.username }} • Συνεργείο</div>{% endif %}
+      </div>
       <span id="app-datetime" class="app-datetime"></span>
     </div>
+    {% if not kiosk %}
     <div class="nav">
       <a class="pill primary" href="/consumables/take">Αποθήκη</a>
       <a class="pill" href="/consumables/movements">Ιστορικό</a>
       {% if user.role != 'warehouse' %}
-        <a class="pill" href="/dashboard">Dashboard</a>
-        <a class="pill" href="/consumables">Admin</a>
-        {% if user.role == 'admin' %}<a class="pill" href="/purchase-orders">POs</a>{% endif %}
+        <a class="pill" href="/dashboard">Πίνακας</a>
+        <a class="pill" href="/consumables">Διαχείριση</a>
+        {% if user.role == 'admin' %}<a class="pill" href="/purchase-orders">Παραγγελίες</a>{% endif %}
       {% endif %}
       <form method="post" action="/logout" style="margin:0;display:inline;">
-        <button class="pill" type="submit" style="cursor:pointer;">Logout</button>
+        <button class="pill" type="submit">Αποσύνδεση</button>
       </form>
     </div>
+    {% endif %}
   </div>
 
   <main class="wrap">
-    <div id="ajaxToast" class="ajaxToast" aria-live="polite"></div>
-    {% if request.query_params.get('ok') %}<div class="toast">Done. Stock updated.</div>{% endif %}
-    {% if request.query_params.get('empty') %}<div class="toast warn">This item has no available stock.</div>{% endif %}
+    <div id="ajaxToast" class="ajaxToast" role="status" aria-live="polite">
+      <span id="ajaxToastText"></span>
+      <button type="button" id="undoBtn" class="undoBtn" hidden>Αναίρεση</button>
+    </div>
+    {% if request.query_params.get('ok') %}<div class="toast">Έγινε. Το απόθεμα ενημερώθηκε.</div>{% endif %}
+    {% if request.query_params.get('added') %}<div class="toast">Έγινε. Το απόθεμα αυξήθηκε.</div>{% endif %}
+    {% if request.query_params.get('empty') %}<div class="toast warn">Δεν υπάρχει διαθέσιμο απόθεμα.</div>{% endif %}
 
+    {% if not kiosk %}
     <section class="hero">
-      <div class="stat"><b>{{ rows|length }}</b><span>active consumables</span></div>
-      <div class="stat"><b>{{ low_count }}</b><span>low stock</span></div>
-      <div class="stat"><b>{{ recent|length }}</b><span>recent moves shown</span></div>
+      <div class="stat"><b>{{ rows|length }}</b><span>ενεργά αναλώσιμα</span></div>
+      <div class="stat"><b>{{ low_count }}</b><span>χαμηλό απόθεμα</span></div>
+      <div class="stat"><b>{{ recent|length }}</b><span>πρόσφατες κινήσεις</span></div>
     </section>
+    {% endif %}
 
     <div class="searchbar">
-      <input id="q" autocomplete="off" placeholder="Search item..." />
+      <input id="q" autocomplete="off" placeholder="Αναζήτηση είδους…" aria-label="Αναζήτηση είδους" />
       <div class="toggles">
-        <label class="toggle"><input id="onlyLow" type="checkbox">Only low</label>
-        <label class="toggle"><input id="onlyAvailable" type="checkbox">Only available</label>
+        <label class="toggle"><input id="onlyLow" type="checkbox">Μόνο χαμηλά</label>
+        <label class="toggle"><input id="onlyAvailable" type="checkbox">Μόνο διαθέσιμα</label>
       </div>
     </div>
 
@@ -66,22 +143,22 @@
     {% else %}
     <section class="cards" id="cards">
       {% for r in rows %}
-      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ (r.name ~ ' ' ~ r.category)|lower }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}">
+      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}">
         <h3>{{ r.name }}</h3>
-        <div class="meta">{{ r.category or 'No category' }} • pack {{ r.pack_size|int }} {{ r.unit }}/pack</div>
+        <div class="meta">{{ r.category or 'Χωρίς κατηγορία' }} • συσκευασία {{ r.pack_display }} {{ r.unit }}</div>
         <div class="stockrow">
-          <div><div class="stock stockValue">{{ r.on_hand|int if r.on_hand == r.on_hand|int else r.on_hand }}</div><div class="meta">{{ r.unit }} available</div></div>
-          <span class="badge statusBadge {% if r.is_low %}low{% else %}ok{% endif %}">{% if r.is_low %}LOW • min {{ r.min_qty }}{% else %}OK{% endif %}</span>
+          <div><div class="stock stockValue">{{ r.on_hand_display }}</div><div class="meta">{{ r.unit }} διαθέσιμα</div></div>
+          <span class="badge statusBadge {% if r.is_low %}low{% else %}ok{% endif %}">{% if r.is_low %}ΧΑΜΗΛΟ • ελάχ. {{ r.min_qty_display }}{% else %}OK{% endif %}</span>
         </div>
         <form class="takeform ajaxStock" method="post" action="/consumables/{{ r.id }}/adjust" data-take-action="/consumables/{{ r.id }}/take" data-add-action="/consumables/{{ r.id }}/add" data-adjust-action="/consumables/{{ r.id }}/adjust">
           <div class="qtyline stockQtyLine">
-            <input class="qty" name="qty_display" type="number" min="1" step="1" value="1" inputmode="decimal" aria-label="Quantity" />
-            <button class="smallbtn" type="button" data-set="1">1</button>
-            <button class="smallbtn" type="button" data-add="1">+1</button>
-            <button class="smallbtn" type="button" data-add="5">+5</button>
+            <button class="smallbtn" type="button" data-add="-1" aria-label="Μείον 1" disabled>−1</button>
+            <input class="qty" name="qty_display" type="text" inputmode="none" readonly tabindex="-1" value="1" aria-label="Ποσότητα" />
+            <button class="smallbtn" type="button" data-add="1" aria-label="Συν 1">+1</button>
+            <button class="smallbtn" type="button" data-add="5" aria-label="Συν 5">+5</button>
           </div>
           <input type="hidden" class="deltaField" name="delta" value="0" />
-          <input class="note" name="note" placeholder="Σημείωση / ποιος το έκανε (προαιρετικό)" />
+          <input class="note" name="note" placeholder="Σημείωση (προαιρετικό)" aria-label="Σημείωση" />
           <div class="actionRow">
             <button class="stockBtn outBtn" type="submit" data-mode="take" {% if r.on_hand <= 0 %}disabled style="opacity:.5"{% endif %}>− Πήρα</button>
             <button class="stockBtn inBtn" type="submit" data-mode="add" formaction="/consumables/{{ r.id }}/add">+ Έβαλα</button>
@@ -92,70 +169,154 @@
     </section>
     {% endif %}
 
+    {% if not kiosk %}
     <section class="history">
-      <h2>Recent consumable movements</h2>
+      <h2>Πρόσφατες κινήσεις</h2>
       {% if recent|length == 0 %}
-        <div class="move"><span class="muted">No movements yet.</span></div>
+        <div class="move"><span class="muted">Δεν υπάρχουν κινήσεις ακόμα.</span></div>
       {% else %}
         {% for m, cname, username in recent %}
         <div class="move">
           <div><b>{{ cname }}</b><small>{{ m.created_at }}{% if username %} • {{ username }}{% endif %}{% if m.note %} • {{ m.note }}{% endif %}</small></div>
-          <div class="{% if m.movement_type == 'OUT' %}out{% elif m.movement_type == 'IN' %}in{% endif %}"><b>{{ m.movement_type }} {{ m.qty }}</b><small>after {{ m.stock_after }}</small></div>
+          <div class="{% if m.movement_type == 'OUT' %}out{% elif m.movement_type == 'IN' %}in{% endif %}"><b>{{ {'OUT':'ΕΞΟΔΟΣ','IN':'ΕΙΣΟΔΟΣ','ADJUST':'ΔΙΟΡΘΩΣΗ'}.get(m.movement_type, m.movement_type) }} {{ m.qty }}</b><small>υπόλοιπο {{ m.stock_after }}</small></div>
         </div>
         {% endfor %}
       {% endif %}
     </section>
+    {% endif %}
   </main>
 
 <script>
 (function(){
+  var STOCK_REFRESH_MS = 180000;
+  var UNDO_MS = 5000;
   const q=document.getElementById('q'), onlyLow=document.getElementById('onlyLow'), onlyAvailable=document.getElementById('onlyAvailable');
+  function foldSearch(value){
+    return (value || '')
+      .toLocaleLowerCase('el')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ς/g, 'σ');
+  }
   function filter(){
-    const term=(q.value||'').trim().toLowerCase();
+    const term=foldSearch((q && q.value || '').trim());
     document.querySelectorAll('.item').forEach(card=>{
-      const okText=!term || card.dataset.name.includes(term);
-      const okLow=!onlyLow.checked || card.dataset.low==='1';
-      const okAvail=!onlyAvailable.checked || card.dataset.available==='1';
+      const hay=foldSearch(card.dataset.name || '');
+      const okText=!term || hay.includes(term);
+      const okLow=!onlyLow || !onlyLow.checked || card.dataset.low==='1';
+      const okAvail=!onlyAvailable || !onlyAvailable.checked || card.dataset.available==='1';
       card.style.display=(okText&&okLow&&okAvail)?'':'none';
     });
   }
   [q,onlyLow,onlyAvailable].forEach(el=>el&&el.addEventListener('input',filter));
+  [onlyLow,onlyAvailable].forEach(el=>el&&el.addEventListener('change',filter));
   const toast=document.getElementById('ajaxToast');
+  const toastText=document.getElementById('ajaxToastText');
+  const undoBtn=document.getElementById('undoBtn');
   let toastTimer=null;
-  function showToast(message,isError){
+  let undoState=null;
+  function greekError(message){
+    const known={
+      'No available stock':'Δεν υπάρχει διαθέσιμο απόθεμα',
+      'Quantity must be greater than zero':'Η ποσότητα πρέπει να είναι μεγαλύτερη από το μηδέν',
+      'Could not update stock':'Δεν ενημερώθηκε το απόθεμα',
+      'Invalid response':'Μη έγκυρη απάντηση',
+      'No change':'Καμία αλλαγή'
+    };
+    return known[message] || 'Δεν ενημερώθηκε το απόθεμα';
+  }
+  function hideToast(){
     if(!toast) return;
-    toast.textContent=message || (isError?'Something went wrong':'Stock updated');
+    toast.classList.remove('show');
+    if(undoBtn) undoBtn.hidden=true;
+    undoState=null;
+  }
+  function showToast(message,isError,undo){
+    if(!toast) return;
+    if(toastText) toastText.textContent=message || (isError?'Δεν ενημερώθηκε το απόθεμα':'Το απόθεμα ενημερώθηκε');
     toast.classList.toggle('err',!!isError);
+    undoState=undo || null;
+    if(undoBtn) undoBtn.hidden=!undo;
     toast.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer=setTimeout(()=>toast.classList.remove('show'),1800);
+    toastTimer=setTimeout(hideToast, undo ? UNDO_MS : 2500);
   }
-  function updateCard(data){
-    const card=document.querySelector('.item[data-id="'+data.id+'"]');
+  function applyStock(card, data){
     if(!card) return;
     card.dataset.low=data.is_low?'1':'0';
-    card.dataset.available=data.stock_numeric>0?'1':'0';
+    card.dataset.available=Number(data.stock_numeric)>0?'1':'0';
     card.classList.toggle('low',!!data.is_low);
     const stock=card.querySelector('.stockValue');
-    if(stock){stock.textContent=data.stock;stock.classList.remove('flashStock');void stock.offsetWidth;stock.classList.add('flashStock');}
+    if(stock && stock.textContent!==String(data.stock)){
+      stock.textContent=data.stock;
+      stock.classList.remove('flashStock');
+      void stock.offsetWidth;
+      stock.classList.add('flashStock');
+    }
     const badge=card.querySelector('.statusBadge');
-    if(badge){badge.className='badge statusBadge '+(data.is_low?'low':'ok');badge.textContent=data.is_low?'LOW • min '+data.min_qty:'OK';}
+    if(badge){
+      badge.className='badge statusBadge '+(data.is_low?'low':'ok');
+      badge.textContent=data.is_low?'ΧΑΜΗΛΟ • ελάχ. '+data.min_qty:'OK';
+    }
     const btn=card.querySelector('.outBtn');
-    if(btn){btn.disabled=data.stock_numeric<=0;btn.style.opacity=data.stock_numeric<=0?'.5':'1';}
+    if(btn){
+      const empty=Number(data.stock_numeric)<=0;
+      btn.disabled=empty;
+      btn.style.opacity=empty?'.5':'1';
+    }
+  }
+  function updateCard(data){
+    applyStock(document.querySelector('.item[data-id="'+data.id+'"]'), data);
     filter();
+  }
+  if(undoBtn){
+    undoBtn.addEventListener('click', async ()=>{
+      const undo=undoState;
+      if(!undo) return;
+      undoState=null;
+      undoBtn.disabled=true;
+      try{
+        const fd=new FormData();
+        fd.set('qty', undo.qty);
+        fd.set('note', 'Αναίρεση');
+        const res=await fetch(undo.url,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
+        if(!res.ok || !data.ok) throw new Error(greekError(data.message));
+        updateCard(data);
+        showToast('Αναιρέθηκε', false, null);
+      }catch(err){
+        showToast(err.message || 'Δεν έγινε η αναίρεση', true, null);
+      }finally{
+        undoBtn.disabled=false;
+      }
+    });
   }
   document.querySelectorAll('.takeform').forEach(form=>{
     const input=form.querySelector('.qty');
+    const minus=form.querySelector('[data-add="-1"]');
     let submitMode='take';
-    form.querySelectorAll('[data-set]').forEach(btn=>btn.addEventListener('click',()=>{input.value=btn.dataset.set;}));
-    form.querySelectorAll('[data-add]').forEach(btn=>btn.addEventListener('click',()=>{input.value=String((parseFloat(input.value)||0)+parseFloat(btn.dataset.add));}));
-    form.querySelectorAll('button[data-mode]').forEach(btn=>{btn.addEventListener('click',()=>{submitMode=btn.dataset.mode || 'take';});});
-    form.addEventListener('submit',async e=>{
+    function currentQty(){
+      const n=Math.round(Number(input.value));
+      return Number.isFinite(n) && n>0 ? n : 1;
+    }
+    function setQty(next){
+      const value=Math.max(1, Math.round(Number(next)) || 1);
+      input.value=String(value);
+      if(minus) minus.disabled=value<=1;
+    }
+    input.addEventListener('focus', ()=>input.blur());
+    form.querySelectorAll('[data-add]').forEach(btn=>btn.addEventListener('click', ()=>{
+      setQty(currentQty()+Number(btn.dataset.add));
+    }));
+    form.querySelectorAll('button[data-mode]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{submitMode=btn.dataset.mode || 'take';});
+    });
+    form.addEventListener('submit', async e=>{
       e.preventDefault();
       const clicked=e.submitter;
       const mode=(clicked && clicked.dataset && clicked.dataset.mode) ? clicked.dataset.mode : submitMode;
-      const amount=parseFloat(input.value)||0;
-      if(amount<=0){input.focus();return;}
+      const amount=currentQty();
+      if(amount<=0) return;
       form.classList.add('updating');
       try{
         const fd=new FormData(form);
@@ -170,15 +331,54 @@
         }
         const res=await fetch(url,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
         const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
-        if(!res.ok || !data.ok){throw new Error(data.message || 'Could not update stock');}
+        if(!res.ok || !data.ok) throw new Error(greekError(data.message));
         updateCard(data);
-        input.value='1';
+        setQty(1);
         const note=form.querySelector('.note'); if(note) note.value='';
-        const sign=mode==='add'?'+':'-';
-        showToast('Done: '+sign+data.qty+' '+(data.unit || ''),false);
-      }catch(err){showToast(err.message || 'Could not update stock',true);}
-      finally{form.classList.remove('updating');}
+        const verb=mode==='add'?'Έβαλες':'Πήρες';
+        const unit=data.unit ? ' '+data.unit : '';
+        showToast(verb+' '+data.qty+unit, false, {
+          url: mode==='add' ? form.dataset.takeAction : form.dataset.addAction,
+          qty: String(data.qty)
+        });
+      }catch(err){
+        showToast(err.message || 'Δεν ενημερώθηκε το απόθεμα', true, null);
+      }finally{
+        form.classList.remove('updating');
+      }
     });
+  });
+  document.addEventListener('contextmenu', (event)=>{
+    if(event.target.closest && event.target.closest('button, .toggle, .qty, .pill, .badge')) event.preventDefault();
+  });
+  async function refreshStock(){
+    if(document.visibilityState==='hidden') return;
+    try{
+      const res=await fetch('/consumables/take/stock',{headers:{'Accept':'application/json'},cache:'no-store'});
+      if(!res.ok) return;
+      const data=await res.json();
+      if(!data || !data.ok || !Array.isArray(data.items)) return;
+      const seen=new Set();
+      data.items.forEach(item=>{
+        seen.add(String(item.id));
+        const card=document.querySelector('.item[data-id="'+item.id+'"]');
+        if(!card) return;
+        const form=card.querySelector('form');
+        if(form && form.classList.contains('updating')) return;
+        applyStock(card, item);
+      });
+      document.querySelectorAll('.item').forEach(card=>{
+        if(seen.has(card.dataset.id)) return;
+        const form=card.querySelector('form');
+        if(form && form.classList.contains('updating')) return;
+        card.querySelectorAll('button').forEach(button=>{button.disabled=true;});
+      });
+      filter();
+    }catch(err){}
+  }
+  setInterval(refreshStock, STOCK_REFRESH_MS);
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='visible') refreshStock();
   });
 })();
 </script>
