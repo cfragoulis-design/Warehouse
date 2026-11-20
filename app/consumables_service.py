@@ -195,17 +195,11 @@ def _log_consumable_movement(
     )
 
 
-@router.get("/consumables")
-def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
-    if is_warehouse_only(user):
-        return RedirectResponse(url="/consumables/take", status_code=303)
-    # stocks (workshop only)
+def _admin_context_maps(db: Session):
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
         ConsumableStock.location_code == WORKSHOP_CODE
     ).all()
     stock_map = {cid: _d(qty) for cid, qty in stock_rows}
-
-    # on_order per consumable (open POs only)
     on_order_rows = (
         db.query(PurchaseOrderItem.consumable_id, func.coalesce(func.sum(PurchaseOrderItem.qty_ordered - PurchaseOrderItem.qty_received), 0))
         .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.purchase_order_id)
@@ -214,61 +208,144 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
         .all()
     )
     on_order_map = {cid: _d(qty) for cid, qty in on_order_rows}
-
-    consumables = db.query(Consumable).order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc()).all()
     suppliers_list = db.query(Supplier).order_by(Supplier.is_active.desc(), Supplier.name.asc()).all()
     suppliers = {s.id: s for s in suppliers_list}
+    return stock_map, on_order_map, suppliers_list, suppliers
 
-    rows = []
-    for c in consumables:
-        if not c.is_active:
-            continue
-        on_hand = stock_map.get(c.id, Decimal("0"))
-        on_order = on_order_map.get(c.id, Decimal("0"))
-        desired = _d(c.desired_qty)
-        pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
-        suggested_raw = desired - (on_hand + on_order)
-        # Suggested is stored/handled in *units* but always rounded up to a whole pack.
-        suggested_units = _round_to_pack(suggested_raw, pack) if suggested_raw > 0 else Decimal("0")
-        suggested_packs = _packs_for(suggested_units, pack) if suggested_units > 0 else 0
-        cost_pack = _d(getattr(c, "cost_per_pack", None))
-        pack_safe = pack if pack and pack > 0 else Decimal("1")
-        cost_unit = (cost_pack / pack_safe) if pack_safe > 0 else Decimal("0")
 
-        # Stock value is based on on_hand (units) converted to packs.
-        stock_value = (on_hand / pack_safe) * cost_pack if cost_pack > 0 and on_hand > 0 else Decimal("0")
-        suggested_value = (Decimal(suggested_packs) * cost_pack) if cost_pack > 0 and suggested_packs > 0 else Decimal("0")
+def _admin_row(c: Consumable, stock_map: dict, on_order_map: dict, suppliers: dict) -> dict:
+    on_hand = stock_map.get(c.id, Decimal("0"))
+    on_order = on_order_map.get(c.id, Decimal("0"))
+    desired = _d(c.desired_qty)
+    minimum = _d(c.min_qty)
+    pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
+    suggested_raw = desired - (on_hand + on_order)
+    suggested_units = _round_to_pack(suggested_raw, pack) if suggested_raw > 0 else Decimal("0")
+    suggested_packs = _packs_for(suggested_units, pack) if suggested_units > 0 else 0
+    cost_pack = _d(getattr(c, "cost_per_pack", None))
+    pack_safe = pack if pack and pack > 0 else Decimal("1")
+    cost_unit = (cost_pack / pack_safe) if pack_safe > 0 else Decimal("0")
+    stock_value = (on_hand / pack_safe) * cost_pack if cost_pack > 0 and on_hand > 0 else Decimal("0")
+    suggested_value = (Decimal(suggested_packs) * cost_pack) if cost_pack > 0 and suggested_packs > 0 else Decimal("0")
+    supplier = suppliers.get(c.supplier_id) if c.supplier_id else None
+    supplier_name = supplier.name if supplier is not None else ""
+    category_raw = (c.category or "").strip()
+    category_label = _category_label(category_raw)
+    at_or_below_min = minimum > 0 and on_hand <= minimum
+    return {
+        "id": c.id,
+        "name": c.name,
+        "category": category_raw,
+        "category_label": category_label,
+        "unit": c.unit or "",
+        "pack_size": pack,
+        "pack_display": _fmt_qty(pack),
+        "min_qty": minimum,
+        "min_display": _fmt_qty(minimum),
+        "desired_qty": desired,
+        "desired_display": _fmt_qty(desired),
+        "on_hand": on_hand,
+        "on_hand_display": _fmt_qty(on_hand),
+        "on_order": on_order,
+        "on_order_display": _fmt_qty(on_order),
+        "suggested_units": suggested_units,
+        "suggested_units_display": _fmt_qty(suggested_units),
+        "suggested_packs": suggested_packs,
+        "supplier_id": c.supplier_id or "",
+        "supplier_name": supplier_name,
+        "cost_per_pack": cost_pack,
+        "cost_per_pack_eur": _money(cost_pack),
+        "cost_per_unit": cost_unit,
+        "cost_per_unit_eur": _money(cost_unit),
+        "stock_value": stock_value,
+        "stock_value_eur": _money(stock_value),
+        "suggested_value": suggested_value,
+        "suggested_value_eur": _money(suggested_value),
+        "notes": c.notes or "",
+        "is_low": bool(at_or_below_min),
+        "needs_order": bool(at_or_below_min or suggested_packs > 0),
+        "search_text": fold_search(f"{c.name} {category_label} {supplier_name} {c.unit or ''}"),
+    }
 
-        cost_pack_eur = _money(cost_pack)
-        cost_unit_eur = _money(cost_unit)
-        stock_value_eur = _money(stock_value)
-        suggested_value_eur = _money(suggested_value)
 
-        rows.append({
-            "id": c.id,
-            "name": c.name,
-            "category": c.category or "",
-            "unit": c.unit or "",
-            "pack_size": pack,
-            "min_qty": _d(c.min_qty),
-            "desired_qty": desired,
-            "on_hand": on_hand,
-            "on_order": on_order,
-            "suggested_units": suggested_units,
-            "suggested_packs": suggested_packs,
-            "supplier_name": suppliers.get(c.supplier_id).name if c.supplier_id and c.supplier_id in suppliers else "",
-            "cost_per_pack": cost_pack,
-            "cost_per_pack_eur": cost_pack_eur,
-            "cost_per_unit": cost_unit,
-            "cost_per_unit_eur": cost_unit_eur,
-            "stock_value": stock_value,
-            "stock_value_eur": stock_value_eur,
-            "suggested_value": suggested_value,
-            "suggested_value_eur": suggested_value_eur,
-            "notes": c.notes or "",
+def _admin_groups(rows: list[dict]) -> list[dict]:
+    buckets: dict[str, list[dict]] = {}
+    for row in rows:
+        buckets.setdefault(row["category_label"], []).append(row)
+    labels = sorted((label for label in buckets if label != OTHER_CATEGORY_LABEL), key=fold_search)
+    if OTHER_CATEGORY_LABEL in buckets:
+        labels.append(OTHER_CATEGORY_LABEL)
+    groups = []
+    for label in labels:
+        items = buckets[label]
+        groups.append({
+            "key": label,
+            "name": label,
+            "rows": items,
+            "count": len(items),
+            "low": sum(1 for item in items if item["is_low"]),
+            "suggested_packs": sum(int(item["suggested_packs"]) for item in items),
         })
+    return groups
 
-    return templates.TemplateResponse("consumables_list.html", {"request": request, "user": user, "rows": rows, "suppliers": suppliers_list})
+
+def _admin_row_payload(db: Session, consumable: Consumable) -> dict:
+    stock_map, on_order_map, _suppliers_list, suppliers = _admin_context_maps(db)
+    row = _admin_row(consumable, stock_map, on_order_map, suppliers)
+    return {
+        "ok": True,
+        "id": row["id"],
+        "name": row["name"],
+        "category": row["category"],
+        "category_label": row["category_label"],
+        "unit": row["unit"],
+        "pack_display": row["pack_display"],
+        "min_display": row["min_display"],
+        "min_qty": row["min_display"],
+        "desired_display": row["desired_display"],
+        "desired_qty": row["desired_display"],
+        "on_hand_display": row["on_hand_display"],
+        "stock": row["on_hand_display"],
+        "stock_numeric": float(row["on_hand"]),
+        "on_order_display": row["on_order_display"],
+        "on_order": row["on_order_display"],
+        "suggested_packs": int(row["suggested_packs"]),
+        "suggested_units": row["suggested_units_display"],
+        "suggested_units_display": row["suggested_units_display"],
+        "suggested_value_eur": row["suggested_value_eur"],
+        "cost_per_pack_eur": row["cost_per_pack_eur"],
+        "cost_per_unit_eur": row["cost_per_unit_eur"],
+        "supplier_id": row["supplier_id"] or "",
+        "supplier_name": row["supplier_name"],
+        "notes": row["notes"],
+        "is_low": row["is_low"],
+        "needs_order": row["needs_order"],
+        "search_text": row["search_text"],
+        "has_suggested": bool(row["suggested_packs"] > 0),
+    }
+
+
+@router.get("/consumables")
+def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    if is_warehouse_only(user):
+        return RedirectResponse(url="/consumables/take", status_code=303)
+    stock_map, on_order_map, suppliers_list, suppliers = _admin_context_maps(db)
+    consumables = db.query(Consumable).order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc()).all()
+    rows = [_admin_row(c, stock_map, on_order_map, suppliers) for c in consumables if c.is_active]
+    groups = _admin_groups(rows)
+    return templates.TemplateResponse("consumables_list.html", {
+        "request": request,
+        "user": user,
+        "rows": rows,
+        "groups": groups,
+        "suppliers": suppliers_list,
+        "supplier_options": [
+            {"id": s.id, "name": s.name, "active": bool(s.is_active)}
+            for s in suppliers_list
+        ],
+        "category_names": [group["name"] for group in groups if group["name"] != OTHER_CATEGORY_LABEL],
+        "low_count": sum(1 for row in rows if row["is_low"]),
+    })
 
 
 @router.post("/consumables/new")
@@ -327,6 +404,8 @@ def consumable_new(
         )
 
     db.commit()
+    if _wants_json(request):
+        return JSONResponse(_admin_row_payload(db, c))
     return RedirectResponse("/consumables", status_code=303)
 
 
@@ -594,8 +673,13 @@ def consumable_edit_save(
     c = db.get(Consumable, cid)
     if not c:
         raise HTTPException(404)
+    clean_name = (name or "").strip()
+    if not clean_name:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "message": "Name is required"}, status_code=400)
+        raise HTTPException(status_code=400, detail="Name is required")
     sid = _optional_int(supplier_id)
-    c.name = name.strip()
+    c.name = clean_name
     c.category = category.strip() or None
     c.unit = unit.strip() or None
     c.pack_size = _positive_decimal(pack_size)
@@ -605,16 +689,25 @@ def consumable_edit_save(
     c.supplier_id = sid
     c.notes = notes.strip() or None
     db.commit()
+    if _wants_json(request):
+        return JSONResponse(_admin_row_payload(db, c))
     return RedirectResponse("/consumables", status_code=303)
 
 
 @router.post("/consumables/{cid}/toggle")
-def consumable_toggle(cid: int, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
+def consumable_toggle(
+    cid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
     c = db.get(Consumable, cid)
     if not c:
         raise HTTPException(404)
     c.is_active = not bool(c.is_active)
     db.commit()
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "id": c.id, "is_active": bool(c.is_active)})
     return RedirectResponse("/consumables", status_code=303)
 
 
