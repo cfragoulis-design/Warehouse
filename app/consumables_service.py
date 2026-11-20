@@ -12,6 +12,7 @@ try:
     from app.db import acquire_transaction_lock, get_db
     from app.auth import require_user, require_role, is_warehouse_only
     from app.kiosk_session import fold_search, kiosk_ui_enabled
+    from app.worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
     from app.models import (
         User,
         Supplier,
@@ -20,13 +21,15 @@ try:
         PurchaseOrder,
         PurchaseOrderItem,
         ConsumableMovement,
+        Worker,
     )
     from app.templating import WarehouseJinja2Templates
 except ImportError:
     from db import acquire_transaction_lock, get_db
     from auth import require_user, require_role, is_warehouse_only
     from kiosk_session import fold_search, kiosk_ui_enabled
-    from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement
+    from worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
+    from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement, Worker
     from templating import WarehouseJinja2Templates
 
 router = APIRouter()
@@ -181,6 +184,7 @@ def _log_consumable_movement(
     stock_after: Decimal,
     user: User | None,
     note: str | None = None,
+    worker_id: int | None = None,
 ) -> None:
     db.add(
         ConsumableMovement(
@@ -190,6 +194,7 @@ def _log_consumable_movement(
             qty=_d(qty),
             stock_after=_d(stock_after),
             created_by_user_id=getattr(user, "id", None),
+            worker_id=worker_id,
             note=(note or "").strip() or None,
         )
     )
@@ -483,9 +488,10 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
     rows, low_count = _workshop_consumable_rows(db)
 
     recent = (
-        db.query(ConsumableMovement, Consumable.name, User.username)
+        db.query(ConsumableMovement, Consumable.name, User.username, Worker.display_name)
         .join(Consumable, Consumable.id == ConsumableMovement.consumable_id)
         .outerjoin(User, User.id == ConsumableMovement.created_by_user_id)
+        .outerjoin(Worker, Worker.id == ConsumableMovement.worker_id)
         .order_by(ConsumableMovement.id.desc())
         .limit(12)
         .all()
@@ -501,6 +507,7 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "recent": recent,
             "kiosk": kiosk_ui_enabled(request, user),
             "categories": _take_categories(rows),
+            "workers": worker_choices(active_workers(db)),
         },
     )
 
@@ -542,11 +549,13 @@ def consumable_take_submit(
     user: User = Depends(require_consumables_stock_user),
     qty: str = Form(...),
     note: str = Form(""),
+    worker_id: str = Form(""),
 ):
     c = db.get(Consumable, cid)
     if not c or not c.is_active:
         raise HTTPException(404)
 
+    chosen_worker = resolve_worker_id(db, worker_id)
     amount = _d(qty)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
@@ -569,12 +578,16 @@ def consumable_take_submit(
         stock_after=_d(st.qty),
         user=user,
         note=note or "Λήψη από το ταμπλό αποθήκης",
+        worker_id=chosen_worker,
     )
     db.commit()
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))
         data['movement_type'] = 'OUT'
         data['qty'] = _fmt_qty(amount)
+        if chosen_worker:
+            data['worker_id'] = chosen_worker
+            data['worker_name'] = db.get(Worker, chosen_worker).display_name
         return JSONResponse(data)
     return RedirectResponse("/consumables/take?ok=1", status_code=303)
 
@@ -587,11 +600,13 @@ def consumable_add_submit(
     user: User = Depends(require_consumables_stock_user),
     qty: str = Form(...),
     note: str = Form(""),
+    worker_id: str = Form(""),
 ):
     c = db.get(Consumable, cid)
     if not c or not c.is_active:
         raise HTTPException(404)
 
+    chosen_worker = resolve_worker_id(db, worker_id)
     amount = _d(qty)
     if amount <= 0:
         if _wants_json(request):
@@ -610,6 +625,7 @@ def consumable_add_submit(
         stock_after=_d(st.qty),
         user=user,
         note=note or "Προσθήκη από το ταμπλό αποθήκης",
+        worker_id=chosen_worker,
     )
     db.commit()
 
@@ -617,23 +633,34 @@ def consumable_add_submit(
         data = _consumable_ui_state(db, c, _d(st.qty))
         data['movement_type'] = 'IN'
         data['qty'] = _fmt_qty(amount)
+        if chosen_worker:
+            data['worker_id'] = chosen_worker
+            data['worker_name'] = db.get(Worker, chosen_worker).display_name
         return JSONResponse(data)
     return RedirectResponse("/consumables/take?added=1", status_code=303)
 
 
 @router.get("/consumables/movements")
 def consumables_movements(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
-    rows = (
-        db.query(ConsumableMovement, Consumable.name, Consumable.unit, User.username)
+    selected_worker = (request.query_params.get("worker_id") or "").strip()
+    query = (
+        db.query(ConsumableMovement, Consumable.name, Consumable.unit, User.username, Worker.display_name)
         .join(Consumable, Consumable.id == ConsumableMovement.consumable_id)
         .outerjoin(User, User.id == ConsumableMovement.created_by_user_id)
-        .order_by(ConsumableMovement.id.desc())
-        .limit(200)
-        .all()
+        .outerjoin(Worker, Worker.id == ConsumableMovement.worker_id)
     )
+    if selected_worker.isdigit():
+        query = query.filter(ConsumableMovement.worker_id == int(selected_worker))
+    rows = query.order_by(ConsumableMovement.id.desc()).limit(200).all()
     return templates.TemplateResponse(
         "consumable_movements.html",
-        {"request": request, "user": user, "rows": rows},
+        {
+            "request": request,
+            "user": user,
+            "rows": rows,
+            "workers": workers_for_admin(db),
+            "selected_worker": selected_worker,
+        },
     )
 
 

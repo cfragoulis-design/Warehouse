@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Εργαζόμενοι</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial,sans-serif}
+    a{color:#a9c7ff;text-decoration:none}
+    .top{position:sticky;top:0;background:rgba(11,16,32,.96);border-bottom:1px solid var(--line);padding:12px 16px}
+    .nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .pill{border:1px solid var(--line);border-radius:999px;padding:8px 12px;font-weight:700}
+    .pill.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45)}
+    .wrap{max-width:980px;margin:0 auto;padding:16px}
+    .card{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:14px;margin-bottom:14px}
+    form.row, .worker{display:grid;grid-template-columns:1.4fr 1fr auto auto auto;gap:8px;align-items:center;margin-top:8px}
+    input,select,button{font:inherit;color:inherit;background:#0e1530;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+    button{cursor:pointer}
+    .hidden{opacity:.55}
+    .muted{color:var(--muted);font-size:13px}
+    @media(max-width:720px){form.row,.worker{grid-template-columns:1fr 1fr}}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+  <div class="top">
+    <strong>Εργαζόμενοι</strong>
+    <div class="muted">Οι ενεργοί φαίνονται στο «Ποιος είσαι;» της λήψης. Οι κρυφοί μένουν στο ιστορικό.</div>
+    <div class="nav">
+      <a class="pill" href="/dashboard">Dashboard</a>
+      <a class="pill" href="/consumables">Αναλώσιμα</a>
+      <a class="pill" href="/consumables/movements">Ιστορικό</a>
+      <a class="pill primary" href="/workers">Εργαζόμενοι</a>
+    </div>
+  </div>
+  <main class="wrap">
+    <section class="card">
+      <strong>Νέος</strong>
+      <form class="row" method="post" action="/workers/new">
+        <input name="display_name" placeholder="Όνομα" required />
+        <input name="location" placeholder="Τοποθεσία" />
+        <button type="submit">Προσθήκη</button>
+      </form>
+    </section>
+    <section class="card">
+      {% for w in workers %}
+      <form class="worker{% if not w.is_active %} hidden{% endif %}" method="post" action="/workers/{{ w.id }}/rename">
+        <input name="display_name" value="{{ w.display_name }}" aria-label="Όνομα" />
+        <input name="location" value="{{ w.location or '' }}" aria-label="Τοποθεσία" />
+        <button type="submit">Μετονομασία</button>
+        <button type="submit" formaction="/workers/{{ w.id }}/toggle">{% if w.is_active %}Απόκρυψη{% else %}Εμφάνιση{% endif %}</button>
+        <span>
+          <button type="submit" formaction="/workers/{{ w.id }}/move" name="direction" value="up" aria-label="Πάνω">↑</button>
+          <button type="submit" formaction="/workers/{{ w.id }}/move" name="direction" value="down" aria-label="Κάτω">↓</button>
+        </span>
+      </form>
+      {% if w.one_employee_ref %}<div class="muted">{{ w.one_employee_ref }} · {{ location_labels.get(w.location, w.location or '') }}</div>{% endif %}
+      {% endfor %}
+    </section>
+  </main>
+</body>
+</html>

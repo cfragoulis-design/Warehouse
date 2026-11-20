@@ -94,6 +94,14 @@
     .updating{opacity:.65}
     .flashStock{animation:flashStock .75s ease}
     @keyframes flashStock{0%{background:rgba(47,124,246,.28);border-radius:12px}100%{background:transparent}}
+    .whoOverlay{position:fixed;inset:0;z-index:120;background:#020617;display:flex;align-items:center;justify-content:center;padding:16px}
+    .whoOverlay[hidden]{display:none !important}
+    .whoCard{width:min(980px,100%);display:flex;flex-direction:column;gap:10px}
+    .whoCard h2{margin:0;font-size:28px;text-align:center}
+    .whoGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .whoBtn{min-height:120px;border-radius:18px;border:1px solid var(--line);background:#111936;color:var(--text);font-size:28px;font-weight:800;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 14px}
+    .whoBtn small{font-size:16px;font-weight:700;color:#a7b0c7}
+    .whoCancel{width:100%;min-height:72px;border-radius:18px;border:1px solid var(--line);background:#111936;color:var(--text);font-size:22px;font-weight:800}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
@@ -110,9 +118,10 @@
     <div class="nav">
       <a class="pill primary" href="/consumables/take">Αποθήκη</a>
       <a class="pill" href="/consumables/movements">Ιστορικό</a>
-      {% if user.role != 'warehouse' %}
+        {% if user.role != 'warehouse' %}
         <a class="pill" href="/dashboard">Πίνακας</a>
         <a class="pill" href="/consumables">Διαχείριση</a>
+        {% if user.role == 'admin' %}<a class="pill" href="/workers">Εργαζόμενοι</a>{% endif %}
         {% if user.role == 'admin' %}<a class="pill" href="/purchase-orders">Παραγγελίες</a>{% endif %}
       {% endif %}
       <form method="post" action="/logout" style="margin:0;display:inline;">
@@ -202,9 +211,9 @@
       {% if recent|length == 0 %}
         <div class="move"><span class="muted">Δεν υπάρχουν κινήσεις ακόμα.</span></div>
       {% else %}
-        {% for m, cname, username in recent %}
+        {% for m, cname, username, worker_name in recent %}
         <div class="move">
-          <div><b>{{ cname }}</b><small>{{ m.created_at }}{% if username %} • {{ username }}{% endif %}{% if m.note %} • {{ m.note }}{% endif %}</small></div>
+          <div><b>{{ cname }}</b><small>{{ m.created_at }}{% if worker_name %} • {{ worker_name }}{% elif username %} • {{ username }}{% endif %}{% if m.note %} • {{ m.note }}{% endif %}</small></div>
           <div class="{% if m.movement_type == 'OUT' %}out{% elif m.movement_type == 'IN' %}in{% endif %}"><b>{{ {'OUT':'ΕΞΟΔΟΣ','IN':'ΕΙΣΟΔΟΣ','ADJUST':'ΔΙΟΡΘΩΣΗ'}.get(m.movement_type, m.movement_type) }} {{ m.qty }}</b><small>υπόλοιπο {{ m.stock_after }}</small></div>
         </div>
         {% endfor %}
@@ -213,10 +222,23 @@
     {% endif %}
   </main>
 
+  <div id="whoOverlay" class="whoOverlay" hidden>
+    <div class="whoCard" role="dialog" aria-modal="true" aria-labelledby="whoTitle">
+      <h2 id="whoTitle">Ποιος είσαι;</h2>
+      <div class="whoGrid">
+        {% for w in workers %}
+        <button type="button" class="whoBtn" data-worker="{{ w.id }}">{{ w.display_name }}<small>{{ w.location }}</small></button>
+        {% endfor %}
+      </div>
+      <button type="button" class="whoCancel" id="whoCancel">Άκυρο</button>
+    </div>
+  </div>
+
 <script>
 (function(){
   var STOCK_REFRESH_MS = 180000;
   var UNDO_MS = 5000;
+  var WHO_TIMEOUT_MS = 30000;
   var CATEGORY_STORAGE_KEY = 'wh_take_category';
   const q=document.getElementById('q'), onlyLow=document.getElementById('onlyLow'), onlyAvailable=document.getElementById('onlyAvailable');
   let selectedCat='';
@@ -392,6 +414,7 @@
         const fd=new FormData();
         fd.set('qty', undo.qty);
         fd.set('note', 'Αναίρεση');
+        if(undo.workerId) fd.set('worker_id', undo.workerId);
         const res=await fetch(undo.url,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
         const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
         if(!res.ok || !data.ok) throw new Error(greekError(data.message));
@@ -424,43 +447,69 @@
     form.querySelectorAll('button[data-mode]').forEach(btn=>{
       btn.addEventListener('click', ()=>{submitMode=btn.dataset.mode || 'take';});
     });
-    form.addEventListener('submit', async e=>{
+    form.addEventListener('submit', e=>{
       e.preventDefault();
       const clicked=e.submitter;
       const mode=(clicked && clicked.dataset && clicked.dataset.mode) ? clicked.dataset.mode : submitMode;
       const amount=currentQty();
       if(amount<=0) return;
-      form.classList.add('updating');
-      try{
-        const fd=new FormData(form);
-        let url=form.dataset.takeAction;
-        fd.delete('delta');
-        fd.delete('qty_display');
-        fd.set('qty', String(amount));
-        if(mode==='add'){
-          url=form.dataset.addAction;
-        }else{
-          url=form.dataset.takeAction;
-        }
-        const res=await fetch(url,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
-        const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
-        if(!res.ok || !data.ok) throw new Error(greekError(data.message));
-        updateCard(data);
-        setQty(1);
-        const note=form.querySelector('.note'); if(note) note.value='';
-        const verb=mode==='add'?'Έβαλες':'Πήρες';
-        const unit=data.unit ? ' '+data.unit : '';
-        showToast(verb+' '+data.qty+unit, false, {
-          url: mode==='add' ? form.dataset.takeAction : form.dataset.addAction,
-          qty: String(data.qty)
-        });
-      }catch(err){
-        showToast(err.message || 'Δεν ενημερώθηκε το απόθεμα', true, null);
-      }finally{
-        form.classList.remove('updating');
-      }
+      openWho({form:form, mode:mode, amount:amount, setQty:setQty});
     });
   });
+  const whoOverlay=document.getElementById('whoOverlay');
+  const whoCancel=document.getElementById('whoCancel');
+  let whoTimer=null;
+  let pendingTake=null;
+  function closeWho(){
+    pendingTake=null;
+    clearTimeout(whoTimer);
+    if(whoOverlay) whoOverlay.hidden=true;
+  }
+  function openWho(action){
+    pendingTake=action;
+    if(!whoOverlay) return;
+    whoOverlay.hidden=false;
+    clearTimeout(whoTimer);
+    whoTimer=setTimeout(closeWho, WHO_TIMEOUT_MS);
+  }
+  async function confirmWho(workerId, workerName){
+    const action=pendingTake;
+    closeWho();
+    if(!action) return;
+    const form=action.form;
+    form.classList.add('updating');
+    try{
+      const fd=new FormData(form);
+      let url=form.dataset.takeAction;
+      fd.delete('delta');
+      fd.delete('qty_display');
+      fd.set('qty', String(action.amount));
+      fd.set('worker_id', String(workerId));
+      if(action.mode==='add') url=form.dataset.addAction;
+      const res=await fetch(url,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+      const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
+      if(!res.ok || !data.ok) throw new Error(greekError(data.message));
+      updateCard(data);
+      action.setQty(1);
+      const note=form.querySelector('.note'); if(note) note.value='';
+      const verb=action.mode==='add'?'Έβαλες':'Πήρες';
+      const unit=data.unit ? ' '+data.unit : '';
+      const who=workerName ? ' · '+workerName : '';
+      showToast(verb+' '+data.qty+unit+who, false, {
+        url: action.mode==='add' ? form.dataset.takeAction : form.dataset.addAction,
+        qty: String(data.qty),
+        workerId: String(workerId)
+      });
+    }catch(err){
+      showToast(err.message || 'Δεν ενημερώθηκε το απόθεμα', true, null);
+    }finally{
+      form.classList.remove('updating');
+    }
+  }
+  document.querySelectorAll('.whoBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>confirmWho(btn.dataset.worker, (btn.childNodes[0] && btn.childNodes[0].textContent || '').trim()));
+  });
+  if(whoCancel) whoCancel.addEventListener('click', closeWho);
   document.addEventListener('contextmenu', (event)=>{
     if(event.target.closest && event.target.closest('button, .toggle, .qty, .pill, .badge')) event.preventDefault();
   });
