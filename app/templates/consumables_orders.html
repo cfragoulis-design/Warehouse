@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Λίστα παραγγελίας</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <script src="/static/js/datetime.js" defer></script>
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial,sans-serif}
+    a{color:#a9c7ff;text-decoration:none}
+    .top{position:sticky;top:0;background:rgba(11,16,32,.96);border-bottom:1px solid var(--line);padding:12px 16px}
+    .nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .pill{border:1px solid var(--line);border-radius:999px;padding:8px 12px;font-weight:700}
+    .pill.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45)}
+    .wrap{max-width:980px;margin:0 auto;padding:16px}
+    .intro,.note{color:var(--muted);margin:0 0 14px}
+    td .note{margin:2px 0 0;font-size:12px}
+    .sheet{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:14px;margin-bottom:16px}
+    h2{margin:0 0 8px;font-size:20px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+    th{color:var(--muted);font-size:12px;font-weight:700}
+    .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .total{font-weight:800;font-size:16px;margin:10px 0}
+    .flag{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:999px;background:rgba(245,158,11,.16);color:#fde68a;font-size:12px;font-weight:800}
+    pre.message{white-space:pre-wrap;background:#0e1530;border:1px solid var(--line);border-radius:12px;padding:12px;font:15px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .actions{display:flex;gap:8px;margin-top:10px}
+    button{font:inherit;color:inherit;background:#162044;border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:800}
+    .empty{padding:24px;border:1px dashed var(--line);border-radius:16px;color:var(--muted)}
+    @media print{
+      .top,.actions,.intro{display:none !important}
+      body,body.order-sheet{background:#fff !important;color:#111 !important}
+      .sheet,pre.message{background:#fff !important;color:#111 !important;border-color:#ccc !important}
+      a{color:#111}
+    }
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body class="order-sheet">
+  <div class="top">
+    <strong>Λίστα παραγγελίας</strong>
+    <div class="nav">
+      <a class="pill" href="/dashboard">Dashboard</a>
+      <a class="pill" href="/consumables">Αναλώσιμα</a>
+      <a class="pill primary" href="/consumables/orders">Λίστα παραγγελίας</a>
+    </div>
+  </div>
+  <main class="wrap">
+    <p class="intro">Είδη στο ελάχιστο ή από κάτω. Η ποσότητα είναι το επιθυμητό μείον το απόθεμα, στρογγυλεμένο προς τα πάνω σε συσκευασίες. Τίποτα δεν στέλνεται από την εφαρμογή.</p>
+    {% if sheets|length == 0 %}
+    <div class="empty">Κανένα είδος δεν είναι στο ελάχιστο ή από κάτω.</div>
+    {% endif %}
+    {% for sheet in sheets %}
+    <section class="sheet">
+      <h2>{{ sheet.supplier_name }}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Είδος</th>
+            <th class="num">Απόθεμα</th>
+            <th class="num">Ελάχ.</th>
+            <th class="num">Επιθυμητό</th>
+            <th class="num">Συσκευασίες</th>
+            <th class="num">Τελευταίο κόστος</th>
+            <th class="num">Σύνολο</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in sheet.lines %}
+          <tr>
+            <td>
+              {{ line.name }}
+              <div class="note">{{ line.units_display }} {{ line.unit }} · συσκευασία {{ line.pack_display }}</div>
+              {% if line.runs_out_before_order and line.days_left is not none %}
+              <span class="flag">τελειώνει σε ~{{ line.days_left }} μέρες</span>
+              {% endif %}
+            </td>
+            <td class="num">{{ line.on_hand_display }}</td>
+            <td class="num">{{ line.min_display }}</td>
+            <td class="num">{{ line.desired_display }}</td>
+            <td class="num">{{ line.packs }}</td>
+            <td class="num">{{ line.cost_label }}</td>
+            <td class="num">{{ line.line_total_label }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="total">Σύνολο προμηθευτή: {{ sheet.total_label }}</div>
+      <pre class="message">{{ sheet.message }}</pre>
+      <div class="actions">
+        <button type="button" class="copyBtn" data-target="msg-{{ loop.index }}">Αντιγραφή</button>
+        <button type="button" class="printBtn">Εκτύπωση</button>
+      </div>
+    </section>
+    {% endfor %}
+  </main>
+  <script>
+    document.querySelectorAll('.copyBtn').forEach(function(button){
+      button.addEventListener('click', function(){
+        var sheet = button.closest('.sheet');
+        var text = sheet.querySelector('.message').textContent;
+        var done = function(){ button.textContent = 'Αντιγράφηκε'; setTimeout(function(){ button.textContent = 'Αντιγραφή'; }, 1600); };
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(done, function(){ window.prompt('Αντιγραφή', text); });
+        } else {
+          window.prompt('Αντιγραφή', text);
+        }
+      });
+    });
+    document.querySelectorAll('.printBtn').forEach(function(button){
+      button.addEventListener('click', function(){ window.print(); });
+    });
+  </script>
+</body>
+</html>
