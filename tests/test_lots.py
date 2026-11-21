@@ -4,7 +4,7 @@ from decimal import Decimal
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.lots import consume_fifo, due_expiry_alerts, fifo_hint, receive_lot, tracks_lots
+from app.lots import consume_fifo, due_expiry_alerts, fifo_hint, notify_expiring_lots, receive_lot, tracks_lots
 from app.models import ConsumableLot
 from tests.db_test_support import create_characterization_engine
 
@@ -31,5 +31,9 @@ def test_tracked_names_and_fifo_order() -> None:
         due = due_expiry_alerts(db, date(2026, 11, 20))
         assert [lot.lot_code for lot in due] == ["ΝΕΟ"]
         assert due[0].expiry_date <= date(2026, 11, 20) + timedelta(days=15)
+        sent = []
+        assert notify_expiring_lots(db, date(2026, 11, 20), lambda text: sent.append(text) or True) == 1
+        assert notify_expiring_lots(db, date(2026, 11, 20), lambda text: sent.append(text) or True) == 0
+        assert len(sent) == 1
     finally:
         db.close()

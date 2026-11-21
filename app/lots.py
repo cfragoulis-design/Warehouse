@@ -68,3 +68,18 @@ def due_expiry_alerts(db: Session, today: date) -> list[ConsumableLot]:
         .order_by(ConsumableLot.expiry_date.asc())
         .all()
     )
+
+
+def notify_expiring_lots(db: Session, today: date, send) -> int:
+    """Send one Telegram note per lot, then mark it so it is not sent again."""
+    due = due_expiry_alerts(db, today)
+    sent = 0
+    for lot in due:
+        text = f"Η παρτίδα {lot.lot_code} λήγει {lot.expiry_date.isoformat()}."
+        if not send(text):
+            continue
+        lot.alerted = True
+        sent += 1
+    if sent:
+        db.commit()
+    return sent

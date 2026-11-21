@@ -605,6 +605,17 @@ def consumable_image(
 
 
 
+def _notify_lot_expiry(db: Session) -> None:
+    from datetime import date
+    try:
+        from app.digest_service import _telegram_send_safe
+        from app.lots import notify_expiring_lots
+    except ImportError:
+        from digest_service import _telegram_send_safe
+        from lots import notify_expiring_lots
+    notify_expiring_lots(db, date.today(), _telegram_send_safe)
+
+
 def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
         ConsumableStock.location_code == WORKSHOP_CODE
@@ -885,6 +896,7 @@ def consumable_take_submit(
     if tracks_lots(c.category):
         consume_fifo(db, c.id, amount)
     db.commit()
+    _notify_lot_expiry(db)
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))
         data['movement_type'] = 'OUT'
@@ -950,6 +962,7 @@ def consumable_add_submit(
         if tracks_lots(c.category):
             receive_lot(db, c.id, lot_code, _date.fromisoformat(expiry), amount)
     db.commit()
+    _notify_lot_expiry(db)
 
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))
