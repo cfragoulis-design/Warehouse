@@ -32,7 +32,9 @@
     .cols{display:grid;grid-template-columns:minmax(240px,1.7fr) 176px 84px 72px 84px 96px 132px minmax(120px,.9fr) 36px;gap:8px;align-items:center;padding:6px 8px}
     .colHead .cols{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;background:#0d1428;border-bottom:1px solid var(--line)}
     .group{border-bottom:1px solid rgba(36,48,85,.65)}
-    .groupHead{width:100%;display:flex;gap:8px;align-items:center;padding:8px 10px;background:#121a33;border:0;cursor:pointer;font-weight:800;text-align:left}
+    .groupBar{display:flex;align-items:stretch;background:#121a33}
+    .groupHead{flex:1;width:100%;display:flex;gap:8px;align-items:center;padding:8px 10px;background:#121a33;border:0;cursor:pointer;font-weight:800;text-align:left}
+    .catPhoto{display:inline-flex;align-items:center;padding:0 10px;color:#bfdbfe;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
     .group.collapsed .chev{transform:rotate(-90deg)}
     .group.collapsed .grow,.grow.miss,.group.miss{display:none}
     .gCount{color:var(--muted);font-weight:700}
@@ -158,6 +160,7 @@
     <div id="groups">
       {% for g in groups %}
       <section class="group" data-group="{{ g.key }}">
+        <div class="groupBar">
         <button type="button" class="groupHead" aria-expanded="true">
           <span class="chev">▾</span>
           <span class="gName">{{ g.name }}</span>
@@ -166,6 +169,10 @@
           {% if g.suggested_packs %}<span class="gSug">πρόταση {{ g.suggested_packs }}</span>{% endif %}
           <span class="gValue">αξία €{{ g.stock_value_eur }}</span>
         </button>
+        {% if is_admin and g.key != 'Λοιπά' %}
+        <label class="catPhoto">Φωτογραφία<input class="catPhotoInput" type="file" accept="image/*" data-category="{{ g.key }}" hidden /></label>
+        {% endif %}
+        </div>
         {% for r in g.rows %}
         <div class="cols grow"
              data-id="{{ r.id }}"
@@ -828,6 +835,26 @@
       } catch (err) {
         showToast(err.message || 'Δεν αφαιρέθηκε', true);
       }
+    });
+  });
+
+  document.querySelectorAll('.catPhotoInput').forEach(input => {
+    input.addEventListener('click', event => event.stopPropagation());
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const body = new FormData();
+      body.append('category', input.dataset.category || '');
+      body.append('file', file);
+      try {
+        const res = await fetch('/consumables/category-image', {method:'POST', body, headers:{'X-Requested-With':'XMLHttpRequest'}});
+        const data = await res.json().catch(() => ({ok:false}));
+        if (!res.ok || data.ok === false) throw new Error('Η φωτογραφία δεν αποθηκεύτηκε');
+        showToast('Φωτογραφία κατηγορίας αποθηκεύτηκε', false);
+      } catch (err) {
+        showToast(err.message || 'Η φωτογραφία δεν αποθηκεύτηκε', true);
+      }
+      input.value = '';
     });
   });
 

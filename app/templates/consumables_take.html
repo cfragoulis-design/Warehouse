@@ -247,7 +247,9 @@
     <section id="kioskHome" class="kioskHome" aria-label="Κατηγορίες" {% if kiosk_cat %}hidden{% endif %}>
       {% for cat in categories %}
       <button type="button" class="homeCard" data-cat="{{ cat.key }}">
-        {% if cat.image_id %}
+        {% if cat.category_image_id %}
+        <img class="homePhoto" src="/consumables/category-image/{{ cat.category_image_id }}" alt="" />
+        {% elif cat.image_id %}
         <img class="homePhoto" src="/consumables/{{ cat.image_id }}/image" alt="" />
         {% else %}
         <span class="homePhoto fallback">{{ cat.initials }}</span>
