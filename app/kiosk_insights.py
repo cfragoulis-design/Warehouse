@@ -162,11 +162,13 @@ def _urgency(row: dict, info: dict | None) -> tuple:
 
 
 def _at_or_below_min(row: dict) -> bool:
+    """At or under the minimum. An item without a minimum counts only when it is
+    out of stock and has a desired level (zero-stock items nobody stocks are noise)."""
     minimum = _d(row["min_qty"])
     on_hand = _d(row["on_hand"])
     if minimum > 0:
         return on_hand <= minimum
-    return on_hand <= 0
+    return on_hand <= 0 and _d(row.get("desired_qty")) > 0
 
 
 def runout_ranking(db: Session, *, now: datetime | None = None, rows: list[dict] | None = None, flags: dict | None = None) -> list[dict]:
@@ -249,10 +251,10 @@ def reorder_plan(db: Session, *, now: datetime | None = None, rows: list[dict] |
         )
         if packs <= 0:
             continue
+        parts = ["στο ελάχιστο"] if at_min else []
         if days is not None:
-            reason = f"{days_phrase(days)} ({runout_label(info.get('runout_date'))})"
-        else:
-            reason = "στο ελάχιστο"
+            parts.append(f"{days_phrase(days)} ({runout_label(info.get('runout_date'))})")
+        reason = " · ".join(parts)
         if _d(row.get("on_order")) > 0:
             reason += f" · {_fmt(row['on_order'])} ήδη σε παραγγελία"
         cost = _d(row.get("cost_per_pack"))

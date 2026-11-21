@@ -67,6 +67,7 @@ def _row(cid, name, on_hand, *, minimum=0, desired=0, pack=1, supplier="", on_or
 def test_runout_ranking_puts_the_most_urgent_first() -> None:
     rows = [
         _row(1, "Γάντια", 40), _row(2, "Χαρτί", 3), _row(3, "Σακούλες", 0, minimum=5), _row(4, "Ήσυχο", 100),
+        _row(5, "Κανείς δεν το κρατά", 0),
     ]
     flags = {
         1: {"days_left": 20, "weekly_qty": "14", "runout_date": "2026-12-11"},
