@@ -877,7 +877,8 @@
   let pinWorkerId='';
   let pinDigits='';
   let sessionName='';
-  let cardSeen=false;
+  let sessionWorkerId='';
+  let cardWorkerId='';
   let sessionTimer=null;
   let sessionTouchAt=0;
   function showBanner(name){
@@ -893,6 +894,8 @@
   function endSession(){
     const had=!!sessionName;
     showBanner('');
+    sessionWorkerId='';
+    cardWorkerId='';
     clearTimeout(sessionTimer);
     sessionTouchAt=0;
     if(!had) return;
@@ -981,6 +984,7 @@
         return;
       }
       showBanner(data.name || '');
+      sessionWorkerId=pinWorkerId;
       armSessionTimer();
       sessionTouchAt=Date.now();
       if(whoOverlay) whoOverlay.hidden=true;
@@ -994,8 +998,9 @@
     const action=pendingTake;
     clearTimeout(whoTimer);
     const limit = Number(document.body.dataset.highValue || '0');
-    const unit = action && action.form ? Number(action.form.closest('.item').dataset.unitCost || '0') : 0;
-    if(action && limit > 0 && unit * action.amount >= limit && !cardSeen){
+    const unitCost = action && action.form ? Number(action.form.closest('.item').dataset.unitCost || '0') : 0;
+    const cardOk = !!(cardWorkerId && sessionWorkerId && String(cardWorkerId)===String(sessionWorkerId));
+    if(action && limit > 0 && unitCost * action.amount >= limit && !cardOk){
       if(whoOverlay) whoOverlay.hidden=true;
       pendingTake=null;
       showPickStep();
@@ -1080,7 +1085,7 @@
     const workerBtn=[...document.querySelectorAll('.whoBtn[data-card]')].find(btn => (btn.dataset.card||'').toLowerCase()===want);
     const item=[...document.querySelectorAll('.item[data-barcode]')].find(el => (el.dataset.barcode||'').toLowerCase()===want);
     if(workerBtn){
-      cardSeen=true;
+      cardWorkerId=workerBtn.dataset.worker || '';
       chooseWorker(workerBtn);
       return;
     }
