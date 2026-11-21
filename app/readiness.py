@@ -33,6 +33,10 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
     # Requiring it here prevents a partially migrated release from reporting ready
     # while every local sign-in would fail at query time.
     "users": frozenset({"id", "username", "role", "pin_hash", "is_active"}),
+    # Every PIN sign-in reads and writes the persistent throttle (migration
+    # 20261121_020); without it the release would be "ready" but no one could
+    # sign in.
+    "auth_login_events": frozenset({"id", "account", "source", "succeeded", "created_at"}),
     "products": frozenset(
         {
             "id",

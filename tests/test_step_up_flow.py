@@ -217,3 +217,18 @@ def test_confirm_pin_is_rate_limited_too(harness, monkeypatch) -> None:
         client.post("/admin/confirm-pin", data={"pin": "0000", "next_path": "/workers"}, headers=AJAX)
     res = client.post("/admin/confirm-pin", data={"pin": "2468", "next_path": "/workers"}, headers=AJAX)
     assert res.status_code == 429
+
+
+def test_readiness_fails_without_the_login_events_table() -> None:
+    from sqlalchemy import text
+
+    from app.db import Base
+    from app.readiness import check_readiness
+    from tests.db_test_support import create_characterization_engine
+
+    engine, _is_postgres = create_characterization_engine()
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE auth_login_events"))
+    status = check_readiness(engine)
+    assert status.ready is False and status.schema == "failed"
