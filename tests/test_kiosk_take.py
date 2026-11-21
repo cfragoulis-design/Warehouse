@@ -287,7 +287,14 @@ def test_take_page_is_greek_touch_and_kiosk_hides_other_chrome(db: Session) -> N
     assert 'id="idleScreen"' in html
     assert "Τι λείπει" in html
     assert "idleDrift" in html
-    assert "min-height:140px" in html
+    assert "min-height:112px" in html
+    assert "grid-template-columns:1fr 1fr 1fr" in html
+    assert "touch-action:pan-y" in html
+    assert "TAP_MOVE_PX = 10" in html
+    assert "pointercancel" in html
+    pointer_guard = html.split("addEventListener('pointerdown'", 1)[1].split("}, true);", 1)[0]
+    assert "openKioskCategory" not in pointer_guard
+    assert "addEventListener('click', ()=>openKioskCategory" in html
     assert "Ποιος είσαι;" in html
 
     warehouse_normal = consumables_take_page(

@@ -48,7 +48,7 @@
     .thumb{width:64px;height:64px;border-radius:16px;object-fit:cover;flex:0 0 auto;background:#1e293b;color:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900}
     img.thumb{display:block}
     .homeTop{display:flex;gap:12px;align-items:center;width:100%}
-    .homePhoto{width:72px;height:72px;border-radius:18px;object-fit:cover;flex:0 0 auto;background:#1e293b;color:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900}
+    .homePhoto{width:64px;height:64px;border-radius:16px;object-fit:cover;flex:0 0 auto;background:#1e293b;color:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900}
     img.homePhoto{display:block}
     .meta{color:var(--muted);font-size:18px;margin-top:4px}
     .stockrow{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0}
@@ -110,12 +110,14 @@
     .whoCancel{width:100%;min-height:72px;border-radius:18px;border:1px solid var(--line);background:#111936;color:var(--text);font-size:22px;font-weight:800}
     body.kiosk .wrap{max-width:1280px}
     body.kiosk .catbar{display:none}
-    .kioskHome{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-    .homeCard{min-height:140px;border-radius:22px;border:1px solid var(--line);background:linear-gradient(180deg,#162044,#10182f);color:var(--text);padding:18px 18px 16px;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:10px;text-align:left}
-    .homeCard:active{transform:scale(0.985)}
-    .homeName{font-size:32px;font-weight:900;line-height:1.15}
-    .homeMeta{font-size:20px;color:var(--muted);font-weight:700}
-    .homeLow{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;background:rgba(239,68,68,.16);border:1px solid rgba(245,158,11,.75);color:#fecdd3;font-size:18px;font-weight:900}
+    .kioskHome,.cards{touch-action:pan-y}
+    .kioskHome{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-content:start}
+    .homeCard,.item,.item button,.item a{touch-action:pan-y}
+    .homeCard{min-height:112px;border-radius:16px;border:1px solid var(--line);background:linear-gradient(180deg,#162044,#10182f);color:var(--text);padding:10px 12px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;text-align:left}
+    .homeText{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+    .homeName{font-size:22px;font-weight:900;line-height:1.15}
+    .homeMeta{font-size:16px;color:var(--muted);font-weight:700}
+    .homeLow{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 8px;background:rgba(239,68,68,.16);border:1px solid rgba(245,158,11,.75);color:#fecdd3;font-size:15px;font-weight:900}
     .homeLow[hidden]{display:none !important}
     .homeAll{border-style:dashed}
     .kioskBack{display:flex;align-items:center;gap:10px;margin:0 0 10px}
@@ -127,10 +129,8 @@
     .stripBtn.active{background:rgba(47,124,246,.24);border-color:rgba(47,124,246,.8)}
     .stripBtn:active{transform:scale(0.98)}
     body.kiosk-home .searchbar,body.kiosk-home #cards,body.kiosk-home #filterEmpty{display:none !important}
+    body.kiosk-home .wrap{padding-bottom:12px}
     body.kiosk:not(.kiosk-home) .kioskHome{display:none !important}
-    @media(min-width:1200px){
-      .kioskHome{grid-template-columns:1fr 1fr 1fr}
-    }
     .idleScreen{position:fixed;inset:0;z-index:140;background:#070b16;color:var(--text);display:flex;align-items:center;justify-content:center;padding:28px}
     .idleScreen[hidden]{display:none !important}
     .idleInner{width:min(920px,100%);animation:idleDrift 80s ease-in-out infinite}
@@ -229,25 +229,25 @@
     <section id="kioskHome" class="kioskHome" aria-label="Κατηγορίες" {% if kiosk_cat %}hidden{% endif %}>
       {% for cat in categories %}
       <button type="button" class="homeCard" data-cat="{{ cat.key }}">
-        <span class="homeTop">
-          {% if cat.image_id %}
-          <img class="homePhoto" src="/consumables/{{ cat.image_id }}/image" alt="" />
-          {% else %}
-          <span class="homePhoto fallback">{{ cat.initials }}</span>
-          {% endif %}
+        {% if cat.image_id %}
+        <img class="homePhoto" src="/consumables/{{ cat.image_id }}/image" alt="" />
+        {% else %}
+        <span class="homePhoto fallback">{{ cat.initials }}</span>
+        {% endif %}
+        <span class="homeText">
           <span class="homeName">{{ cat.name }}</span>
+          <span class="homeMeta"><span class="catCount">{{ cat.count }}</span> είδη</span>
+          <span class="homeLow"{% if not cat.low %} hidden{% endif %}><b class="lowNum">{{ cat.low }}</b> χαμηλά</span>
         </span>
-        <span class="homeMeta"><span class="catCount">{{ cat.count }}</span> είδη</span>
-        <span class="homeLow"{% if not cat.low %} hidden{% endif %}><b class="lowNum">{{ cat.low }}</b> χαμηλά</span>
       </button>
       {% endfor %}
       <button type="button" class="homeCard homeAll" data-cat="">
-        <span class="homeTop">
-          <span class="homePhoto fallback">ΟΛ</span>
+        <span class="homePhoto fallback">ΟΛ</span>
+        <span class="homeText">
           <span class="homeName">Όλα</span>
+          <span class="homeMeta"><span class="catCount">{{ rows|length }}</span> είδη</span>
+          <span class="homeLow"{% if not low_count %} hidden{% endif %}><b class="lowNum">{{ low_count }}</b> χαμηλά</span>
         </span>
-        <span class="homeMeta"><span class="catCount">{{ rows|length }}</span> είδη</span>
-        <span class="homeLow"{% if not low_count %} hidden{% endif %}><b class="lowNum">{{ low_count }}</b> χαμηλά</span>
       </button>
     </section>
     {% endif %}
@@ -354,6 +354,47 @@
   var KIOSK_SCREEN_MS = 120000;
   var CATEGORY_STORAGE_KEY = 'wh_take_category';
   const isKiosk = document.body.dataset.kiosk === '1';
+  var TAP_MOVE_PX = 10;
+  var tapGesture = null;
+  function pageScrollTop(){
+    return window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+  }
+  function tapControl(node){
+    if(!node || !node.closest) return null;
+    return node.closest('#kioskHome .homeCard, #cards .item button, #cards .item a, .kioskStrip .stripBtn');
+  }
+  document.addEventListener('pointerdown', function(event){
+    if(event.pointerType === 'mouse' && event.button !== 0) return;
+    var control = tapControl(event.target);
+    if(!control){ tapGesture = null; return; }
+    tapGesture = {x: event.clientX, y: event.clientY, scroll: pageScrollTop(), moved: false, id: event.pointerId};
+  }, true);
+  document.addEventListener('pointermove', function(event){
+    if(!tapGesture || event.pointerId !== tapGesture.id) return;
+    if(Math.abs(event.clientX - tapGesture.x) > TAP_MOVE_PX || Math.abs(event.clientY - tapGesture.y) > TAP_MOVE_PX) tapGesture.moved = true;
+    if(Math.abs(pageScrollTop() - tapGesture.scroll) > 0) tapGesture.moved = true;
+  }, true);
+  document.addEventListener('pointercancel', function(event){
+    if(tapGesture && event.pointerId === tapGesture.id) tapGesture.moved = true;
+  }, true);
+  window.addEventListener('scroll', function(){
+    if(tapGesture) tapGesture.moved = true;
+  }, {passive: true});
+  document.addEventListener('pointerup', function(event){
+    if(!tapGesture || event.pointerId !== tapGesture.id) return;
+    if(Math.abs(event.clientX - tapGesture.x) > TAP_MOVE_PX || Math.abs(event.clientY - tapGesture.y) > TAP_MOVE_PX) tapGesture.moved = true;
+    if(Math.abs(pageScrollTop() - tapGesture.scroll) > 0) tapGesture.moved = true;
+    var pending = tapGesture;
+    setTimeout(function(){ if(tapGesture === pending) tapGesture = null; }, 0);
+  }, true);
+  document.addEventListener('click', function(event){
+    if(!tapGesture) return;
+    var dragged = tapGesture.moved || Math.abs(pageScrollTop() - tapGesture.scroll) > 0;
+    tapGesture = null;
+    if(!dragged) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
   let kioskHome = document.body.classList.contains('kiosk-home');
   const q=document.getElementById('q'), onlyLow=document.getElementById('onlyLow'), onlyAvailable=document.getElementById('onlyAvailable');
   let selectedCat='';
