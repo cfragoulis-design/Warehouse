@@ -16,7 +16,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from itsdangerous import BadSignature, URLSafeTimedSerializer
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy.orm import Session
 from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
@@ -40,6 +40,10 @@ WORKER_SESSION_COOKIE = "wh_worker"
 WORKER_SESSION_MAX_AGE_SECONDS = 60
 _DEVICE_SALT = "warehouse-kiosk-device-v1"
 _WORKER_SALT = "warehouse-worker-session-v1"
+_OFFLINE_SALT = "warehouse-offline-attribution-v1"
+# How long a take queued offline keeps its worker attribution. The token is
+# refreshed on every online action, so this is the longest outage it covers.
+OFFLINE_ATTRIBUTION_MAX_AGE_SECONDS = 4 * 60 * 60
 
 
 def _fold_accents(value: str) -> str:
@@ -91,21 +95,46 @@ def issue_kiosk_device_token(user_id: int, key_version: int = 1) -> str:
     return _serializer().dumps({"uid": int(user_id), "v": 1, "k": int(key_version)})
 
 
-def issue_worker_session_token(worker_id: int, user_id: int, device_uid: int) -> str:
+def issue_worker_session_token(worker_id: int, user_id: int, device_uid: int, card: bool = False) -> str:
     """Signed proof that this kiosk user typed that worker's PIN.
 
     ``device_uid`` is the kiosk device cookie's user id, or 0 when that cookie
     is absent. A copy of the token used on another device or another login
-    does not resolve.
+    does not resolve. ``card`` records that the worker's own card was read
+    together with the PIN (needed for expensive takes).
     """
-    return _serializer(_WORKER_SALT).dumps(
-        {
-            "wid": int(worker_id),
-            "uid": int(user_id),
-            "dev": int(device_uid),
-            "v": 1,
-        }
-    )
+    payload = {"wid": int(worker_id), "uid": int(user_id), "dev": int(device_uid), "v": 1}
+    if card:
+        payload["c"] = 1
+    return _serializer(_WORKER_SALT).dumps(payload)
+
+
+def _worker_claims(data: object, *, user_id: int, device_uid: int) -> tuple[int, bool] | None:
+    if not isinstance(data, dict) or data.get("v") != 1:
+        return None
+    if data.get("uid") != int(user_id) or data.get("dev") != int(device_uid):
+        return None
+    worker_id = data.get("wid")
+    if isinstance(worker_id, bool) or not isinstance(worker_id, int) or worker_id <= 0:
+        return None
+    return worker_id, data.get("c") == 1
+
+
+def read_worker_session_claims(
+    token: str | None,
+    *,
+    user_id: int,
+    device_uid: int,
+    max_age: int = WORKER_SESSION_MAX_AGE_SECONDS,
+) -> tuple[int, bool] | None:
+    """``(worker_id, card_verified)`` for a valid token, else None."""
+    if not token:
+        return None
+    try:
+        data = _serializer(_WORKER_SALT).loads(token, max_age=max_age)
+    except BadSignature:
+        return None
+    return _worker_claims(data, user_id=user_id, device_uid=device_uid)
 
 
 def read_worker_session_token(
@@ -115,20 +144,54 @@ def read_worker_session_token(
     device_uid: int,
     max_age: int = WORKER_SESSION_MAX_AGE_SECONDS,
 ) -> int | None:
-    if not token:
-        return None
+    claims = read_worker_session_claims(token, user_id=user_id, device_uid=device_uid, max_age=max_age)
+    return None if claims is None else claims[0]
+
+
+def issue_offline_attribution_token(worker_id: int, user_id: int, device_uid: int, card: bool = False) -> str:
+    """Signed, short-lived worker attribution stored with a queued offline take.
+
+    Issued at PIN time (and refreshed on each online action), bound to the
+    kiosk login and device, so a replayed movement is attributed to the worker
+    who was signed in when it was queued and cannot be forged by the page.
+    """
+    payload = {"wid": int(worker_id), "uid": int(user_id), "dev": int(device_uid), "v": 1}
+    if card:
+        payload["c"] = 1
+    return _serializer(_OFFLINE_SALT).dumps(payload)
+
+
+@dataclass(frozen=True)
+class OfflineAttribution:
+    status: str  # "ok" | "expired" | "invalid"
+    worker_id: int | None = None
+    card: bool = False
+
+
+def read_offline_attribution_token(
+    token: str | None,
+    *,
+    user_id: int,
+    device_uid: int,
+    max_age: int = OFFLINE_ATTRIBUTION_MAX_AGE_SECONDS,
+) -> OfflineAttribution:
+    serializer = _serializer(_OFFLINE_SALT)
     try:
-        data = _serializer(_WORKER_SALT).loads(token, max_age=max_age)
+        data = serializer.loads(token or "", max_age=max_age)
+    except SignatureExpired as exc:
+        # The signature was valid; only the age is over. Still check the binding.
+        try:
+            data = serializer.load_payload(exc.payload)
+        except BadSignature:
+            return OfflineAttribution("invalid")
+        claims = _worker_claims(data, user_id=user_id, device_uid=device_uid)
+        return OfflineAttribution("invalid") if claims is None else OfflineAttribution("expired", claims[0], False)
     except BadSignature:
-        return None
-    if not isinstance(data, dict) or data.get("v") != 1:
-        return None
-    if data.get("uid") != int(user_id) or data.get("dev") != int(device_uid):
-        return None
-    worker_id = data.get("wid")
-    if isinstance(worker_id, bool) or not isinstance(worker_id, int) or worker_id <= 0:
-        return None
-    return worker_id
+        return OfflineAttribution("invalid")
+    claims = _worker_claims(data, user_id=user_id, device_uid=device_uid)
+    if claims is None:
+        return OfflineAttribution("invalid")
+    return OfflineAttribution("ok", claims[0], claims[1])
 
 
 def read_kiosk_device_uid(

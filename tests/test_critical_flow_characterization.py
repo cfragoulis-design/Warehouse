@@ -781,7 +781,6 @@ def test_session_auth_rejects_cross_origin_posts_and_rate_limits_pin_guesses(
     user = User(username=username, role="admin", pin_hash=auth.hash_pin("123456"))
     db.add(user)
     db.commit()
-    auth._clear_login_failures(username)
     monkeypatch.setattr(auth, "_LOGIN_MAX_FAILURES", 2)
 
     with pytest.raises(HTTPException) as cross_origin:
@@ -818,7 +817,10 @@ def test_session_auth_rejects_cross_origin_posts_and_rate_limits_pin_guesses(
     )
     assert still_limited.status_code == 429
 
-    auth._clear_login_failures(username)
+    from app.models import AuthLoginEvent
+
+    db.query(AuthLoginEvent).delete()
+    db.commit()
     success_request = _request()
     success = auth.login(
         request=success_request,

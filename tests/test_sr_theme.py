@@ -6,10 +6,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "app" / "templates"
 THEME_LINK = '<link rel="stylesheet" href="/static/sr-theme.css" />'
+# Print layouts must stay black-on-white, so they never load the dark theme.
+PRINT_TEMPLATES = {"stock_print_a4.html", "labels_a4.html", "labels_ql62.html"}
 INTERACTIVE_TEMPLATES = sorted(
     path
     for path in TEMPLATES.glob("*.html")
-    if path.name != "stock_print_a4.html" and not path.name.startswith("_")
+    if path.name not in PRINT_TEMPLATES and not path.name.startswith("_")
 )
 
 

@@ -15,9 +15,11 @@
   <form method="post" action="/admin/confirm-pin">
     <h1>PIN διαχειριστή</h1>
     <p>Η κάρτα δεν αρκεί. Γράψε το PIN για να συνεχίσεις.</p>
+    {% if note %}<p>{{ note }}</p>{% endif %}
     {% if err %}<p>{{ err }}</p>{% endif %}
     <input type="hidden" name="next_path" value="{{ next }}" />
-    <input name="pin" inputmode="numeric" autocomplete="off" aria-label="PIN" />
+    {% if replay %}<input type="hidden" name="replay" value="{{ replay }}" />{% endif %}
+    <input name="pin" type="password" inputmode="numeric" autocomplete="off" aria-label="PIN" autofocus />
     <button type="submit">Συνέχεια</button>
   </form>
 </body>

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from decimal import Decimal
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 try:
@@ -71,15 +72,28 @@ def due_expiry_alerts(db: Session, today: date) -> list[ConsumableLot]:
 
 
 def notify_expiring_lots(db: Session, today: date, send) -> int:
-    """Send one Telegram note per lot, then mark it so it is not sent again."""
+    """Send one Telegram note per lot. The lot is claimed (alerted=true) with a
+    conditional update before sending, so parallel runs never send it twice;
+    a failed send releases the claim."""
     due = due_expiry_alerts(db, today)
     sent = 0
     for lot in due:
-        text = f"Η παρτίδα {lot.lot_code} λήγει {lot.expiry_date.isoformat()}."
-        if not send(text):
-            continue
-        lot.alerted = True
-        sent += 1
-    if sent:
+        claimed = db.execute(
+            update(ConsumableLot)
+            .where(ConsumableLot.id == lot.id, ConsumableLot.alerted.is_(False))
+            .values(alerted=True)
+        ).rowcount
         db.commit()
+        if claimed != 1:
+            continue
+        text = f"Η παρτίδα {lot.lot_code} λήγει {lot.expiry_date.isoformat()}."
+        delivered = False
+        try:
+            delivered = bool(send(text))
+        finally:
+            if not delivered:
+                db.execute(update(ConsumableLot).where(ConsumableLot.id == lot.id).values(alerted=False))
+                db.commit()
+        if delivered:
+            sent += 1
     return sent

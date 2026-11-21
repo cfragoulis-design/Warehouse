@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ρυθμίσεις αποθήκης</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <style>
+    body{margin:0;background:#0b1020;color:#e7e9ee;font-family:system-ui,Arial,sans-serif}
+    main{max-width:680px;margin:0 auto;padding:24px}
+    a{color:#a9c7ff}h1{font-size:28px}
+    form{display:grid;gap:18px}fieldset{display:grid;gap:12px;border:1px solid #243055;border-radius:14px;padding:18px}
+    legend{font-size:20px;font-weight:900}.hint{color:#a7b0c7;margin:0;font-size:14px}.days{display:flex;gap:12px;flex-wrap:wrap}
+    input[type=time],button{font:inherit;padding:12px;border-radius:10px;border:1px solid #243055;background:#0e1530;color:inherit}
+    input[type=checkbox]{width:20px;height:20px;vertical-align:middle}button{font-weight:900;background:#2563eb}
+    .saved{color:#86efac}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+<main>
+  <p><a href="/dashboard">← Πίνακας</a> · <a href="/consumables">Αναλώσιμα</a></p>
+  <h1>Ρυθμίσεις αποθήκης</h1>
+  {% if request.query_params.get('saved') %}<p class="saved">Αποθηκεύτηκε.</p>{% endif %}
+  <form method="post" action="/admin/consumables/settings">
+    <fieldset>
+      <legend>Telegram</legend>
+      <label><input type="checkbox" name="telegram_enabled" value="1" {% if telegram_enabled %}checked{% endif %} /> Ειδοποιήσεις αναλωσίμων ενεργές</label>
+      <p class="hint">Οι ειδοποιήσεις στέλνονται στο παρασκήνιο, ποτέ μέσα στη λήψη. Μία ειδοποίηση ανά προμηθευτή την ημέρα. Χωρίς αλλαγή στα στοιχεία του Telegram.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Πρωινή καταμέτρηση</legend>
+      <label>Ώρα <input type="time" name="count_time" value="{{ time }}" required /></label>
+      <p class="hint">Ώρα Ελλάδας (Europe/Athens). Εμφανίζεται μετά από αυτή την ώρα, μία φορά την επιλεγμένη ημέρα.</p>
+      <div class="days">
+        {% for label in day_labels %}<label><input type="checkbox" name="count_days" value="{{ loop.index0 }}" {% if loop.index0 in days %}checked{% endif %} /> {{ label }}</label>{% endfor %}
+      </div>
+      <p class="hint">Χωρίς ημέρες: η καταμέτρηση δεν εμφανίζεται. Προεπιλογή: Δευτέρα–Παρασκευή, 07:00.</p>
+    </fieldset>
+    <button type="submit">Αποθήκευση</button>
+  </form>
+</main>
+</body>
+</html>

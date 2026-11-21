@@ -4,24 +4,39 @@
   <meta charset="utf-8" />
   <title>Ετικέτα 62mm</title>
   <style>
-    @page { size: 62mm 29mm; margin: 1mm }
-    body{margin:0;font-family:system-ui,Arial,sans-serif;color:#000}
-    .label{width:60mm;height:27mm;padding:1mm}
-    .name{font-size:12px;font-weight:800}
+    @page { size: 62mm 29mm; margin: 0 }
+    :root{color-scheme:light}
+    html,body{background:#fff !important;color:#000 !important}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body{margin:0;font-family:system-ui,Arial,sans-serif}
+    .toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 12px;border-bottom:1px solid #ccc;background:#f4f4f5;font-size:14px}
+    .toolbar a{color:#1d4ed8}.toolbar a[aria-current]{font-weight:800;color:#000}
+    .toolbar form{display:flex;gap:8px;align-items:center;margin:0}
+    .toolbar button{font:inherit;padding:6px 12px;border-radius:8px;border:1px solid #888;background:#fff;color:#000;font-weight:700}
+    .toolbar .ok{color:#166534;font-weight:700}
+    .label,.label *{color:#000 !important}
+    .nocode{font-size:11px;font-style:italic;color:#555 !important;border:1px dashed #999;padding:2mm;text-align:center}
+    @media print{.noPrint{display:none !important}}
+    .roll{display:grid;justify-content:center;gap:4mm;padding:4mm 0}
+    .label{box-sizing:border-box;width:62mm;height:29mm;padding:1.5mm 2mm;overflow:hidden;background:#fff;break-after:page;page-break-after:always}
+    @media screen{.label{border:1px dashed #999}}
+    @media print{.roll{display:block;padding:0}.label:last-child{break-after:auto;page-break-after:auto}}
+    .name{font-size:12px;font-weight:800;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .cat{font-size:9px}
-    svg{width:58mm;height:12mm}
+    .label svg{display:block;width:58mm;height:12mm}
     .code{font-size:9px}
   </style>
-  <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
 <body>
+  {% include "_labels_toolbar.html" %}
+  <div class="roll">
   {% for label in labels %}
   <div class="label">
     <div class="cat">{{ label.category }}</div>
     <div class="name">{{ label.name }}</div>
-    {{ label.svg | safe }}
-    <div class="code">{{ label.code }}</div>
+    {% if label.svg %}{{ label.svg | safe }}<div class="code">{{ label.code }}</div>{% elif label.code %}<div class="code">{{ label.code }}</div>{% else %}<div class="nocode">χωρίς barcode</div>{% endif %}
   </div>
   {% endfor %}
+  </div>
 </body>
 </html>

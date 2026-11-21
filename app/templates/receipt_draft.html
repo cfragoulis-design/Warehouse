@@ -7,38 +7,62 @@
   <link rel="stylesheet" href="/static/datetime.css" />
   <style>
     body{margin:0;background:#0b1020;color:#e7e9ee;font-family:system-ui,Segoe UI,Arial,sans-serif}
-    a{color:#a9c7ff}
-    .wrap{max-width:860px;margin:0 auto;padding:16px}
-    table{width:100%;border-collapse:collapse}
-    th,td{text-align:left;padding:8px;border-bottom:1px solid #243055}
-    button{font:inherit;color:inherit;background:#162044;border:1px solid #243055;border-radius:10px;padding:8px 12px;font-weight:800}
-    .ok{background:#14532d}
+    a{color:#a9c7ff}.wrap{max-width:1080px;margin:0 auto;padding:20px}.hint{color:#a7b0c7;font-size:14px}.err{color:#fecdd3;font-weight:800}.saved{color:#86efac}
+    h1{font-size:28px;margin:0 0 10px}h2{font-size:21px}table{width:100%;border-collapse:collapse}.tableWrap{overflow:auto}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid #243055;font-size:14px}
+    button,input,select{font:inherit;color:inherit;background:#0e1530;border:1px solid #243055;border-radius:9px;padding:9px 10px}button{font-weight:800;cursor:pointer}
+    select{max-width:300px}.remember{display:flex;gap:5px;align-items:center;margin-top:6px;font-size:12px;color:#a7b0c7}.remember input{width:16px;height:16px}
+    .ok{background:#14532d}.warn{color:#fcd34d}.price{font-size:12px;color:#a7b0c7}.panel{padding:16px;margin:18px 0;border:1px solid #243055;border-radius:14px;background:#0e1530}
+    .buttons{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.priceCheck{display:flex;align-items:center;gap:9px;font-weight:800;margin:12px 0 16px}.priceCheck input{width:21px;height:21px}button[disabled]{opacity:.45;cursor:default}.unmatched{background:rgba(245,158,11,.06)}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
 <body>
-  <main class="wrap">
-    <p><a href="/consumables">Αναλώσιμα</a></p>
-    <h1>{{ supplier.name if supplier else 'Προμηθευτής' }} · {{ draft.invoice_number or 'χωρίς αριθμό' }}</h1>
-    <p>ΜΑΡΚ: {{ draft.mark or '—' }} · {{ draft.invoice_date or '—' }} · {{ draft.status }}</p>
+<main class="wrap">
+  <p><a href="/admin/consumables/receipts">← Πρόχειρες παραλαβές</a> · <a href="/consumables">Αναλώσιμα</a></p>
+  <h1>{{ supplier.name if supplier else 'Προμηθευτής' }} · {{ draft.invoice_number or 'χωρίς αριθμό' }}</h1>
+  <p class="hint">#{{ draft.id }} · ΜΑΡΚ: {{ draft.mark or '—' }} · {{ draft.invoice_date or '—' }} · <strong>{{ draft.status }}</strong></p>
+  {% if err %}<p class="err" role="alert">Ταίριαξε πρώτα όλες τις γραμμές με είδη.</p>{% endif %}
+  {% if request.query_params.get('saved') %}<p class="saved">Τα ταιριάσματα αποθηκεύτηκαν.</p>{% endif %}
+  {% if draft.status == 'DRAFT' %}<p class="hint">Διάλεξε είδος για κάθε γραμμή. Το «Να το θυμάται» κρατά τον κωδικό του προμηθευτή για το επόμενο τιμολόγιο. Οι ποσότητες είναι σε μονάδες αποθήκης.</p>{% endif %}
+  <form method="post" action="/consumables/receipts/{{ draft.id }}/lines">
+    <div class="tableWrap">
     <table>
-      <thead><tr><th>Κωδικός</th><th>Περιγραφή</th><th>Ποσ.</th><th>Τιμή</th><th>Είδος</th></tr></thead>
+      <thead><tr><th>Κωδικός</th><th>Περιγραφή</th><th>Ποσ.</th><th>€/μονάδα</th><th>Είδος αποθήκης</th></tr></thead>
       <tbody>
-        {% for line in lines %}
-        <tr>
-          <td>{{ line.supplier_code }}</td>
-          <td>{{ line.description }}</td>
-          <td>{{ line.qty }}</td>
-          <td>{{ line.unit_price }}</td>
-          <td>{{ items.get(line.consumable_id, '— χωρίς ταίριασμα —') }}</td>
+      {% for line in lines %}
+        <tr{% if not line.consumable_id %} class="unmatched"{% endif %}>
+          <td>{{ line.supplier_code or '—' }}</td><td>{{ line.description }}</td><td>{{ line.qty }}</td><td>{{ line.unit_price }}</td>
+          <td>
+            {% if draft.status == 'DRAFT' %}
+            <select name="item_{{ line.id }}" aria-label="Ταίριασμα {{ line.description }}">
+              <option value="">— Διάλεξε είδος —</option>
+              {% if own_items %}<optgroup label="Είδη προμηθευτή">{% for item in own_items %}<option value="{{ item.id }}"{% if line.consumable_id == item.id %} selected{% endif %}>{{ item.name }} · {{ item.unit }}</option>{% endfor %}</optgroup>{% endif %}
+              {% if other_items %}<optgroup label="Άλλα είδη">{% for item in other_items %}<option value="{{ item.id }}"{% if line.consumable_id == item.id %} selected{% endif %}>{{ item.name }} · {{ item.unit }}</option>{% endfor %}</optgroup>{% endif %}
+            </select>
+            {% if line.supplier_code %}<label class="remember"><input type="checkbox" name="remember_{{ line.id }}" value="1" checked /> Να το θυμάται: {{ line.supplier_code }}</label>{% endif %}
+            {% else %}{{ items.get(line.consumable_id, '— χωρίς ταίριασμα —') }}{% endif %}
+            {% if line.id in costs %}<div class="price">Κόστος/συσκ.: {{ costs[line.id].old }} → {{ costs[line.id].new }} € <span class="hint">(μόνο αν επιλεγεί παρακάτω)</span></div>{% endif %}
+          </td>
         </tr>
-        {% endfor %}
+      {% endfor %}
       </tbody>
     </table>
+    </div>
     {% if draft.status == 'DRAFT' %}
-    <form method="post" action="/consumables/receipts/{{ draft.id }}/approve" style="display:inline"><button class="ok" type="submit">Έγκριση</button></form>
-    <form method="post" action="/consumables/receipts/{{ draft.id }}/reject" style="display:inline"><button type="submit">Απόρριψη</button></form>
+    <div class="buttons" style="margin-top:14px"><button type="submit">Αποθήκευση ταιριασμάτων</button>{% if unmatched %}<span class="warn">{{ unmatched }} γραμμές χωρίς ταίριασμα</span>{% else %}<span class="saved">Όλες οι γραμμές ταιριάζουν.</span>{% endif %}</div>
     {% endif %}
-  </main>
+  </form>
+  {% if draft.status == 'DRAFT' %}
+  <section class="panel">
+    <h2>Έγκριση παραλαβής</h2>
+    <p class="hint">Η έγκριση προσθέτει τις ποσότητες στην αποθήκη. Οι τιμές μένουν ως έχουν, εκτός αν το ζητήσεις ρητά.</p>
+    <form method="post" action="/consumables/receipts/{{ draft.id }}/approve">
+      <label class="priceCheck"><input type="checkbox" name="update_cost" value="1" /> Ενημέρωση cost_per_pack από τις τιμές του τιμολογίου</label>
+      <button class="ok" type="submit"{% if unmatched %} disabled{% endif %}>Έγκριση &amp; παραλαβή στην αποθήκη</button>
+    </form>
+    <form method="post" action="/consumables/receipts/{{ draft.id }}/reject" style="margin-top:14px"><button type="submit">Απόρριψη πρόχειρου</button></form>
+  </section>
+  {% endif %}
+</main>
 </body>
 </html>

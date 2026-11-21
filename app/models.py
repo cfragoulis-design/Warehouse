@@ -18,6 +18,7 @@ from sqlalchemy import (
     Uuid,
     CheckConstraint,
     UniqueConstraint,
+    Index,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -767,6 +768,22 @@ class ConsumableReceiptLine(Base):
     qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
     consumable_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=True)
+
+
+class AuthLoginEvent(Base):
+    """One PIN check for an account from one source (kiosk device or client IP)."""
+
+    __tablename__ = "auth_login_events"
+    __table_args__ = (
+        Index("ix_auth_login_events_account_source", "account", "source", "created_at"),
+        Index("ix_auth_login_events_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account: Mapped[str] = mapped_column(String(120), nullable=False)
+    source: Mapped[str] = mapped_column(String(160), nullable=False)
+    succeeded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class KioskHeartbeat(Base):

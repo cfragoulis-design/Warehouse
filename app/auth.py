@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import json
 import os
-import threading
 import time
-from collections import deque
 from urllib.parse import urlsplit
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from passlib.hash import bcrypt
 
 from .db import get_db
+from .request_security import requires_step_up
+from . import login_throttle
 from .models import OneSsoMapping, User
 from .runtime_config import load_one_sso_settings
 from .templating import WarehouseJinja2Templates
@@ -21,8 +22,6 @@ templates = WarehouseJinja2Templates(directory="app/templates")
 
 _LOGIN_WINDOW_SECONDS = 300
 _LOGIN_MAX_FAILURES = 8
-_login_failures: dict[str, deque[float]] = {}
-_login_failures_lock = threading.Lock()
 
 
 def _login_context(request: Request, *, err: str = "") -> dict[str, object]:
@@ -116,51 +115,11 @@ _ADMIN_LOCK_SECONDS = 15 * 60
 _ADMIN_MAX_FAILURES = 5
 
 
-def _login_failure_key(username: str) -> str:
-    return username.strip().casefold()
-
-
 def _pin_limits(user: User | None) -> tuple[int, int]:
     if user is not None and (user.role or "").lower() == "admin":
         maximum = _LOGIN_MAX_FAILURES if _LOGIN_MAX_FAILURES < _ADMIN_MAX_FAILURES else _ADMIN_MAX_FAILURES
         return _ADMIN_LOCK_SECONDS, maximum
     return _LOGIN_WINDOW_SECONDS, _LOGIN_MAX_FAILURES
-
-
-def _login_retry_after(username: str, *, now: float | None = None, window: int | None = None, maximum: int | None = None) -> int:
-    current = time.monotonic() if now is None else now
-    window = _LOGIN_WINDOW_SECONDS if window is None else window
-    maximum = _LOGIN_MAX_FAILURES if maximum is None else maximum
-    key = _login_failure_key(username)
-    with _login_failures_lock:
-        failures = _login_failures.get(key)
-        if not failures:
-            return 0
-        while failures and current - failures[0] >= window:
-            failures.popleft()
-        if not failures:
-            _login_failures.pop(key, None)
-            return 0
-        if len(failures) < maximum:
-            return 0
-        return max(1, int(window - (current - failures[0])))
-
-
-def _record_login_failure(username: str, *, now: float | None = None, window: int | None = None, maximum: int | None = None) -> int:
-    current = time.monotonic() if now is None else now
-    window = _LOGIN_WINDOW_SECONDS if window is None else window
-    key = _login_failure_key(username)
-    with _login_failures_lock:
-        failures = _login_failures.setdefault(key, deque())
-        while failures and current - failures[0] >= window:
-            failures.popleft()
-        failures.append(current)
-    return _login_retry_after(username, now=current, window=window, maximum=maximum)
-
-
-def _clear_login_failures(username: str) -> None:
-    with _login_failures_lock:
-        _login_failures.pop(_login_failure_key(username), None)
 
 
 WAREHOUSE_ALLOWED_PATHS = (
@@ -169,6 +128,7 @@ WAREHOUSE_ALLOWED_PATHS = (
     "/consumables/take/session",
     "/consumables/take/session/touch",
     "/consumables/take/session/end",
+    "/consumables/take/card",
     "/consumables/movements",
     "/logout",
     "/health",
@@ -240,7 +200,9 @@ def login(
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     window, maximum = _pin_limits(user)
 
-    retry_after = _login_retry_after(username, window=window, maximum=maximum)
+    source = login_throttle.request_source(request)
+    limits = login_throttle.Limits(window, maximum)
+    retry_after = login_throttle.retry_after(db, username, source, limits)
     if retry_after:
         return templates.TemplateResponse(
             "login.html",
@@ -250,7 +212,7 @@ def login(
         )
 
     if not user or not user.is_active or not verify_pin(pin, user.pin_hash):
-        retry_after = _record_login_failure(username, window=window, maximum=maximum)
+        retry_after = login_throttle.record_failure(db, username, source, limits)
         if retry_after:
             return templates.TemplateResponse(
                 "login.html",
@@ -260,7 +222,7 @@ def login(
             )
         return RedirectResponse(url="/login?err=1", status_code=303)
 
-    _clear_login_failures(username)
+    login_throttle.record_success(db, username, source)
     request.session.clear()
     request.session["uid"] = user.id
     request.session["role"] = (user.role or "").lower()
@@ -293,22 +255,68 @@ def confirm_pin(
     request: Request,
     pin: str = Form(...),
     next_path: str = Form("/dashboard"),
+    replay: str = Form(""),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user),
 ):
     _require_same_origin(request)
     if user is None or (user.role or "").lower() != "admin":
         return RedirectResponse("/login", status_code=303)
+    wants_json = (
+        request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
+        or "application/json" in request.headers.get("accept", "").lower()
+    )
+    source = login_throttle.request_source(request)
+    window, maximum = _pin_limits(user)
+    limits = login_throttle.Limits(window, maximum)
+    retry = login_throttle.retry_after(db, user.username, source, limits)
+    if retry:
+        if wants_json:
+            return JSONResponse({"ok": False, "error": "pin_rate_limited", "message": "Πολλές προσπάθειες. Δοκίμασε αργότερα."}, status_code=429, headers={"Retry-After": str(retry)})
+        return templates.TemplateResponse("confirm_pin.html", {"request": request, "user": user, "next": next_path, "replay": replay, "err": "Πολλές προσπάθειες. Δοκίμασε αργότερα."}, status_code=429, headers={"Retry-After": str(retry)})
     fresh = db.get(User, user.id)
-    if fresh is None or not verify_pin(pin, fresh.pin_hash):
+    if fresh is None or not fresh.is_active or not verify_pin(pin, fresh.pin_hash):
+        retry = login_throttle.record_failure(db, user.username, source, limits)
+        status = 429 if retry else 403
+        headers = {"Retry-After": str(retry)} if retry else None
+        if wants_json:
+            return JSONResponse({"ok": False, "error": "invalid_pin", "message": "Λάθος PIN"}, status_code=status, headers=headers)
         return templates.TemplateResponse(
             "confirm_pin.html",
-            {"request": request, "user": user, "next": next_path, "err": "Λάθος PIN"},
-            status_code=403,
+            {"request": request, "user": user, "next": next_path, "replay": replay, "err": "Λάθος PIN"},
+            status_code=status, headers=headers,
         )
+    login_throttle.record_success(db, user.username, source)
     request.session["admin_pin_until"] = time.time() + _ADMIN_LOCK_SECONDS
+    if wants_json:
+        return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
     target = next_path if next_path.startswith("/") and not next_path.startswith("//") else "/dashboard"
+    fields = _replay_fields(replay)
+    if fields is not None and requires_step_up("POST", target):
+        # Re-submit the admin's original form (same browser, same origin) now
+        # that the PIN is fresh. Only gated paths are ever replayed.
+        return templates.TemplateResponse(
+            "confirm_pin_replay.html",
+            {"request": request, "user": user, "action": target, "fields": fields},
+            headers={"Cache-Control": "no-store"},
+        )
     return RedirectResponse(target, status_code=303)
+
+
+def _replay_fields(raw: str) -> list[tuple[str, str]] | None:
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, list):
+        return None
+    fields: list[tuple[str, str]] = []
+    for pair in data[:500]:
+        if isinstance(pair, (list, tuple)) and len(pair) == 2 and all(isinstance(x, str) for x in pair):
+            fields.append((pair[0], pair[1]))
+    return fields
 
 
 @router.post("/admin/kiosk-key/rotate")

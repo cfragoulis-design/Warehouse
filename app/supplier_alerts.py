@@ -12,11 +12,13 @@ A script reads the current list with the same header as the weekly report:
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 try:
@@ -36,6 +38,7 @@ except ImportError:
 
 router = APIRouter()
 RUNOUT_DAYS = 5
+ATHENS = ZoneInfo("Europe/Athens")
 
 
 def _d(value) -> Decimal:
@@ -70,31 +73,47 @@ def alerts_from_rows(rows: list[dict], flags: dict[int, dict]) -> list[dict]:
     return alerts
 
 
-def _already_sent(db: Session, supplier_id: int, day: date) -> bool:
-    return (
-        db.query(ConsumableAlertLog)
-        .filter(ConsumableAlertLog.supplier_id == supplier_id, ConsumableAlertLog.alert_date == day)
-        .first()
-        is not None
-    )
+def _claim(db: Session, supplier_id: int, day: date) -> ConsumableAlertLog | None:
+    """Reserve today's alert for this supplier. The unique (supplier, day) key
+    makes this the single winner even when several takes race in parallel."""
+    claim = ConsumableAlertLog(supplier_id=supplier_id, alert_date=day)
+    db.add(claim)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return None
+    return claim
+
+
+def athens_today() -> date:
+    return datetime.now(ATHENS).date()
 
 
 def dispatch_supplier_alerts(db: Session, rows: list[dict], *, today: date | None = None, send=None) -> list[int]:
-    """Send at most one Telegram message per supplier for this UTC day."""
+    """Send at most one Telegram message per supplier per Athens day.
+
+    The day is claimed before sending, so two parallel runs never both send.
+    A failed send releases the claim, so a later run may try again.
+    """
     sender = _telegram_send_safe if send is None else send
-    day = today or datetime.now(timezone.utc).date()
+    day = today or athens_today()
     flags = forecast_flags(db, [int(row["id"]) for row in rows])
     sent: list[int] = []
     for alert in alerts_from_rows(rows, flags):
         supplier_id = int(alert["supplier_id"])
-        if _already_sent(db, supplier_id, day):
+        claim = _claim(db, supplier_id, day)
+        if claim is None:
             continue
-        if not sender(alert["text"]):
-            continue
-        db.add(ConsumableAlertLog(supplier_id=supplier_id, alert_date=day))
-        sent.append(supplier_id)
-    if sent:
-        db.commit()
+        delivered = False
+        try:
+            delivered = bool(sender(alert["text"]))
+        finally:
+            if not delivered:
+                db.delete(claim)
+                db.commit()
+        if delivered:
+            sent.append(supplier_id)
     return sent
 
 

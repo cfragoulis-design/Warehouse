@@ -65,6 +65,8 @@
     </div>
     <details class="toolbox"><summary>Περισσότερα εργαλεία <span>Κατάλογος, προμηθευτές, παραγγελίες και τεχνική κατάσταση</span></summary><div class="tools">
       <a class="tool" href="/products">Προϊόντα<small>Κατάλογος και στοιχεία ειδών</small></a><a class="tool" href="/categories">Κατηγορίες<small>Ταξινόμηση και ενεργές ομάδες</small></a><a class="tool" href="/suppliers">Προμηθευτές<small>Στοιχεία συνεργατών</small></a><a class="tool" href="/purchase-orders">Παραγγελίες αναλώσιμων<small>Πρόχειρες, εκκρεμείς και παραληφθείσες</small></a><a class="tool" href="/consumables/movements">Ιστορικό αναλώσιμων<small>Ποιος πήρε ή πρόσθεσε τι</small></a><a class="tool" href="/movements">Ιστορικό κινήσεων<small>Αναζήτηση και φίλτρα</small></a><a class="tool" href="/ready">Ετοιμότητα συστήματος<small>Έλεγχος σύνδεσης και βάσης δεδομένων</small></a><a class="tool" href="/health">Λειτουργία υπηρεσίας<small>Γρήγορος τεχνικός έλεγχος</small></a>
+    <a class="tool" href="/admin/consumables/settings">Ρυθμίσεις αποθήκης<small>Telegram · ώρα και μέρες πρωινής καταμέτρησης</small></a>
+    <a class="tool" href="/admin/consumables/receipts">Πρόχειρες παραλαβές<small>XML τιμολογίου · χειροκίνητη καταχώριση · έγκριση</small></a>
     </div></details>
     {% if user.role == "admin" %}<section class="adminBox"><h2>Μήνυμα στο Εργαστήριο</h2><p>Παραμένει στην οθόνη του Εργαστηρίου μέχρι να επιβεβαιωθεί.</p><form method="post" action="/admin/workshop-message"><input name="title" placeholder="Τίτλος (προαιρετικός)" /><textarea name="body" required rows="2" placeholder="Γράψε τη σαφή οδηγία..."></textarea><button class="btn" type="submit">Αποστολή</button></form></section>{% endif %}
   </main>

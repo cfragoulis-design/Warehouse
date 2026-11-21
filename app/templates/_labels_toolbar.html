@@ -1,0 +1,14 @@
+<div class="toolbar noPrint">
+  <a href="/consumables">← Αναλώσιμα</a>
+  <a href="/consumables/labels?layout=a4"{% if layout == 'a4' %} aria-current="page"{% endif %}>Α4</a>
+  <a href="/consumables/labels?layout=ql62"{% if layout == 'ql62' %} aria-current="page"{% endif %}>62mm</a>
+  {% if request.query_params.get('generated') %}<span class="ok">Δημιουργήθηκαν {{ request.query_params.get('generated') }} barcode.</span>{% endif %}
+  {% if missing %}
+  <form method="post" action="/consumables/labels/barcodes">
+    <input type="hidden" name="layout" value="{{ layout }}" />
+    <span>{{ missing }} είδη χωρίς barcode.</span>
+    <button type="submit">Δημιουργία barcode για {{ missing }} είδη</button>
+  </form>
+  {% endif %}
+  <button type="button" onclick="window.print()">Εκτύπωση</button>
+</div>
