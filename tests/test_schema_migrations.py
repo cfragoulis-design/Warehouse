@@ -30,8 +30,12 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20260831_003",
         "20260831_004",
         "20260906_001",
+        "20261120_002",
+        "20261120_003",
+        "20261120_004",
     ]
-    profiles_migration = catalog[-1]
+    by_version = {migration.version: migration for migration in catalog}
+    profiles_migration = by_version["20260906_001"]
     assert "CHECK (contract_version IN (1, 2))" in profiles_migration.sql
     assert "VALIDATE CONSTRAINT ck_label_layout_versions_contract" in profiles_migration.sql
     assert "label_layout_versions_contract_version_check" in profiles_migration.sql
@@ -236,6 +240,30 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "GRANT ALL" not in normalized_content_privileges_sql.upper()
     assert "TO PUBLIC" not in label_content_privileges_sql.upper()
     assert len(BASELINE_SCHEMA_FINGERPRINT) == 64
+    workers = by_version["20261120_002"]
+    workers_sql = workers.sql.upper()
+    assert "CREATE TABLE IF NOT EXISTS WORKERS" in workers_sql
+    assert "ADD COLUMN IF NOT EXISTS WORKER_ID" in workers_sql
+    assert "DROP TABLE" not in workers_sql
+    assert "DELETE FROM" not in workers_sql
+    assert workers.checksum == hashlib.sha256(workers.sql.encode("utf-8")).hexdigest()
+    images = by_version["20261120_003"]
+    images_sql = images.sql.upper()
+    assert "ADD COLUMN IF NOT EXISTS IMAGE_BYTES BYTEA" in images_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE WORKERS TO WAREHOUSE_PRODUCTION_APP" in images_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE WORKERS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in images_sql
+    assert "GRANT SELECT ON TABLE WORKERS TO WAREHOUSE_OPERATIONS_PROD_READER" in images_sql
+    assert "DROP TABLE" not in images_sql
+    assert "DELETE FROM" not in images_sql
+    scans = by_version["20261120_004"]
+    scans_sql = scans.sql.upper()
+    assert "ADD COLUMN IF NOT EXISTS BARCODE VARCHAR(64)" in scans_sql
+    assert "ADD COLUMN IF NOT EXISTS CARD_UID VARCHAR(64)" in scans_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE WORKERS TO WAREHOUSE_PRODUCTION_APP" in scans_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE WORKERS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in scans_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLES TO WAREHOUSE_OPERATIONS_PROD_READER" in scans_sql
+    assert "DROP TABLE" not in scans_sql
+    assert "DELETE FROM" not in scans_sql
 
 
 def test_runtime_role_identifier_is_explicit_and_bounded() -> None:

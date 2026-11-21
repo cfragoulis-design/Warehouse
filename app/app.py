@@ -31,6 +31,7 @@ if not runtime_settings.operations_source_mode:
     try:
         from app.auth import router as auth_router
         from app.auth import seed_admins
+        from app.worker_service import seed_workers
         from app.catalog_service import router as catalog_router
         from app.consumables_service import router as consumables_router
         from app.digest_service import router as digest_router
@@ -38,12 +39,14 @@ if not runtime_settings.operations_source_mode:
         from app.label_designer_surface import router as label_designer_router
         from app.one_sso import router as one_sso_router
         from app.production_report_service import router as production_report_router
+        from app.consumables_report import router as consumables_report_router
         from app.seed import seed_categories, seed_locations
         from app.services import router as services_router
         from app.workshop_message_service import router as workshop_message_router
     except ImportError:
         from auth import router as auth_router
         from auth import seed_admins
+        from worker_service import seed_workers
         from catalog_service import router as catalog_router
         from consumables_service import router as consumables_router
         from digest_service import router as digest_router
@@ -51,6 +54,7 @@ if not runtime_settings.operations_source_mode:
         from label_designer_surface import router as label_designer_router
         from one_sso import router as one_sso_router
         from production_report_service import router as production_report_router
+        from consumables_report import router as consumables_report_router
         from seed import seed_categories, seed_locations
         from services import router as services_router
         from workshop_message_service import router as workshop_message_router
@@ -144,6 +148,7 @@ def startup() -> None:
     db = SessionLocal()
     try:
         seed_admins(db)
+        seed_workers(db)
 
         # seed_locations may be implemented as seed_locations(db) or seed_locations()
         try:
@@ -163,11 +168,21 @@ def startup() -> None:
 
 if not runtime_settings.operations_source_mode:
     assert session_secret is not None
+    try:
+        from app.kiosk_session import KioskDeviceMiddleware, SESSION_MAX_AGE_SECONDS
+    except ImportError:
+        from kiosk_session import KioskDeviceMiddleware, SESSION_MAX_AGE_SECONDS
+
+    # Added first so SessionMiddleware stays outermost and loads the session
+    # before the kiosk check. max_age stays the 14-day Starlette default for
+    # every role; only a warehouse kiosk gets the separate device cookie.
+    app.add_middleware(KioskDeviceMiddleware)
     app.add_middleware(
         SessionMiddleware,
         secret_key=session_secret,
         same_site="lax",
         https_only=True,
+        max_age=SESSION_MAX_AGE_SECONDS,
     )
 
     if static_dir:
@@ -181,8 +196,14 @@ if not runtime_settings.operations_source_mode:
     app.include_router(freezer_router)
     app.include_router(workshop_message_router)
     app.include_router(consumables_router)
+    try:
+        from app.worker_service import router as workers_router
+    except ImportError:
+        from worker_service import router as workers_router
+    app.include_router(workers_router)
     app.include_router(digest_router)
     app.include_router(production_report_router)
+    app.include_router(consumables_report_router)
 app.include_router(operations_summary_router)
 
 

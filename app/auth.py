@@ -151,6 +151,7 @@ def _clear_login_failures(username: str) -> None:
 
 WAREHOUSE_ALLOWED_PATHS = (
     "/consumables/take",
+    "/consumables/take/stock",
     "/consumables/movements",
     "/logout",
     "/health",
@@ -173,7 +174,7 @@ def _warehouse_path_allowed(path: str) -> bool:
     # Allow the warehouse-only user to open the mobile stock page and to use
     # the card buttons that post to /consumables/{id}/take and /consumables/{id}/add.
     # Other consumables/admin routes remain blocked by default.
-    if path.startswith("/consumables/") and (path.endswith("/take") or path.endswith("/add")):
+    if path.startswith("/consumables/") and path.endswith(("/take", "/add", "/image")):
         return True
     return path in WAREHOUSE_ALLOWED_PATHS
 
@@ -246,6 +247,8 @@ def login(
 def logout(request: Request):
     _require_same_origin(request)
     request.session.clear()
+    # KioskDeviceMiddleware deletes the long-lived warehouse device cookie.
+    request.state.kiosk_clear = True
     return RedirectResponse(url="/login", status_code=303)
 
 

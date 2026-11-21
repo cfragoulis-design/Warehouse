@@ -1,413 +1,869 @@
 <!doctype html>
-<html lang="en">
+<html lang="el">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Consumables</title>
-
+  <title>Αναλώσιμα</title>
   <link rel="stylesheet" href="/static/datetime.css" />
   <script src="/static/js/datetime.js" defer></script>
-
-<style>
-  :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;}
-  *{box-sizing:border-box}
-  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);}
-  a{color:inherit;text-decoration:none}
-  .top{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg, rgba(17,25,54,.9), rgba(11,16,32,.9));position:sticky;top:0;z-index:10}
-  .nav{display:flex;gap:10px;flex-wrap:wrap}
-  .pill{padding:8px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.02)}
-  .pill:hover{border-color:#35508e}
-  .wrap{max-width:1150px;margin:0 auto;padding:18px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-  .card + .card{margin-top:14px}
-  .card-h{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-  .card-h h2{margin:0;font-size:16px;letter-spacing:.01em}
-  .card-h .sub{margin-top:2px;color:var(--muted);font-size:12px}
-  .card-b{padding:14px 16px}
-  .grid{display:grid;grid-template-columns: 2fr 1.2fr 1.2fr .9fr .8fr .9fr 1.2fr auto;gap:10px;align-items:end}
-  @media (max-width: 980px){.grid{grid-template-columns: 1fr 1fr;}}
-  label{display:block;font-size:12px;color:var(--muted);margin:0 0 6px 2px}
-  input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:9px 10px;border-radius:10px;outline:none}
-  input:focus,select:focus,textarea:focus{border-color:#3d5fb5}
-  input[type="number"]{appearance:textfield}
-  .btn{border:1px solid var(--line);background:rgba(47,124,246,.14);color:var(--text);padding:9px 12px;border-radius:10px;cursor:pointer;white-space:nowrap}
-  .btn:hover{border-color:#3d5fb5}
-  .btn2{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--text);padding:8px 10px;border-radius:10px;cursor:pointer}
-  .btn2:hover{border-color:#3d5fb5}
-  .btnDanger{border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.12)}
-  .btnDanger:hover{border-color:rgba(239,68,68,.7)}
-  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .right{display:flex;gap:8px;align-items:center}
-  .muted{color:var(--muted)}
-  .hint{font-size:12px;color:var(--muted);margin-top:10px}
-  .hint a{text-decoration:underline;color:var(--text)}
-  table{width:100%;border-collapse:collapse}
-  th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
-  th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.02);text-align:left;position:sticky;top:58px;z-index:5}
-  tr:hover td{background:rgba(255,255,255,.02)}
-  .name{font-weight:700}
-  .meta{font-size:12px;color:var(--muted);margin-top:3px}
-  .num{font-variant-numeric:tabular-nums}
-  .badge{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
-  .bDanger{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10);color:#ffd3d3}
-  .bWarn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10);color:#ffe9c2}
-  .bOk{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.10);color:#c8f7dd}
-  .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .mini{display:inline-flex;gap:6px;align-items:center}
-  .mini input{width:82px}
-  .btnIcon{width:38px;display:inline-flex;justify-content:center}
-  .kpi{display:flex;flex-direction:column;gap:4px}
-  .kpi .small{font-size:12px;color:var(--muted)}
-  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .filters input{width:260px}
-  .toggle{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--line);background:rgba(255,255,255,.02);padding:8px 10px;border-radius:10px;cursor:pointer;user-select:none}
-  .toggle input{width:auto}
-  .empty{padding:18px 16px}
-  .empty h3{margin:0 0 6px 0;font-size:15px}
-  .empty p{margin:0;color:var(--muted);font-size:13px;line-height:1.4}
-  .footer{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-
-  .ajaxToast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99;min-width:240px;max-width:calc(100vw - 28px);padding:12px 14px;border-radius:14px;border:1px solid rgba(34,197,94,.45);background:rgba(17,25,54,.96);box-shadow:0 10px 30px rgba(0,0,0,.35);color:#c8f7dd;font-weight:800;text-align:center;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease}
-  .ajaxToast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
-  .ajaxToast.err{border-color:rgba(239,68,68,.55);color:#ffd3d3}
-  .updating{opacity:.65;pointer-events:none}
-  .flashCell{animation:flashCell .7s ease}
-  @keyframes flashCell{0%{background:rgba(47,124,246,.28)}100%{background:transparent}}
-  @media (max-width: 760px){
-    .top{align-items:flex-start;position:sticky}.nav{gap:7px;overflow:auto;flex-wrap:nowrap;max-width:100%;padding-bottom:4px}.pill{white-space:nowrap;font-size:13px;padding:8px 10px}.wrap{padding:12px}.card{border-radius:18px}.card-h{display:block}.filters{margin-top:12px}.filters input{width:100%;font-size:16px;padding:12px}.toggle{flex:1;justify-content:center}.grid{grid-template-columns:1fr}.grid > div{width:100%}table,thead,tbody,tr,td{display:block;width:100%}thead{display:none}tbody{display:grid;grid-template-columns:1fr;gap:12px;padding:12px}tr.r{border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,var(--panel),#0f1732);padding:12px}tr.r:hover td{background:transparent}td{border-bottom:0;padding:6px 0}td::before{content:attr(data-label);display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}.name{font-size:18px}.actions{display:grid;grid-template-columns:1fr 56px 56px;gap:8px;margin-top:8px}.mini{display:grid;grid-template-columns:1fr auto;gap:8px}.mini input{width:100%;font-size:18px;padding:12px}.btn2,.btn{padding:12px}.btnIcon{width:100%}.footer{padding-bottom:22px}
-  }
-
-</style>
-
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--panel2:#0f162d;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7;--blue:#2f7cf6;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;}
+    *{box-sizing:border-box}
+    [hidden]{display:none !important}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text);font-size:14px}
+    a{color:inherit;text-decoration:none}
+    button,input,select{font:inherit;color:inherit}
+    .top{position:sticky;top:0;z-index:40;background:#0b1020;border-bottom:1px solid var(--line)}
+    .navline{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 16px}
+    .nav{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .pill{padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.03);font-size:13px}
+    .filters{padding:8px 16px 10px;display:grid;gap:8px}
+    .filterRow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .search{flex:1;min-width:220px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+    .chip,.supplierPick{border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:999px;min-height:36px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+    .chip.active{background:rgba(47,124,246,.22);border-color:rgba(47,124,246,.75)}
+    .chip .n{color:var(--muted);font-variant-numeric:tabular-nums}
+    .catLow{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:rgba(239,68,68,.16);border:1px solid rgba(245,158,11,.75);color:#fecdd3;font-size:12px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}
+    .catbar{display:flex;gap:6px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px}
+    .supplierPick{background:var(--panel2);border-radius:10px}
+    .newBtn{margin-left:auto;border:1px solid rgba(47,124,246,.65);background:rgba(47,124,246,.18);border-radius:10px;min-height:36px;padding:0 12px;font-weight:800;cursor:pointer}
+    .colHead{background:#0d1428}
+    .desk{padding:0 12px 28px}
+    .cols{display:grid;grid-template-columns:minmax(240px,1.7fr) 176px 84px 72px 84px 96px 132px minmax(120px,.9fr) 36px;gap:8px;align-items:center;padding:6px 8px}
+    .colHead .cols{color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase;background:#0d1428;border-bottom:1px solid var(--line)}
+    .group{border-bottom:1px solid rgba(36,48,85,.65)}
+    .groupHead{width:100%;display:flex;gap:8px;align-items:center;padding:8px 10px;background:#121a33;border:0;cursor:pointer;font-weight:800;text-align:left}
+    .group.collapsed .chev{transform:rotate(-90deg)}
+    .group.collapsed .grow,.grow.miss,.group.miss{display:none}
+    .gCount{color:var(--muted);font-weight:700}
+    .gSug{color:#fde68a;font-size:12px;font-weight:700}
+    .gValue{margin-left:auto;color:#bfdbfe;font-size:12px;font-weight:800}
+    .valueBar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+    .valueBar .chip{cursor:default}
+    .grow{border-top:1px solid rgba(36,48,85,.45)}
+    .grow:hover{background:rgba(255,255,255,.025)}
+    .name{font-weight:750;font-size:14px}
+    .nameLine{display:flex;gap:8px;align-items:center}
+    .thumb{width:36px;height:36px;border-radius:8px;object-fit:cover;flex:0 0 auto;background:#1e293b;color:#e2e8f0;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800}
+    img.thumb{display:block}
+    .photoPick{display:block;text-align:left;border-radius:8px;padding:8px;cursor:pointer}
+    .photoPick:hover{background:rgba(255,255,255,.06)}
+    .packLine{color:var(--muted);font-size:12px;margin-top:2px}
+    .cell{display:inline-flex;align-items:center;min-height:28px;padding:2px 4px;border-radius:6px;border:1px solid transparent;background:transparent;cursor:text;text-align:left}
+    button.cell:hover,button.cell:focus-visible{border-color:var(--line);background:rgba(255,255,255,.03);outline:none}
+    .cell input,.cell select{width:100%;min-width:0;background:#0e1530;border:1px solid #3d5fb5;border-radius:6px;padding:4px 6px}
+    .cell.saved{animation:flashCell .7s ease}
+    @keyframes flashCell{0%{background:rgba(47,124,246,.35)}100%{background:transparent}}
+    .stockBox{display:flex;align-items:center;gap:4px}
+    .stockNum{min-width:36px;text-align:center;font-variant-numeric:tabular-nums;font-weight:800;border-radius:8px;padding:3px 4px}
+    .stockNum.is-low{background:rgba(239,68,68,.16);color:#fecdd3}
+    .stockNum.is-edge,.stockNum.is-order{background:rgba(245,158,11,.14);color:#fde68a}
+    .stockNum.is-ok{background:rgba(34,197,94,.12);color:#bbf7d0}
+    .runout{display:block;margin-top:3px;color:#fde68a;font-size:11px;font-weight:800;line-height:1.2}
+    .step,.menuBtn{width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.04);cursor:pointer}
+    .setStock{width:64px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 6px}
+    .num{font-variant-numeric:tabular-nums}
+    .sugMeta,.costUnit{display:block;color:var(--muted);font-size:11px}
+    .menuWrap{position:relative}
+    .scanLabel{display:grid;gap:4px;padding:8px;color:var(--muted);font-size:12px}
+    .barcodeInput{width:100%;background:#0e1530;border:1px solid var(--line);border-radius:8px;padding:6px}
+    .armScan{text-align:left;background:transparent;border:0;border-radius:8px;padding:8px;cursor:pointer;font-weight:800}
+    .menuPop{position:absolute;right:0;top:32px;z-index:50;min-width:230px;background:#0f172a;border:1px solid var(--line);border-radius:10px;padding:6px;display:grid;gap:4px;box-shadow:0 12px 30px rgba(0,0,0,.35)}
+    .menuPop a,.menuPop button,.photoPick{text-align:left;background:transparent;border:0;border-radius:8px;padding:8px;cursor:pointer;white-space:nowrap}
+    .menuPop a:hover,.menuPop button:hover{background:rgba(255,255,255,.06)}
+    .menuPop .disableBtn{color:#fecdd3}
+    .empty{padding:28px 16px;color:var(--muted)}
+    .footer{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:14px 8px}
+    .btn{border:1px solid rgba(47,124,246,.65);background:rgba(47,124,246,.18);border-radius:10px;padding:8px 12px;cursor:pointer}
+    .muted{color:var(--muted)}
+    dialog{border:1px solid var(--line);background:#0f172a;color:var(--text);border-radius:16px;padding:0;width:min(760px,calc(100vw - 32px))}
+    dialog::backdrop{background:rgba(0,0,0,.55)}
+    .dlgH{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+    .dlgB{padding:14px 16px;display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:10px}
+    .dlgB label{display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
+    .dlgB input,.dlgB select{width:100%;background:#0e1530;border:1px solid var(--line);border-radius:8px;padding:8px}
+    .dlgF{display:flex;justify-content:flex-end;gap:8px;padding:0 16px 14px}
+    .ghost{border:1px solid var(--line);background:transparent;border-radius:10px;padding:8px 12px;cursor:pointer}
+    .ajaxToast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:80;padding:10px 14px;border-radius:12px;background:#0f172a;border:1px solid rgba(34,197,94,.5);color:#bbf7d0;font-weight:800;opacity:0;pointer-events:none}
+    .ajaxToast.show{opacity:1}
+    .ajaxToast.err{border-color:rgba(239,68,68,.6);color:#fecdd3}
+    @media (max-width:1100px){
+      .cols{grid-template-columns:minmax(180px,1.4fr) 150px 70px 64px 72px 80px 110px minmax(100px,.8fr) 32px}
+    }
+  </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
-<body>
+<body class="admin-desk" {% if (user.role or '')|lower == 'admin' %}data-edit="1"{% endif %} {% if (user.role or '')|lower in ['admin', 'workshop'] %}data-stock="1"{% endif %}>
+  {% set is_admin = (user.role or '')|lower == 'admin' %}
+  {% set can_stock = (user.role or '')|lower in ['admin', 'workshop'] %}
   <div class="top">
-    <div class="nav">
-      <span id="app-datetime" class="app-datetime"></span>
-      <a class="pill" href="/dashboard">Dashboard</a>
-      <a class="pill" href="/stock">Stock</a>
-      <a class="pill" href="/movements">Movements</a>
-      <a class="pill" href="/products">Products</a>
-      <a class="pill" href="/consumables"><b>Consumables</b></a>
-      <a class="pill" href="/consumables/take">Take Stock</a>
-      <a class="pill" href="/consumables/movements">History</a>
-      <a class="pill" href="/suppliers">Suppliers</a>
-      <a class="pill" href="/purchase-orders">Purchase Orders</a>
+    <div class="navline">
+      <div class="nav">
+        <span id="app-datetime" class="app-datetime"></span>
+        <a class="pill" href="/dashboard">Dashboard</a>
+        <a class="pill" href="/stock">Stock</a>
+        <a class="pill" href="/movements">Movements</a>
+        <a class="pill" href="/products">Products</a>
+        <a class="pill" href="/consumables"><b>Αναλώσιμα</b></a>
+        {% if is_admin %}<a class="pill" href="/consumables/orders">Λίστα παραγγελίας</a>{% endif %}
+        <a class="pill" href="/consumables/take">Λήψη</a>
+        <a class="pill" href="/consumables/movements">Ιστορικό</a>
+        <a class="pill" href="/workers">Εργαζόμενοι</a>
+        {% if is_admin %}<a class="pill" href="/admin/consumables/report">Αναφορά</a>{% endif %}
+        <a class="pill" href="/suppliers">Suppliers</a>
+        <a class="pill" href="/purchase-orders">Purchase Orders</a>
+      </div>
+      {% if is_admin %}
+      <button type="button" class="newBtn" id="openNew">+ Νέο είδος</button>
+      {% endif %}
     </div>
-    <div class="right">
-      <span class="muted">WORKSHOP only</span>
+    <div class="filters">
+      <div class="filterRow">
+        <input id="q" class="search" placeholder="Αναζήτηση είδους, κατηγορίας, προμηθευτή…" autocomplete="off" />
+        <button type="button" class="chip" id="onlyOrder" aria-pressed="false">Για παραγγελία</button>
+        <button type="button" class="chip" id="onlyLow" aria-pressed="false">Χαμηλά</button>
+        <select id="supplierFilter" class="supplierPick" aria-label="Προμηθευτής">
+          <option value="">Όλοι οι προμηθευτές</option>
+          {% for s in supplier_options if s.active %}
+          <option value="{{ s.id }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="valueBar" aria-label="Αξία αποθέματος">
+        <span class="chip">Αξία αποθέματος</span>
+        {% for supplier in supplier_values %}
+        <span class="chip">{{ supplier.name }} <b>€{{ supplier.stock_value_eur }}</b></span>
+        {% endfor %}
+        <span class="chip">Σύνολο <b>€{{ stock_value_total_eur }}</b></span>
+      </div>
+      <div class="catbar" id="catbar" role="tablist" aria-label="Κατηγορίες">
+        <button type="button" class="chip active" data-cat="" aria-pressed="true"><span>Όλα</span> <span class="n" data-count="all">{{ rows|length }}</span>{% if low_count %} <span class="catLow" data-low="all">{{ low_count }}</span>{% endif %}</button>
+        {% for g in groups %}
+        <button type="button" class="chip" data-cat="{{ g.key }}" aria-pressed="false"><span>{{ g.name }}</span> <span class="n" data-count="{{ g.key }}">{{ g.count }}</span>{% if g.low %} <span class="catLow" data-low="{{ g.key }}">{{ g.low }}</span>{% endif %}</button>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="colHead">
+      <div class="cols">
+        <div>Είδος</div><div>Απόθεμα</div><div>Σε παραγγελία</div><div>Ελάχ.</div><div>Επιθυμητό</div><div>Πρόταση</div><div>Κόστος</div><div>Προμηθευτής</div><div></div>
+      </div>
     </div>
   </div>
 
-  <div class="wrap">
+  <main class="desk">
     <div id="ajaxToast" class="ajaxToast" aria-live="polite"></div>
-    {% set role = (user.role or "")|lower %}
-    {% set is_admin = role == "admin" %}
-
-    <div class="card">
-      <div class="card-h">
-        <div>
-          <h2>Add consumable</h2>
-          <div class="sub">Create a new consumable item tracked at the workshop.</div>
-        </div>
-        <div class="sub">Required: <b>Name</b>, <b>Unit</b></div>
-      </div>
-      <div class="card-b">
-        <form id="addForm" method="post" action="/consumables/new">
-          <div class="grid">
-            <div>
-              <label for="name">Name *</label>
-              <input id="name" name="name" placeholder="e.g. Nitrile gloves XL" required />
-            </div>
-            <div>
-              <label for="category">Category</label>
-              <input id="category" name="category" placeholder="e.g. Gloves" />
-            </div>
-            <div>
-              <label for="unit">Unit *</label>
-              <input id="unit" name="unit" placeholder="e.g. pcs / box" required />
-            </div>
-            <div>
-              <label for="pack_size">Pack size</label>
-              <input id="pack_size" name="pack_size" type="number" min="1" step="1" value="1" />
-            </div>
-            <div>
-              <label for="min_qty">Min</label>
-              <input id="min_qty" name="min_qty" type="number" min="0" step="1" value="0" />
-            </div>
-            <div>
-              <label for="desired_qty">Desired</label>
-              <input id="desired_qty" name="desired_qty" type="number" min="0" step="1" value="0" />
-            </div>
-            <div>
-              <label for="cost_per_pack">Cost €/pack</label>
-              <input id="cost_per_pack" name="cost_per_pack" type="number" min="0" step="0.01" value="0" />
-            </div>
-            <div>
-              <label for="supplier_id">Supplier</label>
-              <select id="supplier_id" name="supplier_id">
-                <option value="">— No supplier —</option>
-                {% for s in suppliers %}
-                  {% if s.is_active %}<option value="{{ s.id }}">{{ s.name }}</option>{% endif %}
-                {% endfor %}
-              </select>
-            </div>
-            <div style="display:flex;justify-content:flex-end">
-              <button id="addBtn" class="btn" type="submit">Add</button>
-            </div>
-          </div>
-
-          <div class="hint">
-            Tip: Add suppliers first, then link each consumable to one supplier so draft POs can be generated automatically.
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-h">
-        <div>
-          <h2>Consumables (Workshop)</h2>
-          <div class="sub">Stock is tracked in <b>units</b>. Suggested ordering is shown in <b>packs</b> (rounded up).</div>
-        </div>
-        <div class="filters">
-          <input id="q" placeholder="Search by name…" />
-          <label class="toggle" title="Show only items with Suggested > 0">
-            <input id="onlySuggested" type="checkbox" />
-            Only suggested
-          </label>
-          <label class="toggle" title="Show only items below Min (when Min > 0)">
-            <input id="onlyLow" type="checkbox" />
-            Only low
-          </label>
-        </div>
-      </div>
-
-      {% if rows|length == 0 %}
-      <div class="empty">
-        <h3>No consumables yet</h3>
-        <p>Add your first consumable above to start tracking workshop supplies and suggested orders.</p>
-      </div>
-      {% else %}
-      <table>
-        <thead>
-          <tr>
-            <th style="min-width:240px">Name</th>
-            <th>Category</th>
-            <th>Supplier</th>
-            <th>Stock (units)</th>
-            <th>On‑order (units)</th>
-            <th>Min</th>
-            <th>Desired</th>
-            <th>Suggested (packs)</th>
-            <th style="min-width:220px">Actions</th>
-          </tr>
-        </thead>
-        <tbody id="tbody">
-          {% for r in rows %}
-          {% set is_low = (r.min_qty > 0 and r.on_hand < r.min_qty) %}
-          {% set has_suggested = (r.suggested_packs > 0) %}
-          <tr class="r"
-              data-id="{{ r.id }}"
-              data-name="{{ r.name|lower }}"
-              data-low="{{ 1 if is_low else 0 }}"
-              data-suggested="{{ 1 if has_suggested else 0 }}">
-            <td data-label="Name">
-              <div class="name">{{ r.name }}</div>
-              <div class="meta">
-                {% if r.unit %}{{ r.unit }}{% else %}<span class="muted">unit</span>{% endif %}
-                • pack {{ r.pack_size|int }}
-                {% if r.unit %} {{ r.unit }}{% endif %}/pack
-              </div>
-            </td>
-            <td data-label="Category" class="muted">{{ r.category }}</td>
-            <td data-label="Supplier">{{ r.supplier_name }}</td>
-            <td data-label="Stock" class="num stockCell">
-              {% if is_low %}
-                <span class="badge bDanger lowBadge">LOW</span>
-              {% endif %}
-              <span class="badge stockBadge">{{ r.on_hand }}</span>
-            </td>
-            <td data-label="On-order" class="num muted onOrderCell">{{ r.on_order }}</td>
-            <td data-label="Min" class="num muted minCell">{{ r.min_qty }}</td>
-            <td data-label="Desired" class="num muted desiredCell">{{ r.desired_qty }}</td>
-            <td data-label="Suggested" class="num suggestedCell">
-              {% if has_suggested %}
-                <div class="kpi">
-                  <span class="badge bWarn">Order • {{ r.suggested_packs }} pack{% if r.suggested_packs != 1 %}s{% endif %}</span>
-                  <span class="small">= {{ r.suggested_units }} {% if r.unit %}{{ r.unit }}{% else %}units{% endif %}</span>
-                </div>
-                  {% if r.cost_per_pack is defined and r.cost_per_pack and (r.cost_per_pack|float) > 0 %}
-                    <div class="small muted">€{{ '%.2f'|format(r.cost_per_pack|float) }} / pack{% if r.suggested_packs and (r.suggested_packs|int) > 0 %} • ≈ €{{ '%.2f'|format((r.cost_per_pack|float) * (r.suggested_packs|int)) }}{% endif %}</div>
-                  {% endif %}
+    {% if rows|length == 0 %}
+    <div class="empty">Δεν υπάρχουν ενεργά αναλώσιμα.</div>
+    {% else %}
+    <div id="groups">
+      {% for g in groups %}
+      <section class="group" data-group="{{ g.key }}">
+        <button type="button" class="groupHead" aria-expanded="true">
+          <span class="chev">▾</span>
+          <span class="gName">{{ g.name }}</span>
+          <span class="gCount">{{ g.count }}</span>
+          {% if g.low %}<span class="catLow">{{ g.low }}</span>{% endif %}
+          {% if g.suggested_packs %}<span class="gSug">πρόταση {{ g.suggested_packs }}</span>{% endif %}
+          <span class="gValue">αξία €{{ g.stock_value_eur }}</span>
+        </button>
+        {% for r in g.rows %}
+        <div class="cols grow"
+             data-id="{{ r.id }}"
+             data-name="{{ r.name }}"
+             data-category="{{ r.category }}"
+             data-category-label="{{ r.category_label }}"
+             data-unit="{{ r.unit }}"
+             data-pack="{{ r.pack_display }}"
+             data-min="{{ r.min_display }}"
+             data-desired="{{ r.desired_display }}"
+             data-cost="{{ r.cost_per_pack_eur }}"
+             data-supplier="{{ r.supplier_id }}"
+             data-notes="{{ r.notes }}"
+             data-stock="{{ r.on_hand_display }}"
+             data-low="{{ 1 if r.is_low else 0 }}"
+             data-order="{{ 1 if r.needs_order else 0 }}"
+             data-suggested="{{ r.suggested_packs }}"
+             data-search="{{ r.search_text }}">
+          <div>
+            <div class="nameLine">
+              {% if r.has_image %}
+              <img class="thumb" src="/consumables/{{ r.id }}/image" alt="" />
               {% else %}
-                {% if r.cost_per_pack is defined and r.cost_per_pack and (r.cost_per_pack|float) > 0 %}<span class="muted">€{{ '%.2f'|format(r.cost_per_pack|float) }} / pack</span>{% else %}<span class="muted">—</span>{% endif %}
+              <span class="thumb fallback">{{ r.initials }}</span>
               {% endif %}
-            </td>
-            <td data-label="Actions">
-              <div class="actions">
-                <form method="post" action="/consumables/{{ r.id }}/adjust" class="mini ajaxAdjust">
-                  <input name="delta" type="number" step="1" value="1" aria-label="Adjust delta" />
-                  <button class="btn2" type="submit">Adjust</button>
-                </form>
-                <form method="post" action="/consumables/{{ r.id }}/adjust" class="ajaxAdjust" style="display:inline;">
-                  <input type="hidden" name="delta" value="1" />
-                  <button class="btn2 btnIcon" type="submit" title="Add 1">+1</button>
-                </form>
-                <form method="post" action="/consumables/{{ r.id }}/adjust" class="ajaxAdjust" style="display:inline;">
-                  <input type="hidden" name="delta" value="-1" />
-                  <button class="btn2 btnIcon" type="submit" title="Remove 1">-1</button>
-                </form>
-                {% if is_admin %}
-                <a class="btn2" href="/consumables/{{ r.id }}/edit">Edit</a>
-                <form method="post" action="/consumables/{{ r.id }}/toggle" style="display:inline;">
-                  <button class="btn2 btnDanger" type="submit" onclick="return confirm('Disable this consumable?')">Disable</button>
-                </form>
-                {% endif %}
+              <div>
+            {% if is_admin %}
+            <button type="button" class="cell name" data-field="name" data-value="{{ r.name }}" tabindex="0">{{ r.name }}</button>
+            {% else %}
+            <div class="name">{{ r.name }}</div>
+            {% endif %}
+            <div class="packLine">{{ r.pack_display }} {{ r.unit or 'μονάδες' }} / συσκευασία</div>
               </div>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% endif %}
+            </div>
+          </div>
+          <div>
+            <div class="stockBox">
+            {% if can_stock %}
+            <button type="button" class="step" data-dir="minus" aria-label="Μείον 1" {% if r.on_hand <= 0 %}disabled{% endif %}>−</button>
+            {% endif %}
+            <span class="stockNum {% if r.min_qty > 0 and r.on_hand < r.min_qty %}is-low{% elif r.min_qty > 0 and r.on_hand == r.min_qty %}is-edge{% elif r.suggested_packs > 0 %}is-order{% else %}is-ok{% endif %}">{{ r.on_hand_display }}</span>
+            {% if can_stock %}
+            <button type="button" class="step" data-dir="plus" aria-label="Συν 1">+</button>
+            <input class="setStock" inputmode="decimal" aria-label="Ορισμός αποθέματος" placeholder="ορισμός" />
+            {% endif %}
+            </div>
+            {% if r.days_phrase %}<div class="runout">{{ r.days_phrase }}</div>{% endif %}
+          </div>
+          <div class="num onOrder">{{ r.on_order_display }}</div>
+          <div class="num">{% if is_admin %}<button type="button" class="cell" data-field="min_qty" data-value="{{ r.min_display }}" tabindex="0">{{ r.min_display }}</button>{% else %}{{ r.min_display }}{% endif %}</div>
+          <div class="num">{% if is_admin %}<button type="button" class="cell" data-field="desired_qty" data-value="{{ r.desired_display }}" tabindex="0">{{ r.desired_display }}</button>{% else %}{{ r.desired_display }}{% endif %}</div>
+          <div class="num">
+            <span class="sugPacks">{% if r.suggested_packs %}{{ r.suggested_packs }}{% else %}—{% endif %}</span>
+            <span class="sugMeta">{% if r.suggested_packs %}{{ r.suggested_units_display }} {{ r.unit or 'μονάδες' }}{% if r.suggested_value_eur != '0.00' %} · ≈ €{{ r.suggested_value_eur }}{% endif %}{% endif %}</span>
+          </div>
+          <div>
+            {% if is_admin %}
+            <button type="button" class="cell costPack" data-field="cost_per_pack" data-value="{{ r.cost_per_pack_eur }}" tabindex="0">€{{ r.cost_per_pack_eur }}</button>
+            {% else %}
+            <span class="costPack">€{{ r.cost_per_pack_eur }}</span>
+            {% endif %}
+            <span class="costUnit">€{{ r.cost_per_unit_eur }} / {{ r.unit or 'μονάδα' }}</span>
+          </div>
+          <div>
+            {% if is_admin %}
+            <button type="button" class="cell" data-field="supplier_id" data-value="{{ r.supplier_id }}" tabindex="0">{{ r.supplier_name or '—' }}</button>
+            {% else %}
+            {{ r.supplier_name or '—' }}
+            {% endif %}
+          </div>
+          <div class="menuWrap">
+            <button type="button" class="menuBtn" aria-label="Ενέργειες">⋮</button>
+            <div class="menuPop" hidden>
+              <a href="/consumables/movements">Ιστορικό</a>
+              {% if is_admin %}
+              <label class="scanLabel">Barcode
+                <input class="barcodeInput" value="{{ r.barcode }}" autocomplete="off" spellcheck="false" aria-label="Barcode" />
+              </label>
+              <button type="button" class="armScan">σάρωσε τώρα</button>
+              <label class="photoPick">Φωτογραφία<input class="photoInput" type="file" accept="image/*" hidden /></label>
+              <button type="button" class="clearPhoto">Αφαίρεση φωτογραφίας</button>
+              <button type="button" class="disableBtn">Απενεργοποίηση</button>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </section>
+      {% endfor %}
     </div>
+    <p id="filterEmpty" class="empty" hidden>Κανένα είδος με αυτά τα φίλτρα.</p>
+    {% endif %}
 
     <div class="footer">
       {% if is_admin %}
       <form method="post" action="/purchase-orders/generate">
-        <button class="btn" type="submit">Generate POs by supplier</button>
+        <button class="btn" type="submit">Παραγγελίες από πρόταση</button>
       </form>
-      <div class="muted" style="font-size:12px;">
-        Creates Draft purchase orders from <b>Suggested &gt; 0</b> (only items that have a Supplier).
-      </div>
-      {% else %}
-      <a class="btn" href="/consumables/take">Mobile Take Stock</a>
-      <div class="muted" style="font-size:12px;">
-        Quick stock changes are enabled for workshop users. Edit, disable and purchase orders remain admin-only.
-      </div>
+      <span class="muted">Δημιουργεί πρόχειρες παραγγελίες για είδη με πρόταση και προμηθευτή. Το κόστος είναι ανά συσκευασία (pack size), και από κάτω φαίνεται ανά μονάδα.</span>
       {% endif %}
     </div>
+  </main>
 
-  </div>
+  {% if is_admin %}
+  <dialog id="newDlg">
+    <form method="post" action="/consumables/new" id="newForm">
+      <div class="dlgH"><strong>Νέο είδος</strong><button type="button" class="ghost" id="closeNew">Κλείσιμο</button></div>
+      <div class="dlgB">
+        <div><label for="newName">Όνομα</label><input id="newName" name="name" required /></div>
+        <div><label for="newCategory">Κατηγορία</label><input id="newCategory" name="category" list="categoryOptions" /></div>
+        <div><label for="newUnit">Μονάδα</label><input id="newUnit" name="unit" required placeholder="τεμ" /></div>
+        <div><label for="newPack">Μέγεθος συσκευασίας</label><input id="newPack" name="pack_size" type="number" min="0.001" step="0.001" value="1" /></div>
+        <div><label for="newMin">Ελάχιστο</label><input id="newMin" name="min_qty" type="number" min="0" step="1" value="0" /></div>
+        <div><label for="newDesired">Επιθυμητό</label><input id="newDesired" name="desired_qty" type="number" min="0" step="1" value="0" /></div>
+        <div><label for="newCost">Κόστος € / συσκευασία</label><input id="newCost" name="cost_per_pack" type="number" min="0" step="0.01" value="0" /></div>
+        <div><label for="newSupplier">Προμηθευτής</label>
+          <select id="newSupplier" name="supplier_id">
+            <option value="">—</option>
+            {% for s in supplier_options if s.active %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div><label for="newQty">Αρχικό απόθεμα</label><input id="newQty" name="initial_qty" type="number" min="0" step="1" value="0" /></div>
+      </div>
+      <div class="dlgF"><button class="btn" type="submit">Αποθήκευση</button></div>
+    </form>
+  </dialog>
+  <datalist id="categoryOptions">
+    {% for name in category_names %}<option value="{{ name }}"></option>{% endfor %}
+  </datalist>
+  <script type="application/json" id="supplierData">{{ supplier_options | tojson }}</script>
+  {% endif %}
 
 <script>
 (function(){
+  var FILTER_KEY = 'wh_admin_consumables_filters';
+  var CLOSED_KEY = 'wh_admin_consumables_closed';
   const q = document.getElementById('q');
-  const onlySuggested = document.getElementById('onlySuggested');
+  const onlyOrder = document.getElementById('onlyOrder');
   const onlyLow = document.getElementById('onlyLow');
-  const rows = () => Array.from(document.querySelectorAll('tr.r'));
+  const supplierFilter = document.getElementById('supplierFilter');
+  const canEdit = document.body.dataset.edit === '1';
+  const state = {q:'', cat:'', order:false, low:false, supplier:''};
+  let closed = new Set();
+  try { closed = new Set(JSON.parse(localStorage.getItem(CLOSED_KEY) || '[]')); } catch (err) { closed = new Set(); }
 
-  function apply(){
-    const term = (q && q.value || '').trim().toLowerCase();
-    const s = !!(onlySuggested && onlySuggested.checked);
-    const l = !!(onlyLow && onlyLow.checked);
-
-    rows().forEach(tr => {
-      const name = tr.dataset.name || '';
-      const isS = tr.dataset.suggested === '1';
-      const isL = tr.dataset.low === '1';
-      let ok = true;
-      if (term && !name.includes(term)) ok = false;
-      if (s && !isS) ok = false;
-      if (l && !isL) ok = false;
-      tr.style.display = ok ? '' : 'none';
+  function foldSearch(value){
+    return (value || '').toLocaleLowerCase('el').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ς/g, 'σ');
+  }
+  function saveState(){
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify(state)); } catch (err) {}
+    try { localStorage.setItem(CLOSED_KEY, JSON.stringify([...closed])); } catch (err) {}
+  }
+  function restoreState(){
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(FILTER_KEY) || '{}'); } catch (err) { saved = {}; }
+    state.q = saved.q || '';
+    state.cat = saved.cat || '';
+    state.order = !!saved.order;
+    state.low = !!saved.low;
+    state.supplier = saved.supplier || '';
+    if (q) q.value = state.q;
+    if (onlyOrder) onlyOrder.setAttribute('aria-pressed', state.order ? 'true' : 'false');
+    if (onlyLow) onlyLow.setAttribute('aria-pressed', state.low ? 'true' : 'false');
+    onlyOrder && onlyOrder.classList.toggle('active', state.order);
+    onlyLow && onlyLow.classList.toggle('active', state.low);
+    if (supplierFilter && [...supplierFilter.options].some(opt => opt.value === state.supplier)) supplierFilter.value = state.supplier;
+    else state.supplier = '';
+    const known = !state.cat || [...document.querySelectorAll('#catbar [data-cat]')].some(btn => (btn.dataset.cat || '') === state.cat);
+    if (!known) state.cat = '';
+    document.querySelectorAll('#catbar [data-cat]').forEach(btn => {
+      const on = (btn.dataset.cat || '') === state.cat;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
   }
-
-  if (q) q.addEventListener('input', apply);
-  if (onlySuggested) onlySuggested.addEventListener('change', apply);
-  if (onlyLow) onlyLow.addEventListener('change', apply);
-
-  // Basic required fields guard (frontend only)
-  const addBtn = document.getElementById('addBtn');
-  const name = document.getElementById('name');
-  const unit = document.getElementById('unit');
-  function guard(){
-    if(!addBtn || !name || !unit) return;
-    const ok = name.value.trim().length > 0 && unit.value.trim().length > 0;
-    addBtn.disabled = !ok;
-    addBtn.style.opacity = ok ? '1' : '.55';
-    addBtn.style.cursor = ok ? 'pointer' : 'not-allowed';
+  function searching(){ return foldSearch(state.q).length > 0; }
+  function applyFilters(){
+    const term = foldSearch(state.q);
+    const rows = [...document.querySelectorAll('.grow')];
+    rows.forEach(row => {
+      const textOk = !term || foldSearch(row.dataset.search || '').includes(term);
+      const catOk = searching() || !state.cat || (row.dataset.categoryLabel || '') === state.cat;
+      const lowOk = !state.low || row.dataset.low === '1';
+      const orderOk = !state.order || row.dataset.order === '1';
+      const supOk = !state.supplier || String(row.dataset.supplier || '') === String(state.supplier);
+      row.classList.toggle('miss', !(textOk && catOk && lowOk && orderOk && supOk));
+    });
+    const forceOpen = searching() || !!state.cat || state.low || state.order || !!state.supplier;
+    document.querySelectorAll('.group').forEach(group => {
+      const items = [...group.querySelectorAll('.grow')];
+      const matches = items.filter(row => !row.classList.contains('miss')).length;
+      const collapsed = !forceOpen && closed.has(group.dataset.group || '');
+      group.classList.toggle('miss', matches === 0);
+      group.classList.toggle('collapsed', collapsed);
+      const head = group.querySelector('.groupHead');
+      if (head) head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    });
+    const empty = document.getElementById('filterEmpty');
+    if (empty) empty.hidden = rows.length === 0 || rows.some(row => !row.classList.contains('miss'));
   }
-  if (name) name.addEventListener('input', guard);
-  if (unit) unit.addEventListener('input', guard);
-  guard();
+  function refreshChrome(){
+    const rows = [...document.querySelectorAll('.grow')];
+    const tally = {};
+    let total = 0, totalLow = 0;
+    rows.forEach(row => {
+      const key = row.dataset.categoryLabel || 'Λοιπά';
+      const bucket = tally[key] || (tally[key] = {count:0, low:0, suggested:0});
+      bucket.count += 1;
+      total += 1;
+      if (row.dataset.low === '1') { bucket.low += 1; totalLow += 1; }
+      bucket.suggested += Number(row.dataset.suggested || 0);
+    });
+    document.querySelectorAll('[data-count]').forEach(el => {
+      const key = el.dataset.count;
+      el.textContent = String(key === 'all' ? total : ((tally[key] || {}).count || 0));
+    });
+    document.querySelectorAll('#catbar .catLow').forEach(el => {
+      const key = el.dataset.low;
+      const low = key === 'all' ? totalLow : ((tally[key] || {}).low || 0);
+      el.textContent = String(low);
+      el.hidden = low <= 0;
+    });
+    document.querySelectorAll('.group').forEach(group => {
+      const stat = tally[group.dataset.group] || {count:0, low:0, suggested:0};
+      const count = group.querySelector('.gCount');
+      if (count) count.textContent = String(stat.count);
+      const sug = group.querySelector('.gSug');
+      if (sug) sug.hidden = stat.suggested <= 0;
+      if (sug && stat.suggested > 0) sug.textContent = 'πρόταση ' + stat.suggested;
+    });
+  }
+  restoreState();
+  document.querySelectorAll('.group').forEach(group => {
+    if (closed.has(group.dataset.group || '')) group.classList.add('collapsed');
+  });
+  applyFilters();
+  q && q.addEventListener('input', () => { state.q = q.value; saveState(); applyFilters(); });
+  function toggleChip(button, key){
+    state[key] = !state[key];
+    button.classList.toggle('active', state[key]);
+    button.setAttribute('aria-pressed', state[key] ? 'true' : 'false');
+    saveState();
+    applyFilters();
+  }
+  onlyOrder && onlyOrder.addEventListener('click', () => toggleChip(onlyOrder, 'order'));
+  onlyLow && onlyLow.addEventListener('click', () => toggleChip(onlyLow, 'low'));
+  supplierFilter && supplierFilter.addEventListener('change', () => { state.supplier = supplierFilter.value; saveState(); applyFilters(); });
+  document.querySelectorAll('#catbar [data-cat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.cat = btn.dataset.cat || '';
+      document.querySelectorAll('#catbar [data-cat]').forEach(other => {
+        const on = other === btn;
+        other.classList.toggle('active', on);
+        other.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      saveState();
+      applyFilters();
+    });
+  });
+  document.querySelectorAll('.groupHead').forEach(head => {
+    head.addEventListener('click', () => {
+      const group = head.closest('.group');
+      const key = group.dataset.group || '';
+      if (closed.has(key)) closed.delete(key); else closed.add(key);
+      saveState();
+      applyFilters();
+    });
+  });
 
   const toast = document.getElementById('ajaxToast');
   let toastTimer = null;
   function showToast(message, isError){
-    if(!toast) return;
-    toast.textContent = message || (isError ? 'Something went wrong' : 'Stock updated');
+    if (!toast) return;
+    toast.textContent = message;
     toast.classList.toggle('err', !!isError);
     toast.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(()=>toast.classList.remove('show'), 1800);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+  function statusClass(stock, min, suggested){
+    if (min > 0 && stock < min) return 'is-low';
+    if (min > 0 && stock === min) return 'is-edge';
+    if (suggested > 0) return 'is-order';
+    return 'is-ok';
+  }
+  function paintRow(row, data){
+    if (data.name != null) row.dataset.name = data.name;
+    if (data.category != null) row.dataset.category = data.category || '';
+    if (data.category_label) row.dataset.categoryLabel = data.category_label;
+    if (data.unit != null) row.dataset.unit = data.unit || '';
+    if (data.pack_display) row.dataset.pack = data.pack_display;
+    if (data.min_display || data.min_qty) row.dataset.min = data.min_display || data.min_qty;
+    if (data.desired_display || data.desired_qty) row.dataset.desired = data.desired_display || data.desired_qty;
+    if (data.cost_per_pack_eur) row.dataset.cost = data.cost_per_pack_eur;
+    if (data.supplier_id !== undefined) row.dataset.supplier = data.supplier_id || '';
+    if (data.notes !== undefined) row.dataset.notes = data.notes || '';
+    if (data.on_hand_display || data.stock) row.dataset.stock = data.on_hand_display || data.stock;
+    if (data.search_text) row.dataset.search = data.search_text;
+    const stock = Number(data.stock_numeric !== undefined ? data.stock_numeric : row.dataset.stock);
+    const min = Number(row.dataset.min);
+    const suggested = Number(data.suggested_packs !== undefined ? data.suggested_packs : row.dataset.suggested || 0);
+    const low = min > 0 && stock <= min;
+    row.dataset.low = low ? '1' : '0';
+    row.dataset.order = (low || suggested > 0) ? '1' : '0';
+    row.dataset.suggested = String(suggested);
+    const name = row.querySelector('[data-field="name"]');
+    if (name) { name.textContent = row.dataset.name; name.dataset.value = row.dataset.name; }
+    const pack = row.querySelector('.packLine');
+    if (pack) pack.textContent = row.dataset.pack + ' ' + (row.dataset.unit || 'μονάδες') + ' / συσκευασία';
+    const stockEl = row.querySelector('.stockNum');
+    if (stockEl) {
+      stockEl.textContent = row.dataset.stock;
+      stockEl.className = 'stockNum ' + statusClass(stock, min, suggested);
+    }
+    const minus = row.querySelector('[data-dir="minus"]');
+    if (minus) minus.disabled = stock <= 0;
+    const order = row.querySelector('.onOrder');
+    if (order && (data.on_order_display || data.on_order)) order.textContent = data.on_order_display || data.on_order;
+    ['min_qty', 'desired_qty'].forEach(field => {
+      const cell = row.querySelector('[data-field="'+field+'"]');
+      const value = field === 'min_qty' ? row.dataset.min : row.dataset.desired;
+      if (cell) { cell.textContent = value; cell.dataset.value = value; }
+    });
+    const packs = row.querySelector('.sugPacks');
+    if (packs) packs.textContent = suggested > 0 ? String(suggested) : '—';
+    const meta = row.querySelector('.sugMeta');
+    if (meta) {
+      meta.textContent = suggested > 0
+        ? ((data.suggested_units_display || data.suggested_units || '') + ' ' + (data.unit || row.dataset.unit || '') + (data.suggested_value_eur && data.suggested_value_eur !== '0.00' ? ' · ≈ €' + data.suggested_value_eur : ''))
+        : '';
+    }
+    const cost = row.querySelector('[data-field="cost_per_pack"]');
+    if (cost && data.cost_per_pack_eur) { cost.textContent = '€' + data.cost_per_pack_eur; cost.dataset.value = data.cost_per_pack_eur; }
+    const unitCost = row.querySelector('.costUnit');
+    if (unitCost && data.cost_per_unit_eur) unitCost.textContent = '€' + data.cost_per_unit_eur + ' / ' + (data.unit || row.dataset.unit || 'μονάδα');
+    const supplier = row.querySelector('[data-field="supplier_id"]');
+    if (supplier && data.supplier_name !== undefined) {
+      supplier.textContent = data.supplier_name || '—';
+      supplier.dataset.value = data.supplier_id || '';
+    }
+  }
+  function placeRow(row){
+    const label = row.dataset.categoryLabel || 'Λοιπά';
+    const current = row.closest('.group');
+    if (current && current.dataset.group === label) {
+      refreshChrome();
+      applyFilters();
+      return;
+    }
+    let group = [...document.querySelectorAll('.group')].find(item => item.dataset.group === label);
+    if (!group) {
+      group = document.createElement('section');
+      group.className = 'group';
+      group.dataset.group = label;
+      group.innerHTML = '<button type="button" class="groupHead" aria-expanded="true"><span class="chev">▾</span><span class="gName"></span><span class="gCount">0</span><span class="gSug" hidden></span></button>';
+      group.querySelector('.gName').textContent = label;
+      group.querySelector('.groupHead').addEventListener('click', () => {
+        const key = group.dataset.group || '';
+        if (closed.has(key)) closed.delete(key); else closed.add(key);
+        saveState();
+        applyFilters();
+      });
+      document.getElementById('groups').appendChild(group);
+    }
+    group.appendChild(row);
+    document.querySelectorAll('.group').forEach(item => {
+      if (!item.querySelector('.grow')) item.remove();
+    });
+    refreshChrome();
+    applyFilters();
   }
 
-  function renderSuggested(data){
-    if(!data.has_suggested){
-      return '<span class="muted">—</span>';
-    }
-    const packWord = data.suggested_packs === 1 ? 'pack' : 'packs';
-    let html = '<div class="kpi"><span class="badge bWarn">Order • '+data.suggested_packs+' '+packWord+'</span>'+
-      '<span class="small">= '+data.suggested_units+' '+(data.unit || 'units')+'</span></div>';
-    if(data.suggested_value_eur && data.suggested_value_eur !== '0.00'){
-      html += '<div class="small muted">≈ €'+data.suggested_value_eur+'</div>';
-    }
-    return html;
+  async function postForm(url, fields){
+    const body = new FormData();
+    Object.entries(fields).forEach(([key, value]) => body.set(key, value == null ? '' : String(value)));
+    const res = await fetch(url, {method:'POST', body, headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+    const data = await res.json().catch(() => ({ok:false, message:'Μη έγκυρη απάντηση'}));
+    if (!res.ok || data.ok === false) throw new Error(data.message || 'Δεν αποθηκεύτηκε');
+    return data;
   }
-
-  function updateRow(data){
-    const tr = document.querySelector('tr.r[data-id="'+data.id+'"]');
-    if(!tr) return;
-    tr.dataset.low = data.is_low ? '1' : '0';
-    tr.dataset.suggested = data.has_suggested ? '1' : '0';
-    const stockCell = tr.querySelector('.stockCell');
-    if(stockCell){
-      const oldLow = stockCell.querySelector('.lowBadge');
-      if(oldLow) oldLow.remove();
-      if(data.is_low){
-        stockCell.insertAdjacentHTML('afterbegin','<span class="badge bDanger lowBadge">LOW</span> ');
+  function rowPayload(row, overrides){
+    const category = Object.prototype.hasOwnProperty.call(overrides, 'category') ? overrides.category : (row.dataset.category || '');
+    return {
+      name: overrides.name != null ? overrides.name : row.dataset.name,
+      category: category,
+      unit: row.dataset.unit || '',
+      pack_size: row.dataset.pack || '1',
+      min_qty: overrides.min_qty != null ? overrides.min_qty : row.dataset.min,
+      desired_qty: overrides.desired_qty != null ? overrides.desired_qty : row.dataset.desired,
+      cost_per_pack: overrides.cost_per_pack != null ? overrides.cost_per_pack : row.dataset.cost,
+      supplier_id: overrides.supplier_id != null ? overrides.supplier_id : (row.dataset.supplier || ''),
+      notes: row.dataset.notes || ''
+    };
+  }
+  let editing = null;
+  function supplierOptions(){
+    try { return JSON.parse(document.getElementById('supplierData').textContent || '[]'); } catch (err) { return []; }
+  }
+  function restoreCell(cell){
+    const field = cell.dataset.field;
+    if (field === 'cost_per_pack') cell.textContent = '€' + (cell.dataset.value || '0.00');
+    else if (field === 'supplier_id') {
+      const match = supplierOptions().find(item => String(item.id) === String(cell.dataset.value || ''));
+      cell.textContent = match ? match.name : '—';
+    } else if (field === 'category') cell.textContent = cell.dataset.value ? cell.dataset.value : 'Λοιπά';
+    else cell.textContent = cell.dataset.value || '—';
+  }
+  function cancelEdit(cell){
+    if (editing === cell) editing = null;
+    restoreCell(cell);
+  }
+  async function commitEdit(cell){
+    if (editing !== cell) return;
+    const input = cell.querySelector('input,select');
+    if (!input) return;
+    const value = input.value.trim();
+    const previous = cell.dataset.value || '';
+    editing = null;
+    if (value === previous || (cell.dataset.field === 'supplier_id' && value === previous)) { restoreCell(cell); return; }
+    const row = cell.closest('.grow');
+    const field = cell.dataset.field;
+    const overrides = {};
+    overrides[field] = value;
+    cell.classList.add('saving');
+    try {
+      const data = await postForm('/consumables/' + row.dataset.id + '/edit', rowPayload(row, overrides));
+      paintRow(row, data);
+      placeRow(row);
+      cell.classList.remove('saving');
+      const fresh = row.querySelector('[data-field="'+field+'"]');
+      if (fresh) { fresh.classList.add('saved'); setTimeout(() => fresh.classList.remove('saved'), 700); }
+      showToast('Αποθηκεύτηκε', false);
+    } catch (err) {
+      editing = null;
+      restoreCell(cell);
+      cell.classList.remove('saving');
+      showToast(err.message || 'Δεν αποθηκεύτηκε', true);
+    }
+  }
+  function nextCell(cell, backwards){
+    const cells = [...document.querySelectorAll('button.cell')].filter(item => !item.closest('.grow') || !item.closest('.grow').classList.contains('miss'));
+    const index = cells.indexOf(cell);
+    return cells[index + (backwards ? -1 : 1)] || null;
+  }
+  function startEdit(cell){
+    if (!canEdit || editing === cell || cell.querySelector('input,select')) return;
+    if (editing) commitEdit(editing);
+    const field = cell.dataset.field;
+    let input;
+    if (field === 'supplier_id') {
+      input = document.createElement('select');
+      const blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = '—';
+      input.appendChild(blank);
+      supplierOptions().forEach(item => {
+        if (!item.active && String(item.id) !== String(cell.dataset.value || '')) return;
+        const option = document.createElement('option');
+        option.value = String(item.id);
+        option.textContent = item.name;
+        input.appendChild(option);
+      });
+      input.value = cell.dataset.value || '';
+    } else {
+      input = document.createElement('input');
+      input.value = cell.dataset.value || '';
+      if (field === 'category') input.setAttribute('list', 'categoryOptions');
+      if (field === 'min_qty' || field === 'desired_qty' || field === 'cost_per_pack') input.inputMode = 'decimal';
+    }
+    cell.textContent = '';
+    cell.appendChild(input);
+    input.focus();
+    if (input.select) input.select();
+    editing = cell;
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); cancelEdit(cell); cell.focus(); }
+      else if (event.key === 'Enter') { event.preventDefault(); commitEdit(cell); }
+      else if (event.key === 'Tab') {
+        event.preventDefault();
+        const target = nextCell(cell, event.shiftKey);
+        commitEdit(cell);
+        if (target) target.focus();
       }
-      const badge = stockCell.querySelector('.stockBadge');
-      if(badge) badge.textContent = data.stock;
-      stockCell.classList.remove('flashCell'); void stockCell.offsetWidth; stockCell.classList.add('flashCell');
-    }
-    const onOrder = tr.querySelector('.onOrderCell'); if(onOrder) onOrder.textContent = data.on_order;
-    const minCell = tr.querySelector('.minCell'); if(minCell) minCell.textContent = data.min_qty;
-    const desiredCell = tr.querySelector('.desiredCell'); if(desiredCell) desiredCell.textContent = data.desired_qty;
-    const suggested = tr.querySelector('.suggestedCell'); if(suggested) suggested.innerHTML = renderSuggested(data);
-    apply();
+    });
+    input.addEventListener('blur', () => setTimeout(() => { if (editing === cell) commitEdit(cell); }, 0));
+  }
+  if (canEdit) {
+    document.querySelectorAll('button.cell').forEach(cell => {
+      cell.addEventListener('click', () => startEdit(cell));
+      cell.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !cell.querySelector('input,select')) { event.preventDefault(); startEdit(cell); }
+      });
+    });
   }
 
-  document.querySelectorAll('form.ajaxAdjust').forEach(form => {
-    form.addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      const tr = form.closest('tr');
-      form.classList.add('updating');
-      try{
-        const res = await fetch(form.action, {
-          method: 'POST',
-          body: new FormData(form),
-          headers: {'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}
-        });
-        const data = await res.json().catch(()=>({ok:false,message:'Invalid response'}));
-        if(!res.ok || !data.ok){ throw new Error(data.message || 'Could not update stock'); }
-        updateRow(data);
-        showToast(data.message || 'Stock updated', false);
-      }catch(err){
-        showToast(err.message || 'Could not update stock', true);
-      }finally{
-        form.classList.remove('updating');
-        if(tr) tr.scrollIntoView({block:'nearest'});
+  document.querySelectorAll('.step').forEach(button => {
+    button.addEventListener('click', async () => {
+      const row = button.closest('.grow');
+      const dir = button.dataset.dir;
+      const url = dir === 'plus' ? '/consumables/' + row.dataset.id + '/add' : '/consumables/' + row.dataset.id + '/take';
+      button.disabled = true;
+      try {
+        const data = await postForm(url, {qty:'1', note: dir === 'plus' ? '+1 από τη διαχείριση' : '−1 από τη διαχείριση'});
+        paintRow(row, data);
+        refreshChrome();
+        applyFilters();
+        showToast(dir === 'plus' ? 'Προστέθηκε 1' : 'Αφαιρέθηκε 1', false);
+      } catch (err) {
+        showToast(err.message || 'Δεν άλλαξε το απόθεμα', true);
+      } finally {
+        const stock = Number(row.dataset.stock);
+        const minus = row.querySelector('[data-dir="minus"]');
+        if (minus) minus.disabled = stock <= 0;
+        const plus = row.querySelector('[data-dir="plus"]');
+        if (plus) plus.disabled = false;
       }
     });
   });
+  document.querySelectorAll('.setStock').forEach(input => {
+    input.addEventListener('keydown', async (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      const row = input.closest('.grow');
+      const target = Number(String(input.value).replace(',', '.'));
+      const current = Number(row.dataset.stock);
+      if (!Number.isFinite(target) || target < 0) { showToast('Μη έγκυρη ποσότητα', true); return; }
+      const delta = target - current;
+      if (delta === 0) { input.value = ''; return; }
+      input.disabled = true;
+      try {
+        const data = await postForm('/consumables/' + row.dataset.id + '/adjust', {delta:String(delta), note:'Ορισμός αποθέματος σε ' + target});
+        paintRow(row, data);
+        refreshChrome();
+        applyFilters();
+        input.value = '';
+        showToast('Το απόθεμα ορίστηκε', false);
+      } catch (err) {
+        showToast(err.message || 'Δεν άλλαξε το απόθεμα', true);
+      } finally {
+        input.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll('.menuBtn').forEach(button => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const pop = button.parentElement.querySelector('.menuPop');
+      const open = pop.hidden;
+      document.querySelectorAll('.menuPop').forEach(item => { item.hidden = true; });
+      pop.hidden = !open;
+    });
+  });
+  document.addEventListener('click', () => document.querySelectorAll('.menuPop').forEach(item => { item.hidden = true; }));
+  document.querySelectorAll('.disableBtn').forEach(button => {
+    button.addEventListener('click', async () => {
+      const row = button.closest('.grow');
+      if (!confirm('Να απενεργοποιηθεί το «' + (row.dataset.name || 'είδος') + '»;')) return;
+      try {
+        await postForm('/consumables/' + row.dataset.id + '/toggle', {});
+        const group = row.closest('.group');
+        row.remove();
+        if (group && !group.querySelector('.grow')) group.remove();
+        refreshChrome();
+        applyFilters();
+        showToast('Απενεργοποιήθηκε', false);
+      } catch (err) {
+        showToast(err.message || 'Δεν απενεργοποιήθηκε', true);
+      }
+    });
+  });
+
+  document.querySelectorAll('.armScan').forEach(button => {
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      document.querySelectorAll('.armScan').forEach(other => { other.textContent = 'σάρωσε τώρα'; });
+      button.textContent = 'Σαρώνω…';
+      button.dataset.armed = '1';
+      const input = button.parentElement.querySelector('.barcodeInput');
+      if(input) input.focus();
+    });
+  });
+  let scanBuf = '';
+  let scanAt = 0;
+  document.addEventListener('keydown', event => {
+    const armed = document.querySelector('.armScan[data-armed="1"]');
+    if(!armed) return;
+    const input = armed.parentElement.querySelector('.barcodeInput');
+    if(event.key === 'Enter'){
+      event.preventDefault();
+      armed.textContent = 'σάρωσε τώρα';
+      delete armed.dataset.armed;
+      if(input && scanBuf) input.value = scanBuf;
+      scanBuf = '';
+      if(input) input.dispatchEvent(new Event('change', {bubbles:true}));
+      return;
+    }
+    if(event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return;
+    const now = Date.now();
+    if(scanAt && now - scanAt > 80) scanBuf = '';
+    scanAt = now;
+    scanBuf += event.key;
+    if(now - (scanAt - 1) < 80 || scanBuf.length > 1) event.preventDefault();
+  });
+  document.querySelectorAll('.barcodeInput').forEach(input => {
+    input.addEventListener('click', event => event.stopPropagation());
+    input.addEventListener('change', async () => {
+      const row = input.closest('.grow');
+      const body = new FormData();
+      body.append('barcode', input.value.trim());
+      try {
+        const res = await fetch('/consumables/' + row.dataset.id + '/barcode', {method:'POST', body, headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        const data = await res.json().catch(() => ({ok:false}));
+        if(!res.ok || data.ok === false) throw new Error('Ο κωδικός δεν αποθηκεύτηκε');
+        input.value = data.barcode || '';
+        showToast('Barcode αποθηκεύτηκε', false);
+      } catch (err) {
+        showToast(err.message || 'Ο κωδικός δεν αποθηκεύτηκε', true);
+      }
+    });
+  });
+  document.querySelectorAll('.photoInput').forEach(input => {
+    input.addEventListener('click', event => event.stopPropagation());
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      const row = input.closest('.grow');
+      if (!file || !row) return;
+      const body = new FormData();
+      body.append('file', file);
+      try {
+        const res = await fetch('/consumables/' + row.dataset.id + '/image', {method:'POST', body, headers:{'X-Requested-With':'XMLHttpRequest'}});
+        const data = await res.json().catch(() => ({ok:false}));
+        if (!res.ok || data.ok === false) throw new Error('Η φωτογραφία δεν αποθηκεύτηκε');
+        const slot = row.querySelector('.thumb');
+        const img = document.createElement('img');
+        img.className = 'thumb';
+        img.alt = '';
+        img.src = '/consumables/' + row.dataset.id + '/image?v=' + Date.now();
+        if (slot) slot.replaceWith(img);
+        showToast('Φωτογραφία αποθηκεύτηκε', false);
+      } catch (err) {
+        showToast(err.message || 'Η φωτογραφία δεν αποθηκεύτηκε', true);
+      }
+      input.value = '';
+    });
+  });
+  document.querySelectorAll('.clearPhoto').forEach(button => {
+    button.addEventListener('click', async () => {
+      const row = button.closest('.grow');
+      try {
+        const res = await fetch('/consumables/' + row.dataset.id + '/image/clear', {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}});
+        const data = await res.json().catch(() => ({ok:false}));
+        if (!res.ok || data.ok === false) throw new Error('Δεν αφαιρέθηκε');
+        const slot = row.querySelector('.thumb');
+        const mark = document.createElement('span');
+        mark.className = 'thumb fallback';
+        mark.textContent = data.initials || '?';
+        if (slot) slot.replaceWith(mark);
+        showToast('Η φωτογραφία αφαιρέθηκε', false);
+      } catch (err) {
+        showToast(err.message || 'Δεν αφαιρέθηκε', true);
+      }
+    });
+  });
+
+  const dlg = document.getElementById('newDlg');
+  const openNew = document.getElementById('openNew');
+  const closeNew = document.getElementById('closeNew');
+  const newForm = document.getElementById('newForm');
+  if (openNew && dlg) {
+    openNew.addEventListener('click', () => {
+      const supplier = document.getElementById('newSupplier');
+      const category = document.getElementById('newCategory');
+      if (supplier) supplier.value = state.supplier || '';
+      if (category) category.value = state.cat && state.cat !== 'Λοιπά' ? state.cat : '';
+      dlg.showModal();
+      const name = document.getElementById('newName');
+      if (name) name.focus();
+    });
+  }
+  closeNew && closeNew.addEventListener('click', () => dlg.close());
+  if (newForm) {
+    newForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const body = new FormData(newForm);
+      try {
+        const res = await fetch(newForm.action, {method:'POST', body, headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        const data = await res.json().catch(() => ({ok:false}));
+        if (!res.ok || data.ok === false) throw new Error(data.message || 'Δεν δημιουργήθηκε');
+        saveState();
+        location.reload();
+      } catch (err) {
+        showToast(err.message || 'Δεν δημιουργήθηκε', true);
+      }
+    });
+  }
 })();
 </script>
-
 {% include "_workshop_message_modal.html" %}
 </body>
 </html>

@@ -36,10 +36,11 @@ if not DATABASE_URL:
 
 DATABASE_URL = _normalize_database_url(DATABASE_URL)
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-)
+_engine_kwargs: dict = {"pool_pre_ping": True}
+if not DATABASE_URL.startswith("sqlite"):
+    _engine_kwargs["pool_size"] = 10
+    _engine_kwargs["max_overflow"] = 20
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
@@ -360,4 +361,49 @@ def init_db() -> None:
             )
     except Exception as exc:
         _handle_startup_ddl_failure("workshop_messages", exc)
+
+    # Kiosk workers. Nullable worker_id keeps old movements valid.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS workers (
+                    id SERIAL PRIMARY KEY,
+                    display_name VARCHAR(80) NOT NULL,
+                    one_employee_id UUID UNIQUE,
+                    one_employee_ref VARCHAR(16) UNIQUE,
+                    location VARCHAR(80),
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE consumable_movements ADD COLUMN IF NOT EXISTS worker_id INTEGER REFERENCES workers(id) ON DELETE SET NULL"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_consumable_movements_worker_id ON consumable_movements(worker_id);"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE workers ADD COLUMN IF NOT EXISTS card_uid VARCHAR(64)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE consumables ADD COLUMN IF NOT EXISTS barcode VARCHAR(64)"
+            )
+    except Exception as exc:
+        _handle_startup_ddl_failure("workers", exc)
+
+    # Consumable photos. Postgres BYTEA; SQLite tests use a blob column.
+    try:
+        image_type = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                f"ALTER TABLE consumables ADD COLUMN IF NOT EXISTS image_bytes {image_type}"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE consumables ADD COLUMN IF NOT EXISTS image_content_type VARCHAR(40)"
+            )
+    except Exception as exc:
+        _handle_startup_ddl_failure("consumables.image", exc)
 

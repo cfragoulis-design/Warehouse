@@ -248,3 +248,35 @@ textarea:focus,
   background: rgba(14, 165, 233, 0.4);
   color: #fff;
 }
+
+/* Take screen: touch presses must not depend on a sticky hover color. */
+@media (hover: none), (pointer: coarse) {
+  .take-screen .pill:hover,
+  .take-screen .smallbtn:hover,
+  .take-screen .stockBtn:not(.outBtn):not(.inBtn):hover {
+    background: rgba(15, 23, 42, 0.88) !important;
+    border-color: var(--sr-line-strong) !important;
+  }
+
+  .take-screen .outBtn:hover {
+    background: rgba(2, 132, 199, 0.9) !important;
+  }
+
+  .take-screen .inBtn:hover {
+    background: rgba(16, 185, 129, 0.12) !important;
+  }
+}
+
+@media print {
+  body.order-sheet,
+  body.order-sheet .sheet,
+  body.order-sheet pre.message {
+    background: #fff !important;
+    color: #111 !important;
+  }
+  body.order-sheet .top,
+  body.order-sheet .actions,
+  body.order-sheet .intro {
+    display: none !important;
+  }
+}

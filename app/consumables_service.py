@@ -3,14 +3,19 @@ from __future__ import annotations
 from decimal import Decimal
 from collections import defaultdict
 
-from fastapi import APIRouter, Request, Depends, Form, HTTPException
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi import APIRouter, Request, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import RedirectResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 try:
     from app.db import acquire_transaction_lock, get_db
     from app.auth import require_user, require_role, is_warehouse_only
+    from app.kiosk_session import fold_search, kiosk_ui_enabled
+    from app.consumable_images import initials, jpeg_thumbnail
+    from app.consumption_forecast import days_phrase, forecast_flags
+    from app.order_sheet import build_order_sheet
+    from app.worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
     from app.models import (
         User,
         Supplier,
@@ -19,12 +24,18 @@ try:
         PurchaseOrder,
         PurchaseOrderItem,
         ConsumableMovement,
+        Worker,
     )
     from app.templating import WarehouseJinja2Templates
 except ImportError:
     from db import acquire_transaction_lock, get_db
     from auth import require_user, require_role, is_warehouse_only
-    from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement
+    from kiosk_session import fold_search, kiosk_ui_enabled
+    from consumable_images import initials, jpeg_thumbnail
+    from consumption_forecast import days_phrase, forecast_flags
+    from order_sheet import build_order_sheet
+    from worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
+    from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement, Worker
     from templating import WarehouseJinja2Templates
 
 router = APIRouter()
@@ -32,6 +43,7 @@ templates = WarehouseJinja2Templates(directory="app/templates")
 
 OPEN_PO_STATUSES = {"DRAFT", "SUBMITTED", "PARTIAL"}
 WORKSHOP_CODE = "WORKSHOP"
+OTHER_CATEGORY_LABEL = "Λοιπά"
 
 
 def require_consumables_editor(user: User = Depends(require_user)) -> User:
@@ -178,6 +190,7 @@ def _log_consumable_movement(
     stock_after: Decimal,
     user: User | None,
     note: str | None = None,
+    worker_id: int | None = None,
 ) -> None:
     db.add(
         ConsumableMovement(
@@ -187,22 +200,17 @@ def _log_consumable_movement(
             qty=_d(qty),
             stock_after=_d(stock_after),
             created_by_user_id=getattr(user, "id", None),
+            worker_id=worker_id,
             note=(note or "").strip() or None,
         )
     )
 
 
-@router.get("/consumables")
-def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
-    if is_warehouse_only(user):
-        return RedirectResponse(url="/consumables/take", status_code=303)
-    # stocks (workshop only)
+def _admin_context_maps(db: Session):
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
         ConsumableStock.location_code == WORKSHOP_CODE
     ).all()
     stock_map = {cid: _d(qty) for cid, qty in stock_rows}
-
-    # on_order per consumable (open POs only)
     on_order_rows = (
         db.query(PurchaseOrderItem.consumable_id, func.coalesce(func.sum(PurchaseOrderItem.qty_ordered - PurchaseOrderItem.qty_received), 0))
         .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.purchase_order_id)
@@ -211,61 +219,193 @@ def consumables_list(request: Request, db: Session = Depends(get_db), user: User
         .all()
     )
     on_order_map = {cid: _d(qty) for cid, qty in on_order_rows}
-
-    consumables = db.query(Consumable).order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc()).all()
     suppliers_list = db.query(Supplier).order_by(Supplier.is_active.desc(), Supplier.name.asc()).all()
     suppliers = {s.id: s for s in suppliers_list}
+    return stock_map, on_order_map, suppliers_list, suppliers
 
-    rows = []
-    for c in consumables:
-        if not c.is_active:
-            continue
-        on_hand = stock_map.get(c.id, Decimal("0"))
-        on_order = on_order_map.get(c.id, Decimal("0"))
-        desired = _d(c.desired_qty)
-        pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
-        suggested_raw = desired - (on_hand + on_order)
-        # Suggested is stored/handled in *units* but always rounded up to a whole pack.
-        suggested_units = _round_to_pack(suggested_raw, pack) if suggested_raw > 0 else Decimal("0")
-        suggested_packs = _packs_for(suggested_units, pack) if suggested_units > 0 else 0
-        cost_pack = _d(getattr(c, "cost_per_pack", None))
-        pack_safe = pack if pack and pack > 0 else Decimal("1")
-        cost_unit = (cost_pack / pack_safe) if pack_safe > 0 else Decimal("0")
 
-        # Stock value is based on on_hand (units) converted to packs.
-        stock_value = (on_hand / pack_safe) * cost_pack if cost_pack > 0 and on_hand > 0 else Decimal("0")
-        suggested_value = (Decimal(suggested_packs) * cost_pack) if cost_pack > 0 and suggested_packs > 0 else Decimal("0")
+def _admin_row(c: Consumable, stock_map: dict, on_order_map: dict, suppliers: dict) -> dict:
+    on_hand = stock_map.get(c.id, Decimal("0"))
+    on_order = on_order_map.get(c.id, Decimal("0"))
+    desired = _d(c.desired_qty)
+    minimum = _d(c.min_qty)
+    pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
+    suggested_raw = desired - (on_hand + on_order)
+    suggested_units = _round_to_pack(suggested_raw, pack) if suggested_raw > 0 else Decimal("0")
+    suggested_packs = _packs_for(suggested_units, pack) if suggested_units > 0 else 0
+    cost_pack = _d(getattr(c, "cost_per_pack", None))
+    pack_safe = pack if pack and pack > 0 else Decimal("1")
+    cost_unit = (cost_pack / pack_safe) if pack_safe > 0 else Decimal("0")
+    stock_value = (on_hand / pack_safe) * cost_pack if cost_pack > 0 and on_hand > 0 else Decimal("0")
+    suggested_value = (Decimal(suggested_packs) * cost_pack) if cost_pack > 0 and suggested_packs > 0 else Decimal("0")
+    supplier = suppliers.get(c.supplier_id) if c.supplier_id else None
+    supplier_name = supplier.name if supplier is not None else ""
+    category_raw = (c.category or "").strip()
+    category_label = _category_label(category_raw)
+    at_or_below_min = minimum > 0 and on_hand <= minimum
+    return {
+        "id": c.id,
+        "name": c.name,
+        "category": category_raw,
+        "category_label": category_label,
+        "unit": c.unit or "",
+        "pack_size": pack,
+        "pack_display": _fmt_qty(pack),
+        "min_qty": minimum,
+        "min_display": _fmt_qty(minimum),
+        "desired_qty": desired,
+        "desired_display": _fmt_qty(desired),
+        "on_hand": on_hand,
+        "on_hand_display": _fmt_qty(on_hand),
+        "on_order": on_order,
+        "on_order_display": _fmt_qty(on_order),
+        "suggested_units": suggested_units,
+        "suggested_units_display": _fmt_qty(suggested_units),
+        "suggested_packs": suggested_packs,
+        "supplier_id": c.supplier_id or "",
+        "supplier_name": supplier_name,
+        "cost_per_pack": cost_pack,
+        "cost_per_pack_eur": _money(cost_pack),
+        "cost_per_unit": cost_unit,
+        "cost_per_unit_eur": _money(cost_unit),
+        "stock_value": stock_value,
+        "stock_value_eur": _money(stock_value),
+        "suggested_value": suggested_value,
+        "suggested_value_eur": _money(suggested_value),
+        "notes": c.notes or "",
+        "barcode": c.barcode or "",
+        "is_low": bool(at_or_below_min),
+        "needs_order": bool(at_or_below_min or suggested_packs > 0),
+        "search_text": fold_search(f"{c.name} {category_label} {supplier_name} {c.unit or ''}"),
+    }
 
-        cost_pack_eur = _money(cost_pack)
-        cost_unit_eur = _money(cost_unit)
-        stock_value_eur = _money(stock_value)
-        suggested_value_eur = _money(suggested_value)
 
-        rows.append({
-            "id": c.id,
-            "name": c.name,
-            "category": c.category or "",
-            "unit": c.unit or "",
-            "pack_size": pack,
-            "min_qty": _d(c.min_qty),
-            "desired_qty": desired,
-            "on_hand": on_hand,
-            "on_order": on_order,
-            "suggested_units": suggested_units,
-            "suggested_packs": suggested_packs,
-            "supplier_name": suppliers.get(c.supplier_id).name if c.supplier_id and c.supplier_id in suppliers else "",
-            "cost_per_pack": cost_pack,
-            "cost_per_pack_eur": cost_pack_eur,
-            "cost_per_unit": cost_unit,
-            "cost_per_unit_eur": cost_unit_eur,
-            "stock_value": stock_value,
-            "stock_value_eur": stock_value_eur,
-            "suggested_value": suggested_value,
-            "suggested_value_eur": suggested_value_eur,
-            "notes": c.notes or "",
+def _admin_groups(rows: list[dict]) -> list[dict]:
+    buckets: dict[str, list[dict]] = {}
+    for row in rows:
+        buckets.setdefault(row["category_label"], []).append(row)
+    labels = sorted((label for label in buckets if label != OTHER_CATEGORY_LABEL), key=fold_search)
+    if OTHER_CATEGORY_LABEL in buckets:
+        labels.append(OTHER_CATEGORY_LABEL)
+    groups = []
+    for label in labels:
+        items = buckets[label]
+        groups.append({
+            "key": label,
+            "name": label,
+            "rows": items,
+            "count": len(items),
+            "low": sum(1 for item in items if item["is_low"]),
+            "suggested_packs": sum(int(item["suggested_packs"]) for item in items),
+            "stock_value_eur": _money(sum((item["stock_value"] for item in items), Decimal("0"))),
         })
+    return groups
 
-    return templates.TemplateResponse("consumables_list.html", {"request": request, "user": user, "rows": rows, "suppliers": suppliers_list})
+
+def _supplier_stock_values(rows: list[dict]) -> tuple[list[dict], str]:
+    totals: dict[str, Decimal] = {}
+    grand = Decimal("0")
+    for row in rows:
+        value = _d(row["stock_value"])
+        grand += value
+        name = (row.get("supplier_name") or "").strip() or "Χωρίς προμηθευτή"
+        totals[name] = totals.get(name, Decimal("0")) + value
+    names = sorted((name for name in totals if name != "Χωρίς προμηθευτή"), key=fold_search)
+    if "Χωρίς προμηθευτή" in totals:
+        names.append("Χωρίς προμηθευτή")
+    summary = [{"name": name, "stock_value_eur": _money(totals[name])} for name in names]
+    return summary, _money(grand)
+
+
+def _admin_row_payload(db: Session, consumable: Consumable) -> dict:
+    stock_map, on_order_map, _suppliers_list, suppliers = _admin_context_maps(db)
+    row = _admin_row(consumable, stock_map, on_order_map, suppliers)
+    return {
+        "ok": True,
+        "id": row["id"],
+        "name": row["name"],
+        "category": row["category"],
+        "category_label": row["category_label"],
+        "unit": row["unit"],
+        "pack_display": row["pack_display"],
+        "min_display": row["min_display"],
+        "min_qty": row["min_display"],
+        "desired_display": row["desired_display"],
+        "desired_qty": row["desired_display"],
+        "on_hand_display": row["on_hand_display"],
+        "stock": row["on_hand_display"],
+        "stock_numeric": float(row["on_hand"]),
+        "on_order_display": row["on_order_display"],
+        "on_order": row["on_order_display"],
+        "suggested_packs": int(row["suggested_packs"]),
+        "suggested_units": row["suggested_units_display"],
+        "suggested_units_display": row["suggested_units_display"],
+        "suggested_value_eur": row["suggested_value_eur"],
+        "cost_per_pack_eur": row["cost_per_pack_eur"],
+        "cost_per_unit_eur": row["cost_per_unit_eur"],
+        "supplier_id": row["supplier_id"] or "",
+        "supplier_name": row["supplier_name"],
+        "notes": row["notes"],
+        "is_low": row["is_low"],
+        "needs_order": row["needs_order"],
+        "search_text": row["search_text"],
+        "has_suggested": bool(row["suggested_packs"] > 0),
+    }
+
+
+def _attach_forecast(db: Session, rows: list[dict]) -> None:
+    flags = forecast_flags(db, [int(row["id"]) for row in rows])
+    for row in rows:
+        info = flags.get(int(row["id"]))
+        row["days_left"] = None if info is None else info["days_left"]
+        row["days_phrase"] = "" if info is None else days_phrase(info["days_left"])
+        row["runs_out_before_order"] = bool(info and info["runs_out_before_order"])
+        row["weekly_qty"] = "" if info is None else info["weekly_qty"]
+
+
+@router.get("/consumables")
+def consumables_list(request: Request, db: Session = Depends(get_db), user: User = Depends(require_user)):
+    if is_warehouse_only(user):
+        return RedirectResponse(url="/consumables/take", status_code=303)
+    stock_map, on_order_map, suppliers_list, suppliers = _admin_context_maps(db)
+    consumables = db.query(Consumable).order_by(Consumable.category.asc().nulls_last(), Consumable.name.asc()).all()
+    rows = [_admin_row(c, stock_map, on_order_map, suppliers) for c in consumables if c.is_active]
+    _attach_images(rows, _image_ids(db))
+    _attach_forecast(db, rows)
+    groups = _admin_groups(rows)
+    supplier_values, stock_value_total_eur = _supplier_stock_values(rows)
+    return templates.TemplateResponse("consumables_list.html", {
+        "request": request,
+        "user": user,
+        "rows": rows,
+        "groups": groups,
+        "suppliers": suppliers_list,
+        "supplier_options": [
+            {"id": s.id, "name": s.name, "active": bool(s.is_active)}
+            for s in suppliers_list
+        ],
+        "category_names": [group["name"] for group in groups if group["name"] != OTHER_CATEGORY_LABEL],
+        "low_count": sum(1 for row in rows if row["is_low"]),
+        "supplier_values": supplier_values,
+        "stock_value_total_eur": stock_value_total_eur,
+    })
+
+
+@router.get("/consumables/orders")
+def consumables_order_sheet(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_editor),
+):
+    stock_map, on_order_map, _suppliers_list, suppliers = _admin_context_maps(db)
+    consumables = db.query(Consumable).order_by(Consumable.name.asc()).all()
+    rows = [_admin_row(item, stock_map, on_order_map, suppliers) for item in consumables if item.is_active]
+    flags = forecast_flags(db, [row["id"] for row in rows])
+    sheets = build_order_sheet(rows, flags)
+    return templates.TemplateResponse(
+        "consumables_orders.html",
+        {"request": request, "user": user, "sheets": sheets},
+    )
 
 
 @router.post("/consumables/new")
@@ -324,12 +464,118 @@ def consumable_new(
         )
 
     db.commit()
+    if _wants_json(request):
+        return JSONResponse(_admin_row_payload(db, c))
     return RedirectResponse("/consumables", status_code=303)
 
 
+def _clean_code(raw: str) -> str | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if len(text) > 64:
+        raise HTTPException(status_code=400, detail="Code is too long")
+    return text
 
-@router.get("/consumables/take")
-def consumables_take_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
+
+@router.post("/consumables/{cid}/barcode")
+def consumable_barcode(
+    cid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_editor),
+    barcode: str = Form(""),
+):
+    del user
+    item = db.get(Consumable, cid)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown consumable")
+    clean = _clean_code(barcode)
+    if clean:
+        clash = (
+            db.query(Consumable)
+            .filter(Consumable.barcode == clean, Consumable.id != item.id)
+            .first()
+        )
+        if clash is not None:
+            raise HTTPException(status_code=400, detail="Barcode already assigned")
+    item.barcode = clean
+    db.commit()
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "id": item.id, "barcode": clean or ""})
+    return RedirectResponse("/consumables", status_code=303)
+
+
+def _image_ids(db: Session) -> set[int]:
+    return {
+        row[0]
+        for row in db.query(Consumable.id).filter(Consumable.image_bytes.isnot(None)).all()
+    }
+
+
+def _attach_images(rows: list[dict], image_ids: set[int]) -> None:
+    for row in rows:
+        row["has_image"] = row["id"] in image_ids
+        row["initials"] = initials(row["name"])
+
+
+@router.post("/consumables/{cid}/image")
+def consumable_image_upload(
+    cid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_editor),
+    file: UploadFile = File(...),
+):
+    del user
+    item = db.get(Consumable, cid)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown consumable")
+    raw = file.file.read()
+    try:
+        item.image_bytes = jpeg_thumbnail(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Η εικόνα δεν διαβάστηκε") from exc
+    item.image_content_type = "image/jpeg"
+    db.commit()
+    return JSONResponse({"ok": True, "id": item.id, "has_image": True, "initials": initials(item.name)})
+
+
+@router.post("/consumables/{cid}/image/clear")
+def consumable_image_clear(
+    cid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_editor),
+):
+    del user
+    item = db.get(Consumable, cid)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Unknown consumable")
+    item.image_bytes = None
+    item.image_content_type = None
+    db.commit()
+    return JSONResponse({"ok": True, "id": item.id, "has_image": False, "initials": initials(item.name)})
+
+
+@router.get("/consumables/{cid}/image")
+def consumable_image(
+    cid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+):
+    del user
+    item = db.get(Consumable, cid)
+    blob = item.image_bytes if item is not None else None
+    if not blob:
+        raise HTTPException(status_code=404, detail="No image")
+    return Response(
+        content=blob,
+        media_type=item.image_content_type or "image/jpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+
+def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
         ConsumableStock.location_code == WORKSHOP_CODE
     ).all()
@@ -350,23 +596,74 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
         is_low = min_qty > 0 and on_hand < min_qty
         if is_low:
             low_count += 1
+        pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
+        category = _category_label(c.category)
+        unit = c.unit or "τεμ"
         rows.append({
             "id": c.id,
             "name": c.name,
-            "category": c.category or "",
-            "unit": c.unit or "units",
-            "pack_size": _d(c.pack_size) if c.pack_size is not None else Decimal("1"),
+            "category": category,
+            "unit": unit,
+            "pack_size": pack,
+            "pack_display": _fmt_qty(pack),
             "min_qty": min_qty,
+            "min_qty_display": _fmt_qty(min_qty),
             "desired_qty": _d(c.desired_qty),
             "on_hand": on_hand,
+            "on_hand_display": _fmt_qty(on_hand),
             "is_low": is_low,
             "notes": c.notes or "",
+            "barcode": c.barcode or "",
+            "search_text": fold_search(f"{c.name} {category}"),
         })
+    _attach_images(rows, _image_ids(db))
+    _attach_forecast(db, rows)
+    return rows, low_count
+
+
+def _category_label(raw: str | None) -> str:
+    label = (raw or "").strip()
+    return label or OTHER_CATEGORY_LABEL
+
+
+def _take_categories(rows: list[dict]) -> list[dict]:
+    """One button per active category. Blank categories share «Λοιπά», last."""
+    buckets: dict[str, dict] = {}
+    for row in rows:
+        label = _category_label(row.get("category"))
+        bucket = buckets.get(label)
+        if bucket is None:
+            bucket = {
+                "key": label,
+                "name": label,
+                "count": 0,
+                "low": 0,
+                "image_id": None,
+                "initials": initials(label),
+            }
+            buckets[label] = bucket
+        bucket["count"] += 1
+        if row.get("is_low"):
+            bucket["low"] += 1
+        if row.get("has_image") and bucket["image_id"] is None:
+            bucket["image_id"] = row["id"]
+    named = [bucket for label, bucket in buckets.items() if label != OTHER_CATEGORY_LABEL]
+    named.sort(key=lambda bucket: fold_search(bucket["name"]))
+    other = buckets.get(OTHER_CATEGORY_LABEL)
+    if other is not None:
+        named.append(other)
+    return named
+
+
+@router.get("/consumables/take")
+def consumables_take_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
+    rows, low_count = _workshop_consumable_rows(db)
 
     recent = (
-        db.query(ConsumableMovement, Consumable.name, User.username)
+        db.query(ConsumableMovement, Consumable.name, User.username, Worker.display_name)
         .join(Consumable, Consumable.id == ConsumableMovement.consumable_id)
         .outerjoin(User, User.id == ConsumableMovement.created_by_user_id)
+        .outerjoin(Worker, Worker.id == ConsumableMovement.worker_id)
         .order_by(ConsumableMovement.id.desc())
         .limit(12)
         .all()
@@ -380,7 +677,45 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "rows": rows,
             "low_count": low_count,
             "recent": recent,
+            "kiosk": kiosk_ui_enabled(request, user),
+            "kiosk_cat": request.query_params.get("cat") if kiosk_ui_enabled(request, user) else None,
+            "categories": _take_categories(rows),
+            "workers": worker_choices(active_workers(db)),
+            "runout_items": [
+                {"id": row["id"], "name": row["name"], "days_left": row["days_left"]}
+                for row in rows
+                if row.get("days_left") is not None
+            ],
         },
+    )
+
+
+@router.get("/consumables/take/stock")
+def consumables_take_stock(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+):
+    """Current on-hand numbers for the open take screen.
+
+    The browser patches these onto the cards already on screen. It does not
+    replace the page, so a quantity the worker is tapping stays put.
+    """
+    del user  # enforced by the dependency; the payload is not user-specific
+    rows, _low_count = _workshop_consumable_rows(db)
+    items = [
+        {
+            "id": row["id"],
+            "stock": row["on_hand_display"],
+            "stock_numeric": float(row["on_hand"]),
+            "is_low": bool(row["is_low"]),
+            "min_qty": row["min_qty_display"],
+            "unit": row["unit"],
+        }
+        for row in rows
+    ]
+    return JSONResponse(
+        {"ok": True, "items": items},
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -392,11 +727,13 @@ def consumable_take_submit(
     user: User = Depends(require_consumables_stock_user),
     qty: str = Form(...),
     note: str = Form(""),
+    worker_id: str = Form(""),
 ):
     c = db.get(Consumable, cid)
     if not c or not c.is_active:
         raise HTTPException(404)
 
+    chosen_worker = resolve_worker_id(db, worker_id)
     amount = _d(qty)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
@@ -418,13 +755,17 @@ def consumable_take_submit(
         qty=amount,
         stock_after=_d(st.qty),
         user=user,
-        note=note or "Taken from mobile stock page",
+        note=note or "Λήψη από το ταμπλό αποθήκης",
+        worker_id=chosen_worker,
     )
     db.commit()
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))
         data['movement_type'] = 'OUT'
         data['qty'] = _fmt_qty(amount)
+        if chosen_worker:
+            data['worker_id'] = chosen_worker
+            data['worker_name'] = db.get(Worker, chosen_worker).display_name
         return JSONResponse(data)
     return RedirectResponse("/consumables/take?ok=1", status_code=303)
 
@@ -437,11 +778,13 @@ def consumable_add_submit(
     user: User = Depends(require_consumables_stock_user),
     qty: str = Form(...),
     note: str = Form(""),
+    worker_id: str = Form(""),
 ):
     c = db.get(Consumable, cid)
     if not c or not c.is_active:
         raise HTTPException(404)
 
+    chosen_worker = resolve_worker_id(db, worker_id)
     amount = _d(qty)
     if amount <= 0:
         if _wants_json(request):
@@ -459,7 +802,8 @@ def consumable_add_submit(
         qty=amount,
         stock_after=_d(st.qty),
         user=user,
-        note=note or "Added from mobile stock page",
+        note=note or "Προσθήκη από το ταμπλό αποθήκης",
+        worker_id=chosen_worker,
     )
     db.commit()
 
@@ -467,23 +811,34 @@ def consumable_add_submit(
         data = _consumable_ui_state(db, c, _d(st.qty))
         data['movement_type'] = 'IN'
         data['qty'] = _fmt_qty(amount)
+        if chosen_worker:
+            data['worker_id'] = chosen_worker
+            data['worker_name'] = db.get(Worker, chosen_worker).display_name
         return JSONResponse(data)
     return RedirectResponse("/consumables/take?added=1", status_code=303)
 
 
 @router.get("/consumables/movements")
 def consumables_movements(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
-    rows = (
-        db.query(ConsumableMovement, Consumable.name, Consumable.unit, User.username)
+    selected_worker = (request.query_params.get("worker_id") or "").strip()
+    query = (
+        db.query(ConsumableMovement, Consumable.name, Consumable.unit, User.username, Worker.display_name)
         .join(Consumable, Consumable.id == ConsumableMovement.consumable_id)
         .outerjoin(User, User.id == ConsumableMovement.created_by_user_id)
-        .order_by(ConsumableMovement.id.desc())
-        .limit(200)
-        .all()
+        .outerjoin(Worker, Worker.id == ConsumableMovement.worker_id)
     )
+    if selected_worker.isdigit():
+        query = query.filter(ConsumableMovement.worker_id == int(selected_worker))
+    rows = query.order_by(ConsumableMovement.id.desc()).limit(200).all()
     return templates.TemplateResponse(
         "consumable_movements.html",
-        {"request": request, "user": user, "rows": rows},
+        {
+            "request": request,
+            "user": user,
+            "rows": rows,
+            "workers": workers_for_admin(db),
+            "selected_worker": selected_worker,
+        },
     )
 
 
@@ -523,8 +878,13 @@ def consumable_edit_save(
     c = db.get(Consumable, cid)
     if not c:
         raise HTTPException(404)
+    clean_name = (name or "").strip()
+    if not clean_name:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "message": "Name is required"}, status_code=400)
+        raise HTTPException(status_code=400, detail="Name is required")
     sid = _optional_int(supplier_id)
-    c.name = name.strip()
+    c.name = clean_name
     c.category = category.strip() or None
     c.unit = unit.strip() or None
     c.pack_size = _positive_decimal(pack_size)
@@ -534,16 +894,25 @@ def consumable_edit_save(
     c.supplier_id = sid
     c.notes = notes.strip() or None
     db.commit()
+    if _wants_json(request):
+        return JSONResponse(_admin_row_payload(db, c))
     return RedirectResponse("/consumables", status_code=303)
 
 
 @router.post("/consumables/{cid}/toggle")
-def consumable_toggle(cid: int, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
+def consumable_toggle(
+    cid: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
     c = db.get(Consumable, cid)
     if not c:
         raise HTTPException(404)
     c.is_active = not bool(c.is_active)
     db.commit()
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "id": c.id, "is_active": bool(c.is_active)})
     return RedirectResponse("/consumables", status_code=303)
 
 

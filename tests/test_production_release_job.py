@@ -859,8 +859,21 @@ def test_successor_rejects_every_non_exact_upgrade_boundary(changes: dict) -> No
 
 def test_successor_migration_checksum_is_bound_to_exact_reviewed_sql() -> None:
     catalog = release_job.schema_migrations.migration_catalog()
-    assert tuple(item.version for item in catalog[:-1]) == release_job.PRODUCTION_UPGRADE_PRE_VERSIONS
-    assert ((catalog[-1].version, catalog[-1].checksum),) == release_job.PRODUCTION_UPGRADE_MIGRATIONS
+    versions = tuple(item.version for item in catalog)
+    pre = release_job.PRODUCTION_UPGRADE_PRE_VERSIONS
+    upgrade = release_job.PRODUCTION_UPGRADE_MIGRATIONS
+    assert versions[: len(pre)] == pre
+    pinned = tuple(
+        (item.version, item.checksum)
+        for item in catalog
+        if item.version in {version for version, _checksum in upgrade}
+    )
+    assert pinned == upgrade
+    assert versions[len(pre) + len(upgrade) :] == (
+        "20261120_002",
+        "20261120_003",
+        "20261120_004",
+    )
 
 
 def test_successor_allows_exact_post_for_read_only_reconciliation_only() -> None:
