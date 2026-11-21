@@ -265,7 +265,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "GRANT SELECT ON TABLE CONSUMABLES TO WAREHOUSE_OPERATIONS_PROD_READER" in scans_sql
     assert "DROP TABLE" not in scans_sql
     assert "DELETE FROM" not in scans_sql
-    pins = catalog[4]
+    pins = by_version["20261121_012"]
     pins_sql = pins.sql.upper()
     assert "ADD COLUMN IF NOT EXISTS PIN_HASH VARCHAR(255)" in pins_sql
     assert "ADD COLUMN IF NOT EXISTS PIN_VERIFIED BOOLEAN NOT NULL DEFAULT FALSE" in pins_sql
