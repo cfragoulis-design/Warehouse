@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from collections import defaultdict
 
@@ -237,14 +238,19 @@ def _log_consumable_movement(
 
 
 def _notify_supplier_alerts(db: Session) -> None:
+    """Best-effort. A take or receipt is already committed, so an alert failure must not fail it."""
     try:
-        from app.supplier_alerts import dispatch_supplier_alerts
-    except ImportError:
-        from supplier_alerts import dispatch_supplier_alerts
-    items = db.query(Consumable).filter(Consumable.is_active.is_(True)).all()
-    stock_map, on_order_map, _listed, suppliers = _admin_context_maps(db)
-    rows = [_admin_row(item, stock_map, on_order_map, suppliers) for item in items]
-    dispatch_supplier_alerts(db, rows)
+        try:
+            from app.supplier_alerts import dispatch_supplier_alerts
+        except ImportError:
+            from supplier_alerts import dispatch_supplier_alerts
+        items = db.query(Consumable).filter(Consumable.is_active.is_(True)).all()
+        stock_map, on_order_map, _listed, suppliers = _admin_context_maps(db)
+        rows = [_admin_row(item, stock_map, on_order_map, suppliers) for item in items]
+        dispatch_supplier_alerts(db, rows)
+    except Exception:
+        logging.getLogger(__name__).exception("Supplier alert dispatch failed")
+        db.rollback()
 
 
 def _admin_context_maps(db: Session):
