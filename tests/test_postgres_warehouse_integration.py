@@ -110,7 +110,28 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
 
     psycopg_url = schema_migrations._psycopg_url(make_url(database_url))
     catalog = schema_migrations.migration_catalog()
-    assert catalog[-1].version == "20260906_001"
+    # The disposable proof records the historical prefix through 20260830_001,
+    # then applies every later catalog entry, including the kiosk migrations.
+    recorded_prefix = tuple(
+        migration for migration in catalog if migration.version <= "20260830_001"
+    )
+    pending_versions = tuple(
+        migration.version for migration in catalog if migration.version > "20260830_001"
+    )
+    assert recorded_prefix
+    assert pending_versions
+    assert pending_versions[-1] == catalog[-1].version
+    with psycopg.connect(psycopg_url, autocommit=True) as admin:
+        for role_name in (
+            "warehouse_production_app",
+            "warehouse_operations_prod_reader",
+        ):
+            exists = admin.execute(
+                "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = %s",
+                (role_name,),
+            ).fetchone()
+            if exists is None:
+                admin.execute(sql.SQL("CREATE ROLE {}").format(sql.Identifier(role_name)))
     with psycopg.connect(psycopg_url, autocommit=False) as connection:
         connection.execute(
             sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(
@@ -138,10 +159,10 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
         # already contains its named constraints.
         for migration in catalog[2:5]:
             connection.execute(migration.sql)
-        # Record the exact prefix through 20260830_001, then apply the two
-        # label-layout, Vacuum-preservation and label-content migrations under test so
-        # their schema, immutability and restricted-role grants are proven.
-        for migration in catalog[:-7]:
+        # Record the exact prefix through 20260830_001, then apply every later
+        # migration, including the kiosk ones, so the second run is a noop over
+        # the full combined catalog.
+        for migration in recorded_prefix:
             connection.execute(
                 """
                 INSERT INTO warehouse_schema_migrations
@@ -178,17 +199,9 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
     first = schema_migrations.apply_pending_migrations(**arguments)
     second = schema_migrations.apply_pending_migrations(**arguments)
 
-    assert first.applied_versions == (
-        "20260830_002",
-        "20260830_003",
-        "20260831_001",
-        "20260831_002",
-        "20260831_003",
-        "20260831_004",
-        "20260906_001",
-    )
+    assert first.applied_versions == pending_versions
     assert second.applied_versions == ()
-    assert second.current_version == "20260906_001"
+    assert second.current_version == catalog[-1].version
     assert second.post_schema_fingerprint == first.post_schema_fingerprint
 
     runtime_psycopg_url = schema_migrations._psycopg_url(runtime_url)
