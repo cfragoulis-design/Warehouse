@@ -10,12 +10,26 @@ from sqlalchemy import func
 
 try:
     from app.db import acquire_transaction_lock, get_db
-    from app.auth import require_user, require_role, is_warehouse_only
+    from app.auth import is_warehouse_only, require_role, require_user, verify_pin
     from app.kiosk_session import fold_search, kiosk_ui_enabled
     from app.consumable_images import initials, jpeg_thumbnail
     from app.consumption_forecast import days_phrase, forecast_flags
     from app.order_sheet import build_order_sheet
-    from app.worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
+    from app.worker_service import (
+        LOCKED_PIN_MESSAGE,
+        NO_PIN_MESSAGE,
+        WRONG_PIN_MESSAGE,
+        active_workers,
+        apply_worker_cookie,
+        clear_pin_failures,
+        issue_session_cookie,
+        pin_retry_after,
+        record_pin_failure,
+        resolve_session_worker,
+        resolve_worker_id,
+        worker_choices,
+        workers_for_admin,
+    )
     from app.models import (
         User,
         Supplier,
@@ -29,12 +43,26 @@ try:
     from app.templating import WarehouseJinja2Templates
 except ImportError:
     from db import acquire_transaction_lock, get_db
-    from auth import require_user, require_role, is_warehouse_only
+    from auth import is_warehouse_only, require_role, require_user, verify_pin
     from kiosk_session import fold_search, kiosk_ui_enabled
     from consumable_images import initials, jpeg_thumbnail
     from consumption_forecast import days_phrase, forecast_flags
     from order_sheet import build_order_sheet
-    from worker_service import active_workers, resolve_worker_id, worker_choices, workers_for_admin
+    from worker_service import (
+        LOCKED_PIN_MESSAGE,
+        NO_PIN_MESSAGE,
+        WRONG_PIN_MESSAGE,
+        active_workers,
+        apply_worker_cookie,
+        clear_pin_failures,
+        issue_session_cookie,
+        pin_retry_after,
+        record_pin_failure,
+        resolve_session_worker,
+        resolve_worker_id,
+        worker_choices,
+        workers_for_admin,
+    )
     from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement, Worker
     from templating import WarehouseJinja2Templates
 
@@ -191,6 +219,7 @@ def _log_consumable_movement(
     user: User | None,
     note: str | None = None,
     worker_id: int | None = None,
+    pin_verified: bool = False,
 ) -> None:
     db.add(
         ConsumableMovement(
@@ -201,6 +230,7 @@ def _log_consumable_movement(
             stock_after=_d(stock_after),
             created_by_user_id=getattr(user, "id", None),
             worker_id=worker_id,
+            pin_verified=bool(pin_verified and worker_id),
             note=(note or "").strip() or None,
         )
     )
@@ -719,6 +749,87 @@ def consumables_take_stock(
     )
 
 
+def _session_payload(worker: Worker | None) -> dict:
+    if worker is None:
+        return {"ok": False}
+    return {"ok": True, "name": worker.display_name}
+
+
+@router.get("/consumables/take/session")
+def worker_session_status(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+):
+    worker = resolve_session_worker(request, db, user)
+    return JSONResponse(_session_payload(worker), headers={"Cache-Control": "no-store"})
+
+
+@router.post("/consumables/take/session")
+def worker_session_start(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+    worker_id: str = Form(""),
+    pin: str = Form(""),
+):
+    # The PIN is checked and discarded. It is not written to a log or a response.
+    chosen = resolve_worker_id(db, worker_id)
+    if chosen is None:
+        return JSONResponse({"ok": False, "message": "Unknown worker"}, status_code=400)
+    worker = db.get(Worker, chosen)
+    if worker is None or not worker.pin_hash:
+        return JSONResponse({"ok": False, "message": NO_PIN_MESSAGE}, status_code=403)
+    locked = pin_retry_after(worker.id)
+    if locked:
+        return JSONResponse(
+            {"ok": False, "message": LOCKED_PIN_MESSAGE, "retry_after": locked},
+            status_code=429,
+        )
+    if not verify_pin(pin, worker.pin_hash):
+        locked = record_pin_failure(worker.id)
+        if locked:
+            return JSONResponse(
+                {"ok": False, "message": LOCKED_PIN_MESSAGE, "retry_after": locked},
+                status_code=429,
+            )
+        return JSONResponse({"ok": False, "message": WRONG_PIN_MESSAGE}, status_code=401)
+    clear_pin_failures(worker.id)
+    response = JSONResponse({"ok": True, "name": worker.display_name})
+    return issue_session_cookie(response, request, user, worker)
+
+
+@router.post("/consumables/take/session/touch")
+def worker_session_touch(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+):
+    worker = resolve_session_worker(request, db, user)
+    response = JSONResponse(_session_payload(worker), headers={"Cache-Control": "no-store"})
+    if worker is None:
+        return apply_worker_cookie(response, request, None)
+    return issue_session_cookie(response, request, user, worker)
+
+
+@router.post("/consumables/take/session/end")
+def worker_session_end(
+    request: Request,
+    user: User = Depends(require_consumables_stock_user),
+):
+    del user
+    response = JSONResponse({"ok": True})
+    return apply_worker_cookie(response, request, None)
+
+
+def _movement_worker(request: Request, db: Session, user: User) -> tuple[int | None, bool, Worker | None]:
+    """Attribute a movement only from the signed session, never from the form."""
+    worker = resolve_session_worker(request, db, user)
+    if worker is None:
+        return None, False, None
+    return int(worker.id), True, worker
+
+
 @router.post("/consumables/{cid}/take")
 def consumable_take_submit(
     cid: int,
@@ -733,7 +844,8 @@ def consumable_take_submit(
     if not c or not c.is_active:
         raise HTTPException(404)
 
-    chosen_worker = resolve_worker_id(db, worker_id)
+    del worker_id  # attribution comes from the signed session cookie
+    chosen_id, pin_verified, session_worker = _movement_worker(request, db, user)
     amount = _d(qty)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
@@ -756,18 +868,25 @@ def consumable_take_submit(
         stock_after=_d(st.qty),
         user=user,
         note=note or "Λήψη από το ταμπλό αποθήκης",
-        worker_id=chosen_worker,
+        worker_id=chosen_id,
+        pin_verified=pin_verified,
     )
     db.commit()
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))
         data['movement_type'] = 'OUT'
         data['qty'] = _fmt_qty(amount)
-        if chosen_worker:
-            data['worker_id'] = chosen_worker
-            data['worker_name'] = db.get(Worker, chosen_worker).display_name
-        return JSONResponse(data)
-    return RedirectResponse("/consumables/take?ok=1", status_code=303)
+        if session_worker is not None:
+            data['worker_id'] = session_worker.id
+            data['worker_name'] = session_worker.display_name
+        response = JSONResponse(data)
+        if session_worker is not None:
+            issue_session_cookie(response, request, user, session_worker)
+        return response
+    response = RedirectResponse("/consumables/take?ok=1", status_code=303)
+    if session_worker is not None:
+        issue_session_cookie(response, request, user, session_worker)
+    return response
 
 
 @router.post("/consumables/{cid}/add")
@@ -784,7 +903,8 @@ def consumable_add_submit(
     if not c or not c.is_active:
         raise HTTPException(404)
 
-    chosen_worker = resolve_worker_id(db, worker_id)
+    del worker_id  # attribution comes from the signed session cookie
+    chosen_id, pin_verified, session_worker = _movement_worker(request, db, user)
     amount = _d(qty)
     if amount <= 0:
         if _wants_json(request):
@@ -803,7 +923,8 @@ def consumable_add_submit(
         stock_after=_d(st.qty),
         user=user,
         note=note or "Προσθήκη από το ταμπλό αποθήκης",
-        worker_id=chosen_worker,
+        worker_id=chosen_id,
+        pin_verified=pin_verified,
     )
     db.commit()
 
@@ -811,11 +932,17 @@ def consumable_add_submit(
         data = _consumable_ui_state(db, c, _d(st.qty))
         data['movement_type'] = 'IN'
         data['qty'] = _fmt_qty(amount)
-        if chosen_worker:
-            data['worker_id'] = chosen_worker
-            data['worker_name'] = db.get(Worker, chosen_worker).display_name
-        return JSONResponse(data)
-    return RedirectResponse("/consumables/take?added=1", status_code=303)
+        if session_worker is not None:
+            data['worker_id'] = session_worker.id
+            data['worker_name'] = session_worker.display_name
+        response = JSONResponse(data)
+        if session_worker is not None:
+            issue_session_cookie(response, request, user, session_worker)
+        return response
+    response = RedirectResponse("/consumables/take?added=1", status_code=303)
+    if session_worker is not None:
+        issue_session_cookie(response, request, user, session_worker)
+    return response
 
 
 @router.get("/consumables/movements")

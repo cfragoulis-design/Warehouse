@@ -152,6 +152,9 @@ def _clear_login_failures(username: str) -> None:
 WAREHOUSE_ALLOWED_PATHS = (
     "/consumables/take",
     "/consumables/take/stock",
+    "/consumables/take/session",
+    "/consumables/take/session/touch",
+    "/consumables/take/session/end",
     "/consumables/movements",
     "/logout",
     "/health",

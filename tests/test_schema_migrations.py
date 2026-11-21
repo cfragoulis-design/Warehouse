@@ -33,6 +33,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20261120_002",
         "20261120_003",
         "20261120_004",
+        "20261121_012",
     ]
     by_version = {migration.version: migration for migration in catalog}
     profiles_migration = by_version["20260906_001"]
@@ -264,6 +265,16 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "GRANT SELECT ON TABLE CONSUMABLES TO WAREHOUSE_OPERATIONS_PROD_READER" in scans_sql
     assert "DROP TABLE" not in scans_sql
     assert "DELETE FROM" not in scans_sql
+    pins = by_version["20261121_012"]
+    pins_sql = pins.sql.upper()
+    assert "ADD COLUMN IF NOT EXISTS PIN_HASH VARCHAR(255)" in pins_sql
+    assert "ADD COLUMN IF NOT EXISTS PIN_VERIFIED BOOLEAN NOT NULL DEFAULT FALSE" in pins_sql
+    assert "ΣΥΝΕΡΓΕΊΟ" in pins.sql or "Συνεργείο" in pins.sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE WORKERS TO WAREHOUSE_PRODUCTION_APP" in pins_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE WORKERS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in pins_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_OPERATIONS_PROD_READER" in pins_sql
+    assert "DROP TABLE" not in pins_sql
+    assert "DELETE FROM" not in pins_sql
 
 
 def test_runtime_role_identifier_is_explicit_and_bounded() -> None:
