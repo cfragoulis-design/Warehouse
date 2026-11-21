@@ -259,6 +259,9 @@
         </span>
       </button>
       {% endfor %}
+      {% if count_items %}
+      <button type="button" class="homeCard" id="openCount">Πρωινή καταμέτρηση</button>
+      {% endif %}
       <button type="button" class="homeCard homeAll" data-cat="">
         <span class="homePhoto fallback">ΟΛ</span>
         <span class="homeText">
@@ -389,6 +392,30 @@
     </div>
   </div>
 
+  {% if kiosk and count_items %}
+  <div id="countOverlay" class="whoOverlay" hidden>
+    <div class="whoCard">
+      <h2>Πρωινή καταμέτρηση</h2>
+      {% for item in count_items %}
+      <form method="post" action="/consumables/{{ item.id }}/count" class="countRow">
+        <strong>{{ item.name }}</strong>
+        <span>σύστημα {{ item.on_hand_display }}</span>
+        <input name="counted" inputmode="numeric" aria-label="Μέτρηση {{ item.name }}" required />
+        <select name="reason" aria-label="Αιτία {{ item.name }}">
+          <option>φύρα</option>
+          <option>λάθος</option>
+          <option>χωρίς καταγραφή</option>
+        </select>
+        <button type="submit">Καταχώριση</button>
+      </form>
+      {% endfor %}
+      <form method="post" action="/consumables/count/done">
+        <button class="whoCancel" type="submit">Τέλος</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
   <script type="application/json" id="runoutData">{{ runout_items | tojson }}</script>
 
 <script>
@@ -400,6 +427,11 @@
   var KIOSK_SCREEN_MS = 120000;
   var CATEGORY_STORAGE_KEY = 'wh_take_category';
   const isKiosk = document.body.dataset.kiosk === '1';
+  const countOverlay = document.getElementById('countOverlay');
+  const openCount = document.getElementById('openCount');
+  if(openCount && countOverlay){
+    openCount.addEventListener('click', function(){ countOverlay.hidden = false; });
+  }
   var TAP_MOVE_PX = 10;
   var tapGesture = null;
   function pageScrollTop(){
@@ -429,7 +461,7 @@
   }
   function tapControl(node){
     if(!node || !node.closest) return null;
-    return node.closest('#kioskHome .homeCard, #cards .item button, #cards .item input, #cards .item select, #cards .item textarea, #cards .item label, .kioskStrip .stripBtn, #whoOverlay button, #workerBanner button');
+    return node.closest('#kioskHome .homeCard, #cards .item button, #cards .item input, #cards .item select, #cards .item textarea, #cards .item label, .kioskStrip .stripBtn, #whoOverlay button, #countOverlay button, #workerBanner button');
   }
   function wantsProgrammaticFocus(control){
     if(!control || !control.matches) return false;

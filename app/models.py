@@ -704,6 +704,7 @@ class ConsumableMovement(Base):
     )
     pin_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class PurchaseOrder(Base):
