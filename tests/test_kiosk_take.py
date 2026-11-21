@@ -286,6 +286,13 @@ def test_take_page_is_greek_touch_and_kiosk_hides_other_chrome(db: Session) -> N
     assert "KIOSK_SCREEN_MS = 120000" in html
     assert 'id="idleScreen"' in html
     assert "Τι λείπει" in html
+    assert "RAW LOGIC. REAL SYSTEMS." in html
+    assert "Created by Christos Fragoulis" in html
+    assert 'viewBox="-16 -16 372 402"' in html
+    assert "pointer-events:none" in html
+    credit = html.split('class="idleCredit"', 1)[1].split('id="whoOverlay"', 1)[0]
+    assert "<a " not in credit
+    assert "<button" not in credit
     assert "idleDrift" in html
     assert "min-height:112px" in html
     assert "grid-template-columns:1fr 1fr 1fr" in html
@@ -295,6 +302,12 @@ def test_take_page_is_greek_touch_and_kiosk_hides_other_chrome(db: Session) -> N
     pointer_guard = html.split("addEventListener('pointerdown'", 1)[1].split("}, true);", 1)[0]
     assert "openKioskCategory" not in pointer_guard
     assert "addEventListener('click', ()=>openKioskCategory" in html
+    assert 'name="note"' not in html
+    assert 'placeholder="Σημείωση (προαιρετικό)"' not in html
+    assert "#cards .item button" in html
+    assert "#cards .item input" in html
+    assert "scrollingElement" in html
+    assert "scrollableAncestor" in html
     assert "Ποιος είσαι;" in html
 
     warehouse_normal = consumables_take_page(
@@ -305,6 +318,7 @@ def test_take_page_is_greek_touch_and_kiosk_hides_other_chrome(db: Session) -> N
     warehouse_html = warehouse_normal.body.decode("utf-8")
     assert 'data-kiosk="1"' not in warehouse_html
     assert 'id="idleScreen"' not in warehouse_html
+    assert "Created by Christos Fragoulis" not in warehouse_html
     assert "Αποσύνδεση" in warehouse_html
     assert "Πίνακας" not in warehouse_html
 

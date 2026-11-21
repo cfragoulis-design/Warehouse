@@ -66,7 +66,6 @@
     .stockBtn{font-size:20px}
     .outBtn{background:var(--blue);border-color:rgba(47,124,246,.65)}
     .inBtn{background:rgba(53,194,125,.18);border-color:rgba(53,194,125,.55);color:#d8ffe9}
-    .note{width:100%;min-height:56px;border:1px solid var(--line);border-radius:14px;background:var(--panel2);color:var(--text);padding:12px;font-size:18px}
     .muted{color:var(--muted)}
     .history{margin-top:18px;border:1px solid var(--line);background:var(--panel);border-radius:18px;overflow:hidden}
     .history h2{font-size:20px;margin:0;padding:14px;border-bottom:1px solid var(--line)}
@@ -131,7 +130,7 @@
     body.kiosk-home .searchbar,body.kiosk-home #cards,body.kiosk-home #filterEmpty{display:none !important}
     body.kiosk-home .wrap{padding-bottom:12px}
     body.kiosk:not(.kiosk-home) .kioskHome{display:none !important}
-    .idleScreen{position:fixed;inset:0;z-index:140;background:#070b16;color:var(--text);display:flex;align-items:center;justify-content:center;padding:28px}
+    .idleScreen{position:fixed;inset:0;z-index:140;background:#070b16;color:var(--text);display:flex;align-items:center;justify-content:center;padding:28px 28px 76px}
     .idleScreen[hidden]{display:none !important}
     .idleInner{width:min(920px,100%);animation:idleDrift 80s ease-in-out infinite}
     @keyframes idleDrift{0%{transform:translate(0,0)}50%{transform:translate(22px,-16px)}100%{transform:translate(0,0)}}
@@ -143,6 +142,11 @@
     .idleCol ul{margin:0;padding:0;list-style:none;display:grid;gap:8px}
     .idleCol li{font-size:22px;font-weight:700}
     .idleHint{margin-top:22px;color:var(--muted);font-size:18px}
+    .idleCredit{position:absolute;left:20px;bottom:16px;display:flex;align-items:center;gap:10px;pointer-events:none;max-width:min(440px,48vw)}
+    .idleCredit svg{height:28px;width:auto;display:block;flex:0 0 auto}
+    .idleCreditText{display:flex;flex-direction:column;gap:2px;min-width:0}
+    .idleCreditMark{font-size:13px;line-height:1.15;letter-spacing:0.18em;text-transform:uppercase;color:#e5e7eb;font-weight:600}
+    .idleCreditBy{font-size:12px;line-height:1.2;color:#94a3b8;font-weight:500}
     @media(max-width:720px){.idleClock{font-size:64px}.idleCols{grid-template-columns:1fr}}
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
@@ -282,7 +286,6 @@
             <button class="smallbtn" type="button" data-add="5" aria-label="Συν 5">+5</button>
           </div>
           <input type="hidden" class="deltaField" name="delta" value="0" />
-          <input class="note" name="note" placeholder="Σημείωση (προαιρετικό)" aria-label="Σημείωση" />
           <div class="actionRow">
             <button class="stockBtn outBtn" type="submit" data-mode="take" {% if r.on_hand <= 0 %}disabled style="opacity:.5"{% endif %}>− Πήρα</button>
             <button class="stockBtn inBtn" type="submit" data-mode="add" formaction="/consumables/{{ r.id }}/add">+ Έβαλα</button>
@@ -328,6 +331,13 @@
       </div>
       <div class="idleHint">Άγγιξε την οθόνη για να συνεχίσεις</div>
     </div>
+    <div class="idleCredit">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="-16 -16 372 402" aria-hidden="true"><g fill="#ffffff"><path d="M0 0 H217 C286 0 338 49 338 118 C338 174 303 213 254 230 L340 370 H244 L93 181 H197 C231 181 258 156 258 123 C258 89 237 67 199 67 H53 Z"/><path d="M18 181 H75 L121 236 V351 L18 237 Z"/></g></svg>
+      <div class="idleCreditText">
+        <div class="idleCreditMark">RAW LOGIC. REAL SYSTEMS.</div>
+        <div class="idleCreditBy">Created by Christos Fragoulis</div>
+      </div>
+    </div>
   </div>
   {% endif %}
 
@@ -357,43 +367,88 @@
   var TAP_MOVE_PX = 10;
   var tapGesture = null;
   function pageScrollTop(){
-    return window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+    var root = document.scrollingElement || document.documentElement;
+    return root ? root.scrollTop : (window.scrollY || 0);
+  }
+  function scrollableAncestor(node){
+    var el = node && node.parentElement;
+    while(el && el !== document.body && el !== document.documentElement){
+      var style = window.getComputedStyle(el);
+      var oy = style.overflowY;
+      var ox = style.overflowX;
+      var canY = (oy === 'auto' || oy === 'scroll' || oy === 'overlay') && el.scrollHeight > el.clientHeight + 1;
+      var canX = (ox === 'auto' || ox === 'scroll' || ox === 'overlay') && el.scrollWidth > el.clientWidth + 1;
+      if(canY || canX) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+  function tapMoved(){
+    if(!tapGesture) return false;
+    if(tapGesture.moved) return true;
+    var root = document.scrollingElement || document.documentElement;
+    if(root && Math.abs(root.scrollTop - tapGesture.rootTop) > 0) return true;
+    if(tapGesture.parent && Math.abs(tapGesture.parent.scrollTop - tapGesture.parentTop) > 0) return true;
+    return false;
   }
   function tapControl(node){
     if(!node || !node.closest) return null;
-    return node.closest('#kioskHome .homeCard, #cards .item button, #cards .item a, .kioskStrip .stripBtn');
+    return node.closest('#kioskHome .homeCard, #cards .item button, #cards .item input, #cards .item select, #cards .item textarea, #cards .item label, .kioskStrip .stripBtn');
+  }
+  function wantsProgrammaticFocus(control){
+    if(!control || !control.matches) return false;
+    if(control.matches('label')) return true;
+    return control.matches('input, select, textarea') && !control.readOnly && !control.disabled;
   }
   document.addEventListener('pointerdown', function(event){
     if(event.pointerType === 'mouse' && event.button !== 0) return;
     var control = tapControl(event.target);
     if(!control){ tapGesture = null; return; }
-    tapGesture = {x: event.clientX, y: event.clientY, scroll: pageScrollTop(), moved: false, id: event.pointerId};
+    var parent = scrollableAncestor(control);
+    tapGesture = {
+      x: event.clientX,
+      y: event.clientY,
+      rootTop: pageScrollTop(),
+      parent: parent,
+      parentTop: parent ? parent.scrollTop : 0,
+      moved: false,
+      id: event.pointerId,
+      control: control
+    };
+    if(wantsProgrammaticFocus(control) && event.cancelable) event.preventDefault();
   }, true);
   document.addEventListener('pointermove', function(event){
     if(!tapGesture || event.pointerId !== tapGesture.id) return;
     if(Math.abs(event.clientX - tapGesture.x) > TAP_MOVE_PX || Math.abs(event.clientY - tapGesture.y) > TAP_MOVE_PX) tapGesture.moved = true;
-    if(Math.abs(pageScrollTop() - tapGesture.scroll) > 0) tapGesture.moved = true;
+    if(tapMoved()) tapGesture.moved = true;
   }, true);
   document.addEventListener('pointercancel', function(event){
     if(tapGesture && event.pointerId === tapGesture.id) tapGesture.moved = true;
   }, true);
-  window.addEventListener('scroll', function(){
+  document.addEventListener('scroll', function(){
     if(tapGesture) tapGesture.moved = true;
-  }, {passive: true});
+  }, true);
   document.addEventListener('pointerup', function(event){
     if(!tapGesture || event.pointerId !== tapGesture.id) return;
     if(Math.abs(event.clientX - tapGesture.x) > TAP_MOVE_PX || Math.abs(event.clientY - tapGesture.y) > TAP_MOVE_PX) tapGesture.moved = true;
-    if(Math.abs(pageScrollTop() - tapGesture.scroll) > 0) tapGesture.moved = true;
+    if(tapMoved()) tapGesture.moved = true;
     var pending = tapGesture;
-    setTimeout(function(){ if(tapGesture === pending) tapGesture = null; }, 0);
+    setTimeout(function(){ if(tapGesture === pending) tapGesture = null; }, 700);
   }, true);
   document.addEventListener('click', function(event){
     if(!tapGesture) return;
-    var dragged = tapGesture.moved || Math.abs(pageScrollTop() - tapGesture.scroll) > 0;
+    var control = tapGesture.control;
+    var dragged = tapMoved();
     tapGesture = null;
-    if(!dragged) return;
-    event.preventDefault();
-    event.stopPropagation();
+    if(dragged){
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if(wantsProgrammaticFocus(control)){
+      var field = control.matches('label') ? document.getElementById(control.htmlFor) : control;
+      if(field && field.focus) field.focus();
+    }
   }, true);
   let kioskHome = document.body.classList.contains('kiosk-home');
   const q=document.getElementById('q'), onlyLow=document.getElementById('onlyLow'), onlyAvailable=document.getElementById('onlyAvailable');
@@ -451,8 +506,6 @@
     document.querySelectorAll('.takeform').forEach(form=>{
       const input=form.querySelector('.qty');
       if(input) input.value='1';
-      const note=form.querySelector('.note');
-      if(note) note.value='';
       const minus=form.querySelector('[data-add="-1"]');
       if(minus) minus.disabled=true;
     });
@@ -809,7 +862,6 @@
       if(!res.ok || !data.ok) throw new Error(greekError(data.message));
       updateCard(data);
       action.setQty(1);
-      const note=form.querySelector('.note'); if(note) note.value='';
       const verb=action.mode==='add'?'Έβαλες':'Πήρες';
       const unit=data.unit ? ' '+data.unit : '';
       const who=workerName ? ' · '+workerName : '';
