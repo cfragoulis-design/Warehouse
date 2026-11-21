@@ -605,6 +605,17 @@ def consumable_image(
 
 
 
+def _notify_lot_expiry(db: Session) -> None:
+    from datetime import date
+    try:
+        from app.digest_service import _telegram_send_safe
+        from app.lots import notify_expiring_lots
+    except ImportError:
+        from digest_service import _telegram_send_safe
+        from lots import notify_expiring_lots
+    notify_expiring_lots(db, date.today(), _telegram_send_safe)
+
+
 def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
         ConsumableStock.location_code == WORKSHOP_CODE
@@ -648,6 +659,13 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
         })
     _attach_images(rows, _image_ids(db))
     _attach_forecast(db, rows)
+    try:
+        from app.lots import fifo_hint, tracks_lots
+    except ImportError:
+        from lots import fifo_hint, tracks_lots
+    for row in rows:
+        row["tracks_lots"] = tracks_lots(row.get("category"))
+        row["fifo_hint"] = fifo_hint(db, row["id"]) if row["tracks_lots"] else ""
     return rows, low_count
 
 
@@ -871,7 +889,14 @@ def consumable_take_submit(
         worker_id=chosen_id,
         pin_verified=pin_verified,
     )
+    try:
+        from app.lots import consume_fifo, tracks_lots
+    except ImportError:
+        from lots import consume_fifo, tracks_lots
+    if tracks_lots(c.category):
+        consume_fifo(db, c.id, amount)
     db.commit()
+    _notify_lot_expiry(db)
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))
         data['movement_type'] = 'OUT'
@@ -898,6 +923,8 @@ def consumable_add_submit(
     qty: str = Form(...),
     note: str = Form(""),
     worker_id: str = Form(""),
+    lot_code: str = Form(""),
+    expiry: str = Form(""),
 ):
     c = db.get(Consumable, cid)
     if not c or not c.is_active:
@@ -926,7 +953,16 @@ def consumable_add_submit(
         worker_id=chosen_id,
         pin_verified=pin_verified,
     )
+    if isinstance(lot_code, str) and isinstance(expiry, str) and lot_code.strip() and expiry.strip():
+        from datetime import date as _date
+        try:
+            from app.lots import receive_lot, tracks_lots
+        except ImportError:
+            from lots import receive_lot, tracks_lots
+        if tracks_lots(c.category):
+            receive_lot(db, c.id, lot_code, _date.fromisoformat(expiry), amount)
     db.commit()
+    _notify_lot_expiry(db)
 
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))
