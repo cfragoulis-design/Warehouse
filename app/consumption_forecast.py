@@ -83,7 +83,30 @@ def forecast_from_takes(
         "days_left": days_left,
         "weekly_qty": _fmt_qty(weekly),
         "runs_out_before_order": days_left <= TYPICAL_ORDER_DAYS,
+        "daily_qty": daily,
+        "runout_date": runout_date(now, days_left).isoformat(),
     }
+
+
+def runout_date(now: datetime, days_left: int):
+    """Athens calendar day on which the stock is expected to run out."""
+    from zoneinfo import ZoneInfo
+
+    local_today = _as_utc(now).astimezone(ZoneInfo("Europe/Athens")).date()
+    return local_today + timedelta(days=max(int(days_left), 0))
+
+
+_GREEK_WEEKDAYS = ("Δευ", "Τρί", "Τετ", "Πέμ", "Παρ", "Σάβ", "Κυρ")
+
+
+def runout_label(iso_day: str | None) -> str:
+    """``Τρί 24/11`` for an ISO date, empty when unknown."""
+    if not iso_day:
+        return ""
+    from datetime import date as _date
+
+    day = _date.fromisoformat(iso_day)
+    return f"{_GREEK_WEEKDAYS[day.weekday()]} {day.day:02d}/{day.month:02d}"
 
 
 def days_phrase(days_left: int) -> str:

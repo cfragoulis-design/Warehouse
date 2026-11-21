@@ -140,8 +140,9 @@ def test_touch_drag_does_not_activate_item_controls_but_a_tap_does() -> None:
                 """() => {
                   window.__posts = 0;
                   const orig = window.fetch;
-                  window.fetch = function(){
-                    window.__posts += 1;
+                  window.fetch = function(url){
+                    // the background kiosk-health ping is not a control activation
+                    if(String(url).indexOf('/consumables/take/page-status') === -1) window.__posts += 1;
                     return orig.apply(this, arguments);
                   };
                 }"""

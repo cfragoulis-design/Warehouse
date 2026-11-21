@@ -65,8 +65,19 @@ def run_alert_pass(db: Session, *, send=None, today=None) -> dict:
         from models import Consumable
         from supplier_alerts import athens_today, dispatch_supplier_alerts
 
+    try:
+        from app.kiosk_insights import detect_anomalies, notify_anomalies
+    except ImportError:  # pragma: no cover
+        from kiosk_insights import detect_anomalies, notify_anomalies
+
+    # Anomaly flags are recorded for the admin page even when Telegram is OFF.
+    try:
+        detect_anomalies(db)
+    except Exception:
+        logger.exception("Anomaly detection failed")
+        db.rollback()
     if not telegram_alerts_enabled(db):
-        return {"enabled": False, "suppliers": [], "lots": 0}
+        return {"enabled": False, "suppliers": [], "lots": 0, "anomalies": 0}
     sender = _telegram_send_safe if send is None else send
     day = today or athens_today()
     items = db.query(Consumable).filter(Consumable.is_active.is_(True)).all()
@@ -74,7 +85,8 @@ def run_alert_pass(db: Session, *, send=None, today=None) -> dict:
     rows = [_admin_row(item, stock_map, on_order_map, suppliers) for item in items]
     suppliers_sent = dispatch_supplier_alerts(db, rows, today=day, send=sender)
     lots_sent = notify_expiring_lots(db, day, sender)
-    return {"enabled": True, "suppliers": suppliers_sent, "lots": lots_sent}
+    anomalies_sent = notify_anomalies(db, sender)
+    return {"enabled": True, "suppliers": suppliers_sent, "lots": lots_sent, "anomalies": anomalies_sent}
 
 
 def run_consumable_alerts(session_factory=None, *, send=None) -> None:

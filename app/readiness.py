@@ -37,6 +37,13 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
     # 20261121_020); without it the release would be "ready" but no one could
     # sign in.
     "auth_login_events": frozenset({"id", "account", "source", "succeeded", "created_at"}),
+    # Smart kiosk (migration 20261121_021): the dashboard kiosk box selects the
+    # new heartbeat columns and every take's alert pass reads the anomaly table.
+    "kiosk_heartbeats": frozenset(
+        {"id", "seen_at", "page_ok", "kiosk_version", "uptime_s", "wifi_signal", "page_alive_s", "watchdog_reloads"}
+    ),
+    "consumable_anomalies": frozenset({"id", "kind", "dedup_key", "created_at", "notified_at", "acknowledged_at"}),
+    "kiosk_page_status": frozenset({"device_key", "last_seen_at", "queue_len", "online", "page_version"}),
     "products": frozenset(
         {
             "id",

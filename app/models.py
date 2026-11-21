@@ -795,6 +795,49 @@ class KioskHeartbeat(Base):
     disk_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
     temp_c: Mapped[int | None] = mapped_column(Integer, nullable=True)
     page_ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    kiosk_version: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    uptime_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wifi_signal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_alive_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    watchdog_reloads: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class KioskPageStatus(Base):
+    """Last ping from the kiosk page itself: offline queue length and page build."""
+
+    __tablename__ = "kiosk_page_status"
+
+    device_key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    queue_len: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    online: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    page_version: Mapped[str] = mapped_column(String(60), nullable=False, default="")
+    user_agent: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+
+
+class ConsumableAnomaly(Base):
+    """An unusual movement pattern (large take, repeated undo), deduplicated by key."""
+
+    __tablename__ = "consumable_anomalies"
+    __table_args__ = (
+        Index("ux_consumable_anomalies_dedup", "dedup_key", unique=True),
+        Index("ix_consumable_anomalies_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    dedup_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    consumable_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("consumables.id", ondelete="SET NULL"), nullable=True)
+    worker_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    movement_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    qty: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    baseline: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    occurrences: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    detail: Mapped[str] = mapped_column(String(400), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class KioskSilenceAlert(Base):

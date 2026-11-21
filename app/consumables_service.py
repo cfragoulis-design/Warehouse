@@ -19,7 +19,7 @@ try:
     from app.auth import is_warehouse_only, require_role, require_user, verify_pin
     from app.kiosk_session import fold_search, kiosk_ui_enabled
     from app.consumable_images import initials, jpeg_thumbnail, card_webp
-    from app.consumption_forecast import days_phrase, forecast_flags
+    from app.consumption_forecast import days_phrase, forecast_flags, runout_label
     from app.order_sheet import build_order_sheet
     from app.worker_service import (
         LOCKED_PIN_MESSAGE,
@@ -55,7 +55,7 @@ except ImportError:
     from auth import is_warehouse_only, require_role, require_user, verify_pin
     from kiosk_session import fold_search, kiosk_ui_enabled
     from consumable_images import initials, jpeg_thumbnail, card_webp
-    from consumption_forecast import days_phrase, forecast_flags
+    from consumption_forecast import days_phrase, forecast_flags, runout_label
     from order_sheet import build_order_sheet
     from worker_service import (
         LOCKED_PIN_MESSAGE,
@@ -464,6 +464,7 @@ def _attach_forecast(db: Session, rows: list[dict]) -> None:
         row["days_phrase"] = "" if info is None else days_phrase(info["days_left"])
         row["runs_out_before_order"] = bool(info and info["runs_out_before_order"])
         row["weekly_qty"] = "" if info is None else info["weekly_qty"]
+        row["runout_label"] = "" if info is None else runout_label(info.get("runout_date"))
 
 
 @router.get("/consumables")
@@ -689,20 +690,21 @@ def consumable_image(
 
 
 
+def _page_version() -> str:
+    try:
+        from app.kiosk_insights import server_version
+    except ImportError:  # pragma: no cover
+        from kiosk_insights import server_version
+    return server_version()
+
+
 def _worker_favorites(db: Session) -> dict[str, list[int]]:
-    rows = (
-        db.query(ConsumableMovement.worker_id, ConsumableMovement.consumable_id, func.count())
-        .filter(ConsumableMovement.movement_type == "OUT", ConsumableMovement.worker_id.isnot(None))
-        .group_by(ConsumableMovement.worker_id, ConsumableMovement.consumable_id)
-        .all()
-    )
-    buckets: dict[int, list[tuple[int, int]]] = {}
-    for worker_id, consumable_id, count in rows:
-        buckets.setdefault(int(worker_id), []).append((int(count), int(consumable_id)))
-    return {
-        str(worker_id): [consumable_id for _count, consumable_id in sorted(pairs, reverse=True)[:8]]
-        for worker_id, pairs in buckets.items()
-    }
+    """Per-worker quick-picks: recent takes, weighted to this hour and weekday."""
+    try:
+        from app.kiosk_insights import worker_quick_picks
+    except ImportError:  # pragma: no cover
+        from kiosk_insights import worker_quick_picks
+    return worker_quick_picks(db)
 
 
 def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
@@ -901,11 +903,12 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "workers": worker_choices(active_workers(db)),
             "high_value": high_value,
             "runout_items": [
-                {"id": row["id"], "name": row["name"], "days_left": row["days_left"]}
+                {"id": row["id"], "name": row["name"], "days_left": row["days_left"], "runout": row.get("runout_label", "")}
                 for row in rows
                 if row.get("days_left") is not None
             ],
             "favorites": _worker_favorites(db),
+            "page_version": _page_version(),
         },
     )
 

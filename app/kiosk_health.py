@@ -49,6 +49,23 @@ def should_alert(last_seen: datetime | None, last_alert: datetime | None, now: d
     return True
 
 
+def _small_int(value) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if -1 < number < 2_000_000_000 else None
+
+
+def _short_text(value, limit: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    clean = "".join(ch for ch in value if ch.isalnum() or ch in "._-")[:limit]
+    return clean or None
+
+
 def record_heartbeat(db: Session, payload: dict, *, now: datetime | None = None) -> KioskHeartbeat:
     moment = now or datetime.now(timezone.utc)
     row = KioskHeartbeat(
@@ -57,6 +74,11 @@ def record_heartbeat(db: Session, payload: dict, *, now: datetime | None = None)
         disk_pct=payload.get("disk_pct"),
         temp_c=payload.get("temp_c"),
         page_ok=bool(payload.get("page_ok", True)),
+        kiosk_version=_short_text(payload.get("kiosk_version"), 30),
+        uptime_s=_small_int(payload.get("uptime_s")),
+        wifi_signal=_small_int(payload.get("wifi_signal")),
+        page_alive_s=_small_int(payload.get("page_alive_s")),
+        watchdog_reloads=_small_int(payload.get("watchdog_reloads_today")),
     )
     db.add(row)
     db.commit()

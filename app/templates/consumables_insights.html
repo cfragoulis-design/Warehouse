@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Έξυπνη εικόνα αποθήκης</title>
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial,sans-serif}
+    a{color:#a9c7ff;text-decoration:none}
+    .top{position:sticky;top:0;z-index:2;background:rgba(11,16,32,.96);border-bottom:1px solid var(--line);padding:12px 16px}
+    .nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .pill{border:1px solid var(--line);border-radius:999px;padding:8px 12px;font-weight:700}
+    .pill.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45)}
+    .wrap{max-width:1040px;margin:0 auto;padding:16px}
+    .intro,.note{color:var(--muted);margin:0 0 14px}
+    td .note{margin:2px 0 0;font-size:12px}
+    .card{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:14px;margin-bottom:16px}
+    h2{margin:0 0 8px;font-size:20px}
+    h3{margin:12px 0 6px;font-size:17px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+    th{color:var(--muted);font-size:12px;font-weight:700}
+    .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:800;border:1px solid var(--line)}
+    .tag.now{background:rgba(239,68,68,.14);color:#fecaca;border-color:rgba(239,68,68,.45)}
+    .tag.soon{background:rgba(245,158,11,.16);color:#fde68a;border-color:rgba(245,158,11,.45)}
+    .tag.ok{background:rgba(53,194,125,.12);color:#c8f7dd;border-color:rgba(53,194,125,.45)}
+    .tag.muted{color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+    .stat{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:#0e1530}
+    .stat b{display:block;font-size:18px;margin-top:2px}
+    .stat small{color:var(--muted)}
+    pre.message{white-space:pre-wrap;background:#0e1530;border:1px solid var(--line);border-radius:12px;padding:12px;font:15px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+    button{font:inherit;color:inherit;background:#162044;border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:800}
+    .empty{padding:16px;border:1px dashed var(--line);border-radius:12px;color:var(--muted)}
+    .done td{opacity:.55}
+    details summary{cursor:pointer;color:var(--muted);font-weight:700;margin-top:8px}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body class="order-sheet">
+  <div class="top">
+    <strong>Έξυπνη εικόνα αποθήκης</strong>
+    <div class="nav">
+      <a class="pill" href="/dashboard">Dashboard</a>
+      <a class="pill" href="/consumables">Αναλώσιμα</a>
+      <a class="pill" href="/consumables/orders">Λίστα παραγγελίας</a>
+      <a class="pill primary" href="/admin/consumables/insights">Έξυπνη εικόνα</a>
+    </div>
+  </div>
+  <main class="wrap">
+    <p class="intro">Υπολογίζεται από τις λήψεις των τελευταίων 8 εβδομάδων. Τίποτα δεν στέλνεται αυτόματα σε προμηθευτές.</p>
+
+    <section class="card" id="kiosk">
+      <h2>Κιόσκι αποθήκης</h2>
+      <div class="grid">
+        <div class="stat"><small>Σήμα συστήματος</small>
+          {% if health.system %}
+          <b>{{ health.system.age }} <span class="tag {{ 'ok' if health.system.ok else 'now' }}">{{ 'OK' if health.system.ok else 'ΠΡΟΒΛΗΜΑ' }}</span></b>
+          <small>{{ health.system.seen }} · μνήμη {{ health.system.mem_mb if health.system.mem_mb is not none else '—' }} MB · δίσκος {{ health.system.disk_pct if health.system.disk_pct is not none else '—' }}%{% if health.system.temp_c is not none %} · {{ health.system.temp_c }}°C{% endif %}{% if health.system.wifi_signal is not none %} · Wi-Fi {{ health.system.wifi_signal }}%{% endif %}{% if health.system.watchdog_reloads %} · {{ health.system.watchdog_reloads }} επανεκκινήσεις σελίδας σήμερα{% endif %}</small>
+          {% else %}
+          <b>Δεν έχει έρθει σήμα</b><small>Ο χρονοδιακόπτης του κιοσκιού ενεργοποιείται μετά την έκδοση.</small>
+          {% endif %}
+        </div>
+        {% for page in health.pages[:1] %}
+        <div class="stat"><small>Σελίδα λήψης</small>
+          <b>{{ page.age }} <span class="tag {{ 'ok' if page.ok else ('soon' if page.fresh else 'now') }}">{{ 'OK' if page.ok else ('ΕΛΕΓΞΕ' if page.fresh else 'ΣΙΩΠΗ') }}</span></b>
+          <small>{{ page.seen }} · {{ 'online' if page.online else 'offline' }}</small>
+        </div>
+        <div class="stat"><small>Κινήσεις σε αναμονή (εκτός σύνδεσης)</small>
+          <b>{{ page.queue_len }}</b><small>{{ 'Όλα έχουν σταλεί' if page.queue_len == 0 else 'Θα σταλούν μόλις επανέλθει το δίκτυο' }}</small>
+        </div>
+        <div class="stat"><small>Έκδοση</small>
+          <b>{{ page.page_version }}{% if not page.version_matches %} <span class="tag soon">παλιά σελίδα</span>{% endif %}</b>
+          <small>διακομιστής {{ health.server_version }}{% if health.system and health.system.kiosk_version %} · κιόσκι {{ health.system.kiosk_version }}{% endif %}</small>
+        </div>
+        {% else %}
+        <div class="stat"><small>Σελίδα λήψης</small><b>Δεν έχει αναφέρει ακόμα</b><small>διακομιστής {{ health.server_version }}</small></div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="card" id="runout">
+      <h2>Τι τελειώνει</h2>
+      {% if ranking %}
+      <table>
+        <thead><tr><th>Είδος</th><th class="num">Απόθεμα</th><th class="num">Χρήση/εβδ.</th><th>Πρόβλεψη</th><th>Προμηθευτής</th></tr></thead>
+        <tbody>
+        {% for item in ranking %}
+          <tr>
+            <td>{{ item.name }}</td>
+            <td class="num">{{ item.on_hand_display }} {{ item.unit }}</td>
+            <td class="num">{{ item.weekly_qty or '—' }}</td>
+            <td><span class="tag {{ item.level }}">{{ item.days_phrase }}</span>{% if item.runout_label %} <span class="note">{{ item.runout_label }}</span>{% endif %}</td>
+            <td>{{ item.supplier_name }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">Τίποτα δεν τελειώνει τις επόμενες 10 μέρες.</div>
+      {% endif %}
+      {% if ranking_ok %}
+      <details><summary>Υπόλοιπα είδη με πρόβλεψη ({{ ranking_ok|length }})</summary>
+        <table><tbody>
+        {% for item in ranking_ok %}
+          <tr><td>{{ item.name }}</td><td class="num">{{ item.on_hand_display }} {{ item.unit }}</td><td class="num">{{ item.weekly_qty }}/εβδ.</td><td><span class="tag ok">{{ item.days_phrase }}</span> <span class="note">{{ item.runout_label }}</span></td></tr>
+        {% endfor %}
+        </tbody></table>
+      </details>
+      {% endif %}
+    </section>
+
+    <section class="card" id="plan">
+      <h2>Πρόταση παραγγελίας</h2>
+      <p class="note">Για είδη στο ελάχιστο ή που τελειώνουν μέσα σε 10 μέρες: ποσότητα για 14 μέρες χρήσης (ή ως το επιθυμητό, όποιο είναι μεγαλύτερο), μείον απόθεμα και ό,τι είναι ήδη σε παραγγελία, σε ολόκληρες συσκευασίες. Είναι πρόχειρο: αντέγραψέ το αν θέλεις.</p>
+      {% for plan in plans %}
+      <h3>{{ plan.supplier_name }} · {{ plan.total_label }}</h3>
+      <table>
+        <thead><tr><th>Είδος</th><th class="num">Απόθεμα</th><th class="num">Στόχος</th><th class="num">Συσκευασίες</th><th>Γιατί</th><th class="num">Σύνολο</th></tr></thead>
+        <tbody>
+        {% for line in plan.lines %}
+          <tr>
+            <td>{{ line.name }}<div class="note">{{ line.units_display }} {{ line.unit }} · συσκευασία {{ line.pack_display }}</div></td>
+            <td class="num">{{ line.on_hand_display }}</td>
+            <td class="num">{{ line.target_display }}</td>
+            <td class="num">{{ line.packs }}</td>
+            <td>{{ line.reason }}</td>
+            <td class="num">{{ line.line_total_label }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <pre class="message">{{ plan.message }}</pre>
+      <div class="actions"><button type="button" class="copyBtn">Αντιγραφή</button></div>
+      {% else %}
+      <div class="empty">Δεν χρειάζεται παραγγελία τώρα.</div>
+      {% endfor %}
+    </section>
+
+    <section class="card" id="anomalies">
+      <h2>Ασυνήθιστες κινήσεις</h2>
+      <p class="note">Λήψη πολύ μεγαλύτερη από τη συνηθισμένη του είδους, ή 3+ αναιρέσεις από τον ίδιο εργαζόμενο μέσα σε 30 λεπτά. Ειδοποίηση στο Telegram όταν είναι ενεργό.</p>
+      {% if anomalies %}
+      <table>
+        <thead><tr><th>Πότε</th><th>Τύπος</th><th>Τι έγινε</th><th></th></tr></thead>
+        <tbody>
+        {% for a in anomalies %}
+          <tr class="{{ 'done' if a.acknowledged else '' }}">
+            <td class="num">{{ a.when }}</td>
+            <td><span class="tag {{ 'soon' if not a.acknowledged else 'muted' }}">{{ a.kind_label }}</span></td>
+            <td>{{ a.detail }}{% if a.notified %} <span class="note">· Telegram</span>{% endif %}</td>
+            <td class="num">{% if a.acknowledged %}Ελέγχθηκε{% else %}<form method="post" action="/admin/consumables/insights/anomalies/{{ a.id }}/ack"><button type="submit">Το είδα</button></form>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">Καμία ασυνήθιστη κίνηση τις τελευταίες 14 μέρες.</div>
+      {% endif %}
+    </section>
+  </main>
+  <script>
+    document.querySelectorAll('.copyBtn').forEach(function(button){
+      button.addEventListener('click', function(){
+        var pre = button.parentNode.previousElementSibling;
+        var text = pre ? pre.textContent : '';
+        var done = function(){ button.textContent = 'Αντιγράφηκε'; setTimeout(function(){ button.textContent = 'Αντιγραφή'; }, 1600); };
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(done, function(){ window.prompt('Αντιγραφή', text); });
+        } else {
+          window.prompt('Αντιγραφή', text);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

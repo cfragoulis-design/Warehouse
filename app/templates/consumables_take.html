@@ -55,6 +55,7 @@
     .stock{font-size:32px;font-weight:900;line-height:1}
     .badge{display:inline-flex;align-items:center;border-radius:999px;padding:6px 10px;border:1px solid var(--line);font-size:18px;font-weight:800;color:var(--muted)}
     .badge.low{color:#ffd6d6;border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.10)}
+    .pickTag{color:#fde68a;font-weight:800}
     .badge.ok{color:#c8f7dd;border-color:rgba(53,194,125,.45);background:rgba(53,194,125,.10)}
     .takeform{display:grid;gap:8px}
     .qtyline{display:grid;grid-template-columns:64px minmax(0,1fr) 64px 64px minmax(72px,.8fr);gap:8px;align-items:stretch}
@@ -324,7 +325,7 @@
           <span class="thumb fallback">{{ r.initials }}</span>
           {% endif %}
           <div>
-            <div class="catLabel">{{ r.category }}</div>
+            <div class="catLabel">{{ r.category }}<span class="pickTag" hidden> · ★ συχνό σου</span></div>
             <h3>{{ r.name }}</h3>
             <div class="meta">συσκευασία {{ r.pack_display }} {{ r.unit }}</div>
         {% if r.fifo_hint %}<div class="meta">{{ r.fifo_hint }}</div>{% endif %}
@@ -495,6 +496,7 @@
 
   <script type="application/json" id="runoutData">{{ runout_items | tojson }}</script>
   <script type="application/json" id="favoritesData">{{ favorites | tojson }}</script>
+  <script type="application/json" id="pageVersion">{{ page_version | tojson }}</script>
 
 <script>
 (function(){
@@ -752,7 +754,7 @@
       try{
         JSON.parse(blob.textContent||'[]').forEach(item => {
           if(item && item.days_left != null && Number(item.days_left) <= 7 && low.indexOf(item.name) === -1){
-            soon.push(item.name+' · ~'+item.days_left+' μέρες');
+            soon.push(item.name+' · ~'+item.days_left+' μέρες'+(item.runout ? ' ('+item.runout+')' : ''));
           }
         });
       }catch(err){}
@@ -918,6 +920,9 @@
     if(navigator.serviceWorker) navigator.serviceWorker.register('/sw.js');
     window.addEventListener('online', flushQueue);
     refreshOfflineBanner();
+    window.addEventListener('online', reportPageStatus);
+    setInterval(reportPageStatus, 60000);
+    setTimeout(reportPageStatus, 3000);
   }else{
     document.addEventListener('pointerdown', noteSessionTouch, {passive:true});
     markCategory(categoryFromLocation());
@@ -1106,6 +1111,7 @@
     queueToken='';
     clearTimeout(sessionTimer);
     sessionTouchAt=0;
+    if(typeof clearPickTags==='function') clearPickTags();
     if(!had) return;
     fetch('/consumables/take/session/end',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}}).catch(()=>{});
   }
@@ -1175,6 +1181,9 @@
     clearTimeout(whoTimer);
     whoTimer=setTimeout(closeWho, WHO_TIMEOUT_MS);
   }
+  function clearPickTags(){
+    document.querySelectorAll('#cards .pickTag').forEach(tag=>{ tag.hidden=true; });
+  }
   function promoteFavorites(workerId){
     const blob=document.getElementById('favoritesData');
     if(!blob) return;
@@ -1182,10 +1191,15 @@
     try{ map=JSON.parse(blob.textContent||'{}'); }catch(err){ return; }
     const ids=map[String(workerId)]||[];
     const cards=document.getElementById('cards');
+    clearPickTags();
     if(!cards || !ids.length) return;
     ids.slice().reverse().forEach(id=>{
       const card=cards.querySelector('.item[data-id="'+id+'"]');
-      if(card) cards.prepend(card);
+      if(card){
+        cards.prepend(card);
+        const tag=card.querySelector('.pickTag');
+        if(tag) tag.hidden=false;
+      }
     });
   }
   function chooseWorker(btn){
@@ -1277,6 +1291,17 @@
     const count = document.getElementById('offlineCount');
     if(count) count.textContent = String(n);
     banner.hidden = navigator.onLine && n === 0;
+  }
+  let pageVersion='';
+  try{ pageVersion=JSON.parse((document.getElementById('pageVersion')||{}).textContent||'""')||''; }catch(err){ pageVersion=''; }
+  async function reportPageStatus(){
+    // Kiosk health for the admin page: offline queue length and the page build.
+    if(!navigator.onLine) return;
+    let n = 0;
+    try { n = (await queuedMoves()).length; } catch (err) { n = 0; }
+    try{
+      await fetch('/consumables/take/page-status',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest','Accept':'application/json'},body:JSON.stringify({queue_len:n,online:navigator.onLine,page_version:String(pageVersion)})});
+    }catch(err){}
   }
   async function flushQueue(){
     if(!navigator.onLine) { await refreshOfflineBanner(); return; }
