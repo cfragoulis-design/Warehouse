@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 from collections import defaultdict
+import uuid
 
 from fastapi import APIRouter, Request, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import RedirectResponse, JSONResponse, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -220,6 +222,7 @@ def _log_consumable_movement(
     note: str | None = None,
     worker_id: int | None = None,
     pin_verified: bool = False,
+    client_key: uuid.UUID | None = None,
 ) -> None:
     db.add(
         ConsumableMovement(
@@ -231,9 +234,56 @@ def _log_consumable_movement(
             created_by_user_id=getattr(user, "id", None),
             worker_id=worker_id,
             pin_verified=bool(pin_verified and worker_id),
+            client_key=client_key,
             note=(note or "").strip() or None,
         )
     )
+
+
+def _parse_client_key(raw: str) -> uuid.UUID | None:
+    if not isinstance(raw, str):
+        return None
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        return uuid.UUID(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid client key") from exc
+
+
+def _movement_for_key(db: Session, key: uuid.UUID | None) -> ConsumableMovement | None:
+    if key is None:
+        return None
+    return db.query(ConsumableMovement).filter(ConsumableMovement.client_key == key).one_or_none()
+
+
+def _replay_payload(db: Session, movement: ConsumableMovement) -> dict:
+    consumable = db.get(Consumable, movement.consumable_id)
+    data = _consumable_ui_state(db, consumable, _d(movement.stock_after))
+    data["movement_type"] = movement.movement_type
+    data["qty"] = _fmt_qty(movement.qty)
+    data["replayed"] = True
+    data["client_key"] = str(movement.client_key) if movement.client_key else ""
+    if movement.worker_id:
+        worker = db.get(Worker, movement.worker_id)
+        data["worker_id"] = movement.worker_id
+        data["worker_name"] = worker.display_name if worker else ""
+    return data
+
+
+def _commit_or_replay(db: Session, key: uuid.UUID | None):
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if key is None:
+            raise
+        prior = _movement_for_key(db, key)
+        if prior is None:
+            raise
+        return JSONResponse(_replay_payload(db, prior))
+    return None
 
 
 def _admin_context_maps(db: Session):
@@ -839,10 +889,16 @@ def consumable_take_submit(
     qty: str = Form(...),
     note: str = Form(""),
     worker_id: str = Form(""),
+    client_key: str = Form(""),
 ):
     c = db.get(Consumable, cid)
     if not c or not c.is_active:
         raise HTTPException(404)
+
+    key = _parse_client_key(client_key)
+    prior = _movement_for_key(db, key)
+    if prior is not None:
+        return JSONResponse(_replay_payload(db, prior))
 
     del worker_id  # attribution comes from the signed session cookie
     chosen_id, pin_verified, session_worker = _movement_worker(request, db, user)
@@ -870,8 +926,11 @@ def consumable_take_submit(
         note=note or "Λήψη από το ταμπλό αποθήκης",
         worker_id=chosen_id,
         pin_verified=pin_verified,
+        client_key=key,
     )
-    db.commit()
+    replay = _commit_or_replay(db, key)
+    if replay is not None:
+        return replay
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))
         data['movement_type'] = 'OUT'
@@ -898,10 +957,16 @@ def consumable_add_submit(
     qty: str = Form(...),
     note: str = Form(""),
     worker_id: str = Form(""),
+    client_key: str = Form(""),
 ):
     c = db.get(Consumable, cid)
     if not c or not c.is_active:
         raise HTTPException(404)
+
+    key = _parse_client_key(client_key)
+    prior = _movement_for_key(db, key)
+    if prior is not None:
+        return JSONResponse(_replay_payload(db, prior))
 
     del worker_id  # attribution comes from the signed session cookie
     chosen_id, pin_verified, session_worker = _movement_worker(request, db, user)
@@ -925,8 +990,11 @@ def consumable_add_submit(
         note=note or "Προσθήκη από το ταμπλό αποθήκης",
         worker_id=chosen_id,
         pin_verified=pin_verified,
+        client_key=key,
     )
-    db.commit()
+    replay = _commit_or_replay(db, key)
+    if replay is not None:
+        return replay
 
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))

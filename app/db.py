@@ -397,6 +397,13 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE consumable_movements ADD COLUMN IF NOT EXISTS pin_verified BOOLEAN NOT NULL DEFAULT FALSE"
             )
+            conn.exec_driver_sql(
+                "ALTER TABLE consumable_movements ADD COLUMN IF NOT EXISTS client_key UUID"
+            )
+            conn.exec_driver_sql(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_consumable_movements_client_key "
+                "ON consumable_movements (client_key) WHERE client_key IS NOT NULL"
+            )
     except Exception as exc:
         _handle_startup_ddl_failure("workers", exc)
 
