@@ -57,7 +57,7 @@
     .badge.low{color:#ffd6d6;border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.10)}
     .badge.ok{color:#c8f7dd;border-color:rgba(53,194,125,.45);background:rgba(53,194,125,.10)}
     .takeform{display:grid;gap:8px}
-    .qtyline{display:grid;grid-template-columns:72px minmax(0,1fr) 72px 72px;gap:8px;align-items:stretch}
+    .qtyline{display:grid;grid-template-columns:64px minmax(0,1fr) 64px 64px minmax(72px,.8fr);gap:8px;align-items:stretch}
     .qtyline input{min-width:0;font-size:28px;font-weight:900;text-align:center;border-radius:14px;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:0;min-height:64px;height:64px;pointer-events:none;caret-color:transparent}
     .smallbtn,.stockBtn{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.04);color:var(--text);font-weight:900;min-height:64px;min-width:64px;padding:8px;cursor:pointer;font-size:22px}
     .smallbtn:active,.stockBtn:active,.pill:active,.toggle:active{transform:scale(0.98)}
@@ -298,6 +298,7 @@
             <input class="qty" name="qty_display" type="text" inputmode="none" readonly tabindex="-1" value="1" aria-label="Ποσότητα" />
             <button class="smallbtn" type="button" data-add="1" aria-label="Συν 1">+1</button>
             <button class="smallbtn" type="button" data-add="5" aria-label="Συν 5">+5</button>
+            <button class="smallbtn" type="button" data-add="pack" data-pack="{{ r.pack_display }}" aria-label="Πακέτο">πακέτο</button>
           </div>
           <input type="hidden" class="deltaField" name="delta" value="0" />
           <div class="actionRow">
@@ -390,6 +391,7 @@
   </div>
 
   <script type="application/json" id="runoutData">{{ runout_items | tojson }}</script>
+  <script type="application/json" id="favoritesData">{{ favorites | tojson }}</script>
 
 <script>
 (function(){
@@ -490,11 +492,15 @@
   const q=document.getElementById('q'), onlyLow=document.getElementById('onlyLow'), onlyAvailable=document.getElementById('onlyAvailable');
   let selectedCat='';
   function foldSearch(value){
-    return (value || '')
+    let text = (value || '')
       .toLocaleLowerCase('el')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/ς/g, 'σ');
+    if(!/[a-z]/.test(text)) return text;
+    const map = [['ou','ου'],['th','θ'],['ch','χ'],['ps','ψ'],['a','α'],['b','β'],['g','γ'],['d','δ'],['e','ε'],['z','ζ'],['h','η'],['i','ι'],['k','κ'],['l','λ'],['m','μ'],['n','ν'],['x','ξ'],['o','ο'],['p','π'],['r','ρ'],['s','σ'],['t','τ'],['y','υ'],['u','υ'],['f','φ'],['w','ω']];
+    map.forEach(pair => { text = text.split(pair[0]).join(pair[1]); });
+    return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ς/g, 'σ');
   }
   function knownCategory(value){
     if(!value) return '';
@@ -719,6 +725,13 @@
     btn.addEventListener('click', ()=>rememberCategory(btn.dataset.cat||''));
   });
   document.querySelectorAll('.homeCard').forEach(btn=>{
+    btn.addEventListener('pointerdown', ()=>{
+      const cat = btn.dataset.cat || '';
+      document.querySelectorAll('.item').forEach(item=>{
+        if(cat && item.dataset.category !== cat) return;
+        item.querySelectorAll('img').forEach(img=>{ img.loading = 'eager'; });
+      });
+    });
     btn.addEventListener('click', ()=>openKioskCategory(btn.dataset.cat||''));
   });
   document.querySelectorAll('.stripBtn').forEach(btn=>{
@@ -771,7 +784,23 @@
     if(undoBtn) undoBtn.hidden=true;
     undoState=null;
   }
+  function beep(ok){
+    try{
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if(!Ctx) return;
+      if(!beep.ctx) beep.ctx = new Ctx();
+      const osc = beep.ctx.createOscillator();
+      const gain = beep.ctx.createGain();
+      osc.frequency.value = ok ? 880 : 220;
+      osc.type = ok ? 'sine' : 'square';
+      gain.gain.value = 0.05;
+      osc.connect(gain); gain.connect(beep.ctx.destination);
+      osc.start();
+      osc.stop(beep.ctx.currentTime + (ok ? 0.07 : 0.16));
+    }catch(err){}
+  }
   function showToast(message,isError,undo){
+    beep(!isError);
     if(!toast) return;
     if(toastText) toastText.textContent=message || (isError?'Δεν ενημερώθηκε το απόθεμα':'Το απόθεμα ενημερώθηκε');
     toast.classList.toggle('err',!!isError);
@@ -846,7 +875,8 @@
     }
     input.addEventListener('focus', ()=>input.blur());
     form.querySelectorAll('[data-add]').forEach(btn=>btn.addEventListener('click', ()=>{
-      setQty(currentQty()+Number(btn.dataset.add));
+      if(btn.dataset.add==='pack') setQty(Number(btn.dataset.pack)||1);
+      else setQty(currentQty()+Number(btn.dataset.add));
     }));
     form.querySelectorAll('button[data-mode]').forEach(btn=>{
       btn.addEventListener('click', ()=>{submitMode=btn.dataset.mode || 'take';});
@@ -956,6 +986,19 @@
     clearTimeout(whoTimer);
     whoTimer=setTimeout(closeWho, WHO_TIMEOUT_MS);
   }
+  function promoteFavorites(workerId){
+    const blob=document.getElementById('favoritesData');
+    if(!blob) return;
+    let map={};
+    try{ map=JSON.parse(blob.textContent||'{}'); }catch(err){ return; }
+    const ids=map[String(workerId)]||[];
+    const cards=document.getElementById('cards');
+    if(!cards || !ids.length) return;
+    ids.slice().reverse().forEach(id=>{
+      const card=cards.querySelector('.item[data-id="'+id+'"]');
+      if(card) cards.prepend(card);
+    });
+  }
   function chooseWorker(btn){
     if(!btn) return;
     pinWorkerId=btn.dataset.worker || '';
@@ -1028,6 +1071,7 @@
         qty: String(data.qty)
       });
       armSessionTimer();
+      if(typeof promoteFavorites==='function') promoteFavorites(data.worker_id);
     }catch(err){
       showToast(err.message || 'Δεν ενημερώθηκε το απόθεμα', true, null);
     }finally{

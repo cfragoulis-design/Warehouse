@@ -42,14 +42,37 @@ _DEVICE_SALT = "warehouse-kiosk-device-v1"
 _WORKER_SALT = "warehouse-worker-session-v1"
 
 
-def fold_search(value: str) -> str:
-    """Case- and accent-insensitive key for Greek item search."""
+def _fold_accents(value: str) -> str:
     import unicodedata
 
     text = (value or "").casefold()
     text = unicodedata.normalize("NFD", text)
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     return text.replace("ς", "σ")
+
+
+_GREEKLISH = (
+    ("ou", "ου"), ("th", "θ"), ("ch", "χ"), ("ps", "ψ"),
+    ("a", "α"), ("b", "β"), ("g", "γ"), ("d", "δ"), ("e", "ε"),
+    ("z", "ζ"), ("h", "η"), ("i", "ι"), ("k", "κ"), ("l", "λ"),
+    ("m", "μ"), ("n", "ν"), ("x", "ξ"), ("o", "ο"), ("p", "π"),
+    ("r", "ρ"), ("s", "σ"), ("t", "τ"), ("y", "υ"), ("u", "υ"), ("f", "φ"), ("w", "ω"),
+)
+
+
+def greeklish_fold(value: str) -> str:
+    """Accent-folded text. Latin greeklish is turned into Greek letters."""
+    text = _fold_accents(value)
+    if not any("a" <= ch <= "z" for ch in text):
+        return text
+    for source, target in _GREEKLISH:
+        text = text.replace(source, target)
+    return _fold_accents(text)
+
+
+def fold_search(value: str) -> str:
+    """Case- and accent-insensitive key. Latin greeklish becomes Greek letters."""
+    return greeklish_fold(value)
 
 
 def _serializer(salt: str = _DEVICE_SALT) -> URLSafeTimedSerializer:

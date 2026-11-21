@@ -12,7 +12,7 @@ try:
     from app.db import acquire_transaction_lock, get_db
     from app.auth import is_warehouse_only, require_role, require_user, verify_pin
     from app.kiosk_session import fold_search, kiosk_ui_enabled
-    from app.consumable_images import initials, jpeg_thumbnail
+    from app.consumable_images import initials, jpeg_thumbnail, card_webp
     from app.consumption_forecast import days_phrase, forecast_flags
     from app.order_sheet import build_order_sheet
     from app.worker_service import (
@@ -45,7 +45,7 @@ except ImportError:
     from db import acquire_transaction_lock, get_db
     from auth import is_warehouse_only, require_role, require_user, verify_pin
     from kiosk_session import fold_search, kiosk_ui_enabled
-    from consumable_images import initials, jpeg_thumbnail
+    from consumable_images import initials, jpeg_thumbnail, card_webp
     from consumption_forecast import days_phrase, forecast_flags
     from order_sheet import build_order_sheet
     from worker_service import (
@@ -597,12 +597,30 @@ def consumable_image(
     blob = item.image_bytes if item is not None else None
     if not blob:
         raise HTTPException(status_code=404, detail="No image")
+    webp = card_webp(blob)
+    media = "image/webp" if webp[:4] == b"RIFF" else (item.image_content_type or "image/jpeg")
     return Response(
-        content=blob,
-        media_type=item.image_content_type or "image/jpeg",
+        content=webp,
+        media_type=media,
         headers={"Cache-Control": "private, max-age=3600"},
     )
 
+
+
+def _worker_favorites(db: Session) -> dict[str, list[int]]:
+    rows = (
+        db.query(ConsumableMovement.worker_id, ConsumableMovement.consumable_id, func.count())
+        .filter(ConsumableMovement.movement_type == "OUT", ConsumableMovement.worker_id.isnot(None))
+        .group_by(ConsumableMovement.worker_id, ConsumableMovement.consumable_id)
+        .all()
+    )
+    buckets: dict[int, list[tuple[int, int]]] = {}
+    for worker_id, consumable_id, count in rows:
+        buckets.setdefault(int(worker_id), []).append((int(count), int(consumable_id)))
+    return {
+        str(worker_id): [consumable_id for _count, consumable_id in sorted(pairs, reverse=True)[:8]]
+        for worker_id, pairs in buckets.items()
+    }
 
 
 def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
@@ -716,6 +734,7 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
                 for row in rows
                 if row.get("days_left") is not None
             ],
+            "favorites": _worker_favorites(db),
         },
     )
 
