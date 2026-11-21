@@ -875,6 +875,7 @@ def test_successor_migration_checksum_is_bound_to_exact_reviewed_sql() -> None:
         "20261120_004",
         "20261121_012",
         "20261121_013",
+        "20261121_014",
     )
 
 
