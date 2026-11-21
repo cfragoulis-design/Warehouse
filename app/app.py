@@ -170,12 +170,16 @@ if not runtime_settings.operations_source_mode:
     assert session_secret is not None
     try:
         from app.kiosk_session import KioskDeviceMiddleware, SESSION_MAX_AGE_SECONDS
+        from app.request_security import AdminStepUpMiddleware
     except ImportError:
         from kiosk_session import KioskDeviceMiddleware, SESSION_MAX_AGE_SECONDS
+        from request_security import AdminStepUpMiddleware
 
     # Added first so SessionMiddleware stays outermost and loads the session
     # before the kiosk check. max_age stays the 14-day Starlette default for
     # every role; only a warehouse kiosk gets the separate device cookie.
+    # The existing HTTP middleware already sends the production CSP.
+    app.add_middleware(AdminStepUpMiddleware)
     app.add_middleware(KioskDeviceMiddleware)
     app.add_middleware(
         SessionMiddleware,

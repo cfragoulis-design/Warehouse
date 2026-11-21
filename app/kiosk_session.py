@@ -64,8 +64,8 @@ def _serializer(salt: str = _DEVICE_SALT) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(secret, salt=salt)
 
 
-def issue_kiosk_device_token(user_id: int) -> str:
-    return _serializer().dumps({"uid": int(user_id), "v": 1})
+def issue_kiosk_device_token(user_id: int, key_version: int = 1) -> str:
+    return _serializer().dumps({"uid": int(user_id), "v": 1, "k": int(key_version)})
 
 
 def issue_worker_session_token(worker_id: int, user_id: int, device_uid: int) -> str:
@@ -112,6 +112,7 @@ def read_kiosk_device_uid(
     token: str | None,
     *,
     max_age: int = KIOSK_DEVICE_MAX_AGE_SECONDS,
+    key_version: int = 1,
 ) -> int | None:
     if not token:
         return None
@@ -124,7 +125,35 @@ def read_kiosk_device_uid(
     uid = data.get("uid")
     if isinstance(uid, bool) or not isinstance(uid, int) or uid <= 0:
         return None
+    if int(data.get("k") or 1) != int(key_version):
+        return None
     return uid
+
+
+def kiosk_key_version(db: Session) -> int:
+    try:
+        from app.models import AppFlag
+    except ImportError:
+        from models import AppFlag
+    flag = db.get(AppFlag, "kiosk_key_version")
+    if flag is None or not str(flag.note or "").isdigit():
+        return 1
+    return int(flag.note)
+
+
+def rotate_kiosk_key(db: Session) -> int:
+    try:
+        from app.models import AppFlag
+    except ImportError:
+        from models import AppFlag
+    flag = db.get(AppFlag, "kiosk_key_version")
+    version = (kiosk_key_version(db) + 1)
+    if flag is None:
+        db.add(AppFlag(key="kiosk_key_version", bool_value=True, note=str(version)))
+    else:
+        flag.note = str(version)
+    db.commit()
+    return version
 
 
 def kiosk_ui_enabled(request: Request, user: object) -> bool:
@@ -172,6 +201,7 @@ def decide_kiosk_session(
     kiosk_query: str | None,
     mode_cookie: str | None,
     device_token: str | None,
+    key_version: int = 1,
 ) -> KioskDecision:
     """Choose what to do with the kiosk cookies for this request.
 
@@ -183,7 +213,7 @@ def decide_kiosk_session(
         return KioskDecision("clear")
 
     mode_on = mode_cookie == "1"
-    token_uid = read_kiosk_device_uid(device_token)
+    token_uid = read_kiosk_device_uid(device_token, key_version=key_version)
     session_uid = session.get("uid")
     try:
         candidate = int(session_uid) if session_uid else token_uid
@@ -220,7 +250,7 @@ def _cookie_values(response: Response) -> list[str]:
     ]
 
 
-def kiosk_set_cookie_headers(user_id: int) -> list[str]:
+def kiosk_set_cookie_headers(user_id: int, key_version: int = 1) -> list[str]:
     response = Response()
     common = {
         "max_age": KIOSK_DEVICE_MAX_AGE_SECONDS,
@@ -232,7 +262,7 @@ def kiosk_set_cookie_headers(user_id: int) -> list[str]:
     response.set_cookie(KIOSK_MODE_COOKIE, "1", **common)
     response.set_cookie(
         KIOSK_DEVICE_COOKIE,
-        issue_kiosk_device_token(user_id),
+        issue_kiosk_device_token(user_id, key_version),
         **common,
     )
     return _cookie_values(response)
@@ -282,6 +312,7 @@ class KioskDeviceMiddleware:
         device_token = request.cookies.get(KIOSK_DEVICE_COOKIE)
         relevant = kiosk_query in {"0", "1"} or mode_cookie == "1" or bool(device_token)
         decision = KioskDecision("ignore")
+        key_version = 1
         if relevant:
             try:
                 from app.db import SessionLocal
@@ -290,12 +321,14 @@ class KioskDeviceMiddleware:
 
             db = SessionLocal()
             try:
+                key_version = kiosk_key_version(db)
                 decision = decide_kiosk_session(
                     db=db,
                     session=session,
                     kiosk_query=kiosk_query,
                     mode_cookie=mode_cookie,
                     device_token=device_token,
+                    key_version=key_version,
                 )
             except Exception:
                 logger.exception("kiosk session check failed")
@@ -317,7 +350,7 @@ class KioskDeviceMiddleware:
                         same_user = False
                 headers = MutableHeaders(scope=message)
                 if action == "refresh" and same_user:
-                    for header in kiosk_set_cookie_headers(decision.user_id or 0):
+                    for header in kiosk_set_cookie_headers(decision.user_id or 0, key_version):
                         headers.append("set-cookie", header)
                 elif action == "clear" or action == "refresh":
                     session.pop("kiosk_seen", None)
