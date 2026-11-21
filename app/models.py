@@ -618,6 +618,17 @@ class Consumable(Base):
     image_content_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
+class ConsumableCategoryImage(Base):
+    """Photo that belongs to a category name, not to one item."""
+
+    __tablename__ = "consumable_category_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category_name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    image_bytes: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, nullable=True)
+    image_content_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
 class ConsumableStock(Base):
     __tablename__ = "consumable_stock"
     __table_args__ = (
