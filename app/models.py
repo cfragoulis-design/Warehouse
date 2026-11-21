@@ -14,6 +14,7 @@ from sqlalchemy import (
     LargeBinary,
     Numeric,
     Date,
+    Text,
     Uuid,
     CheckConstraint,
     UniqueConstraint,
@@ -31,6 +32,81 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     pin_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class OneSsoMapping(Base):
+    """Pre-approved One identity to local Warehouse account binding.
+
+    The callback never creates or elevates a local account. Both stable One
+    identifiers, the intended local role and the location scope must match this
+    row before Warehouse creates its own session.
+    """
+
+    __tablename__ = "one_sso_mappings"
+    __table_args__ = (
+        UniqueConstraint("one_subject", name="uq_one_sso_mappings_subject"),
+        UniqueConstraint("one_employee_id", name="uq_one_sso_mappings_employee"),
+        UniqueConstraint("local_user_id", name="uq_one_sso_mappings_local_user"),
+        CheckConstraint(
+            "local_role IN ('admin', 'workshop', 'warehouse')",
+            name="ck_one_sso_mappings_local_role",
+        ),
+        CheckConstraint(
+            "local_location_code IN ('ALL', 'CENTRAL', 'WORKSHOP')",
+            name="ck_one_sso_mappings_local_location",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    one_subject: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    one_employee_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    one_location_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    one_department_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    local_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    local_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    local_location_code: Mapped[str] = mapped_column(String(30), nullable=False)
+    expected_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class OneSsoRedemption(Base):
+    """Local replay fence containing only a keyed digest, never the SSO code."""
+
+    __tablename__ = "one_sso_redemptions"
+    __table_args__ = (
+        UniqueConstraint("code_digest", name="uq_one_sso_redemptions_digest"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code_digest: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    mapping_id: Mapped[int] = mapped_column(
+        ForeignKey("one_sso_mappings.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    redeemed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
 
 
 class WorkshopMessage(Base):
@@ -107,6 +183,153 @@ class AppFlag(Base):
     )
 
 
+class AuditEvent(Base):
+    """Append-only evidence for security- and operations-critical changes.
+
+    PostgreSQL immutability is enforced by the schema migration trigger.  The
+    ORM model deliberately exposes no update helpers; callers add the event in
+    the same transaction as the business change.
+    """
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=True,
+    )
+    actor_username: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(96), index=True, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    before_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    correlation_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class LabelLayoutVersion(Base):
+    """Immutable, audited typography/spacing contract for one printer profile."""
+
+    __tablename__ = "label_layout_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "printer_profile",
+            "version",
+            name="uq_label_layout_versions_profile_version",
+        ),
+        CheckConstraint(
+            "contract_version IN (1, 2)",
+            name="ck_label_layout_versions_contract",
+        ),
+        CheckConstraint(
+            "version > 0",
+            name="ck_label_layout_versions_version_positive",
+        ),
+        CheckConstraint(
+            "printer_profile = 'HPRT_LPQ80_BITMAP_50X70'",
+            name="ck_label_layout_versions_printer_profile",
+        ),
+        CheckConstraint(
+            "length(settings_sha256) = 64",
+            name="ck_label_layout_versions_hash_length",
+        ),
+        CheckConstraint(
+            "length(content_sha256) = 64",
+            name="ck_label_layout_versions_content_hash_length",
+        ),
+        CheckConstraint(
+            "length(trim(change_reason)) > 0",
+            name="ck_label_layout_versions_reason_required",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    printer_profile: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    contract_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    settings_json: Mapped[str] = mapped_column(Text, nullable=False)
+    settings_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default=(
+            '{"company_address":"Πλατεία Γεωργίου Θεοτόκη 25, 49100 Κέρκυρα",'
+            '"company_name":"ΣΚΛΑΒΟΥΝΟΣ ΑΝΔΡΕΑΣ & ΣΚΛΑΒΟΥΝΟΣ ΧΡΗΣΤΟΣ Ο.Ε.",'
+            '"footer_caption":"Παρασκευάζεται και συσκευάζεται από:",'
+            '"logo_asset_id":"NONE"}'
+        ),
+        server_default=(
+            '{"company_address":"Πλατεία Γεωργίου Θεοτόκη 25, 49100 Κέρκυρα",'
+            '"company_name":"ΣΚΛΑΒΟΥΝΟΣ ΑΝΔΡΕΑΣ & ΣΚΛΑΒΟΥΝΟΣ ΧΡΗΣΤΟΣ Ο.Ε.",'
+            '"footer_caption":"Παρασκευάζεται και συσκευάζεται από:",'
+            '"logo_asset_id":"NONE"}'
+        ),
+    )
+    content_sha256: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="181ac5a027bd2bab8c669c23ef90a69bf77474906888e74a4e4a4591a6e1e707",
+        server_default=(
+            "181ac5a027bd2bab8c669c23ef90a69bf77474906888e74a4e4a4591a6e1e707"
+        ),
+    )
+    based_on_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("label_layout_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    change_reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class LabelLayoutActive(Base):
+    """Mutable singleton pointer; layout version rows themselves never change."""
+
+    __tablename__ = "label_layout_active"
+    __table_args__ = (
+        CheckConstraint(
+            "lock_version > 0",
+            name="ck_label_layout_active_lock_version_positive",
+        ),
+        CheckConstraint(
+            "printer_profile = 'HPRT_LPQ80_BITMAP_50X70'",
+            name="ck_label_layout_active_printer_profile",
+        ),
+    )
+
+    printer_profile: Mapped[str] = mapped_column(String(64), primary_key=True)
+    active_version_id: Mapped[int] = mapped_column(
+        ForeignKey("label_layout_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    lock_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 
 
 
@@ -121,13 +344,30 @@ class Product(Base):
             "target_central >= 0",
             name="ck_products_target_central_nonnegative",
         ),
+        CheckConstraint(
+            "approval_profile IN ('POULTRY', 'RED_MEAT', 'UNASSIGNED')",
+            name="ck_products_approval_profile",
+        ),
+        CheckConstraint(
+            "NOT label_plain_piece OR lower(trim(unit)) IN ('pcs', 'box', 'tray')",
+            name="ck_products_label_plain_piece_unit",
+        ),
+        CheckConstraint(
+            "vacuum_shelf_life_days IS NULL "
+            "OR vacuum_shelf_life_days BETWEEN 1 AND 3650",
+            name="ck_products_vacuum_shelf_life_positive",
+        ),
+        CheckConstraint(
+            "vacuum_shelf_life_days IS NOT NULL OR vacuum_storage_text IS NULL",
+            name="ck_products_vacuum_storage_requires_profile",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     sku: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    unit: Mapped[str] = mapped_column(String(8), nullable=False, default="pcs")  # pcs / kg / box
+    unit: Mapped[str] = mapped_column(String(8), nullable=False, default="pcs")  # pcs / kg / box / tray
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Minimum total stock (CENTRAL + WORKSHOP). If >0 and total falls below it, UI shows LOW.
     min_stock: Mapped[Decimal] = mapped_column(
@@ -148,7 +388,29 @@ class Product(Base):
     # Label printing metadata
     shelf_life_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     storage_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    vacuum_shelf_life_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vacuum_storage_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
     label_template: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label_legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label_ingredients: Mapped[str | None] = mapped_column(Text, nullable=True)
+    label_allergens: Mapped[str | None] = mapped_column(Text, nullable=True)
+    label_origin: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label_usage_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    label_nutrition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    label_single_ingredient: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    label_plain_piece: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    label_nutrition_exempt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    approval_profile: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="UNASSIGNED",
+        server_default="UNASSIGNED",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -159,6 +421,12 @@ class Product(Base):
 
 class ProductLot(Base):
     __tablename__ = "product_lots"
+    __table_args__ = (
+        CheckConstraint(
+            "preservation_profile IN ('STANDARD', 'VACUUM')",
+            name="ck_product_lots_preservation_profile",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     product_id: Mapped[int] = mapped_column(
@@ -173,6 +441,19 @@ class ProductLot(Base):
     lot_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     batch_ref: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     extra_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    label_profile: Mapped[str] = mapped_column(String(32), nullable=False, default="INTERNAL")
+    preservation_profile: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="STANDARD",
+        server_default="STANDARD",
+    )
+    source_lot_code: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    net_quantity_text: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    label_origin_override: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claim_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claim_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="CREATED")
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),

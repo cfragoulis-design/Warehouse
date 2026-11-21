@@ -5,13 +5,12 @@ import os
 
 from sqlalchemy import text
 
-from .db import SessionLocal, init_db
+from .db import SessionLocal
 from .production_report_service import send_weekly_vet_report_once
 
 
 def run_if_due() -> dict[str, object]:
     """Send the report only during the configured Monday hour in Athens."""
-    init_db()
     db = SessionLocal()
     try:
         target_hour = int(os.getenv("WEEKLY_VET_REPORT_HOUR", "8"))

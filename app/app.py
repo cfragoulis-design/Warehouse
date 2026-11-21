@@ -4,7 +4,8 @@ import asyncio
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -18,11 +19,13 @@ session_secret = resolve_session_secret(runtime_settings)
 
 # Robust imports: work both as package (app.*) and flat modules.
 try:
-    from app.db import SessionLocal, init_db
+    from app.db import SessionLocal, engine, init_db
     from app.operations_summary import router as operations_summary_router
+    from app.readiness import check_readiness
 except ImportError:
-    from db import SessionLocal, init_db
+    from db import SessionLocal, engine, init_db
     from operations_summary import router as operations_summary_router
+    from readiness import check_readiness
 
 if not runtime_settings.operations_source_mode:
     try:
@@ -33,6 +36,8 @@ if not runtime_settings.operations_source_mode:
         from app.consumables_service import router as consumables_router
         from app.digest_service import router as digest_router
         from app.freezer_service import router as freezer_router
+        from app.label_designer_surface import router as label_designer_router
+        from app.one_sso import router as one_sso_router
         from app.production_report_service import router as production_report_router
         from app.consumables_report import router as consumables_report_router
         from app.seed import seed_categories, seed_locations
@@ -46,6 +51,8 @@ if not runtime_settings.operations_source_mode:
         from consumables_service import router as consumables_router
         from digest_service import router as digest_router
         from freezer_service import router as freezer_router
+        from label_designer_surface import router as label_designer_router
+        from one_sso import router as one_sso_router
         from production_report_service import router as production_report_router
         from consumables_report import router as consumables_report_router
         from seed import seed_categories, seed_locations
@@ -63,6 +70,36 @@ STATIC_DIR_CANDIDATES = [
 static_dir = next((p for p in STATIC_DIR_CANDIDATES if p.exists()), None)
 
 app = FastAPI()
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "connect-src 'self'; "
+        "font-src 'self' data:; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'; "
+        "img-src 'self' data:; "
+        "object-src 'none'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'"
+    )
+    response.headers["Permissions-Policy"] = (
+        "camera=(), geolocation=(), microphone=()"
+    )
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    forwarded_scheme = request.headers.get("x-forwarded-proto", "").split(",", 1)[0]
+    is_https = request.url.scheme == "https" or forwarded_scheme.strip().lower() == "https"
+    if is_https:
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+    return response
 
 
 async def weekly_report_scheduler() -> None:
@@ -152,7 +189,9 @@ if not runtime_settings.operations_source_mode:
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     app.include_router(auth_router)
+    app.include_router(one_sso_router)
     app.include_router(catalog_router)
+    app.include_router(label_designer_router)
     app.include_router(services_router)
     app.include_router(freezer_router)
     app.include_router(workshop_message_router)
@@ -171,3 +210,20 @@ app.include_router(operations_summary_router)
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/ready")
+def ready():
+    status = check_readiness(engine)
+    if not status.ready:
+        logger.warning(
+            "Warehouse readiness failed reason=%s database=%s schema=%s invariants=%s",
+            status.reason or "unknown",
+            status.database,
+            status.schema,
+            status.invariants,
+        )
+    return JSONResponse(
+        status_code=200 if status.ready else 503,
+        content=status.as_dict(),
+    )

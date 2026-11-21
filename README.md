@@ -1,5 +1,9 @@
 # Sklavounos Warehouse (Railway + Postgres)
 
+RAW LOGIC. REAL SYSTEMS.
+
+Created by Christos Fragoulis
+
 ## What this repo contains
 - FastAPI app with session-based login (admin PIN)
 - SQLAlchemy + Postgres (Railway)
@@ -11,6 +15,38 @@
 - `WAREHOUSE_STRICT_STARTUP_DDL` (defaults to `true` on Railway/staging/production; startup fails if compatibility DDL fails)
 - `INITIAL_ADMIN_PIN` (e.g. `123456`)
 - `INITIAL_ADMIN2_PIN` (e.g. `141087`)
+
+### Dynamic HPRT labels
+
+The Stock label center produces one complete 50x70 label used for both internal traceability
+and the product that leaves the workshop.
+Configure the public business identity once in each Railway environment:
+
+- `WAREHOUSE_LABEL_BUSINESS_NAME`
+- `WAREHOUSE_LABEL_BUSINESS_ADDRESS`
+- `WAREHOUSE_LABEL_RED_MEAT_APPROVAL_NUMBER` (e.g. `GR A 920 CE`)
+- `WAREHOUSE_LABEL_POULTRY_APPROVAL_NUMBER` (e.g. `GR PE 620 CE`)
+- `PRINT_AGENT_TOKEN_WORKSHOP` (shared only with the DPAPI-protected WORKSHOP agent)
+
+The Windows package is in `scripts/windows/hprt-warehouse-agent`. It renders a complete Greek bitmap through TSPL for
+the HPRT LPQ80 and is separate from the existing Brother restaurant-label agent.
+The approval number comes from the product's explicit `POULTRY` or `RED_MEAT` approval profile;
+batch operators do not enter it and the application never guesses it from the product name.
+Administrators may classify a `pcs` product as a controlled plain-piece item. That classification
+waives only blank ingredients and allergen fields; origin, lot, dates, storage, approval profile and
+nutrition data (or its separate documented exemption) remain fail-closed requirements.
+
+Creator branding follows [`docs/PERSONAL_BRAND_ASSET_POLICY.md`](docs/PERSONAL_BRAND_ASSET_POLICY.md).
+
+### One SSO receiver (default off)
+
+Warehouse can accept a short-lived, one-time launch code from Sklavounos One
+without exposing One identity data or credentials to the browser. It never
+creates accounts during sign-in and continues to enforce the local Warehouse
+role/action/location policy. The integration is disabled unless its complete
+HTTPS origin, exchange credential and pre-approved local mapping are configured.
+See [`docs/ONE_SSO_WAREHOUSE_RECEIVER_V1.md`](docs/ONE_SSO_WAREHOUSE_RECEIVER_V1.md)
+for the exact contract, migration and guarded provisioning procedure.
 
 ### Disabled Operations read contract
 
