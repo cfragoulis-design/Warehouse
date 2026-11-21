@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -716,6 +716,19 @@ class ConsumableMovement(Base):
     pin_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     client_key: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), unique=True, nullable=True)
+
+
+class ConsumableAlertLog(Base):
+    """One Telegram alert per supplier per UTC day."""
+
+    __tablename__ = "consumable_alert_log"
+    __table_args__ = (
+        UniqueConstraint("supplier_id", "alert_date", name="uq_consumable_alert_supplier_day"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey("suppliers.id"), nullable=False)
+    alert_date: Mapped[date] = mapped_column(Date, nullable=False)
 
 
 class PurchaseOrder(Base):
