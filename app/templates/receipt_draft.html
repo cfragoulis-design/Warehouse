@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Πρόχειρη παραλαβή</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <style>
+    body{margin:0;background:#0b1020;color:#e7e9ee;font-family:system-ui,Segoe UI,Arial,sans-serif}
+    a{color:#a9c7ff}
+    .wrap{max-width:860px;margin:0 auto;padding:16px}
+    table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;padding:8px;border-bottom:1px solid #243055}
+    button{font:inherit;color:inherit;background:#162044;border:1px solid #243055;border-radius:10px;padding:8px 12px;font-weight:800}
+    .ok{background:#14532d}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+  <main class="wrap">
+    <p><a href="/consumables">Αναλώσιμα</a></p>
+    <h1>{{ supplier.name if supplier else 'Προμηθευτής' }} · {{ draft.invoice_number or 'χωρίς αριθμό' }}</h1>
+    <p>ΜΑΡΚ: {{ draft.mark or '—' }} · {{ draft.invoice_date or '—' }} · {{ draft.status }}</p>
+    <table>
+      <thead><tr><th>Κωδικός</th><th>Περιγραφή</th><th>Ποσ.</th><th>Τιμή</th><th>Είδος</th></tr></thead>
+      <tbody>
+        {% for line in lines %}
+        <tr>
+          <td>{{ line.supplier_code }}</td>
+          <td>{{ line.description }}</td>
+          <td>{{ line.qty }}</td>
+          <td>{{ line.unit_price }}</td>
+          <td>{{ items.get(line.consumable_id, '— χωρίς ταίριασμα —') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if draft.status == 'DRAFT' %}
+    <form method="post" action="/consumables/receipts/{{ draft.id }}/approve" style="display:inline"><button class="ok" type="submit">Έγκριση</button></form>
+    <form method="post" action="/consumables/receipts/{{ draft.id }}/reject" style="display:inline"><button type="submit">Απόρριψη</button></form>
+    {% endif %}
+  </main>
+</body>
+</html>

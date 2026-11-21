@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -704,6 +704,43 @@ class ConsumableMovement(Base):
     )
     pin_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ConsumableSupplierCode(Base):
+    """Remember which supplier item code maps to a consumable."""
+
+    __tablename__ = "consumable_supplier_codes"
+    __table_args__ = (
+        UniqueConstraint("supplier_id", "supplier_code", name="uq_supplier_item_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey("suppliers.id"), nullable=False)
+    supplier_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=False)
+
+
+class ConsumableReceiptDraft(Base):
+    __tablename__ = "consumable_receipt_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey("suppliers.id"), nullable=False)
+    invoice_number: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    mark: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
+
+
+class ConsumableReceiptLine(Base):
+    __tablename__ = "consumable_receipt_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    draft_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumable_receipt_drafts.id", ondelete="CASCADE"), nullable=False)
+    supplier_code: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    description: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
+    consumable_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=True)
 
 
 class PurchaseOrder(Base):
