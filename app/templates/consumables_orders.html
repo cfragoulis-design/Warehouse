@@ -49,7 +49,7 @@
     </div>
   </div>
   <main class="wrap">
-    <p class="intro">Είδη στο ελάχιστο ή από κάτω. Η ποσότητα είναι το επιθυμητό μείον το απόθεμα, στρογγυλεμένο προς τα πάνω σε συσκευασίες. Τίποτα δεν στέλνεται από την εφαρμογή.</p>
+    <p class="intro">Είδη στο ελάχιστο ή από κάτω. Η ποσότητα είναι το επιθυμητό μείον το απόθεμα, στρογγυλεμένο προς τα πάνω σε συσκευασίες. Το email ανοίγει στον υπολογιστή σου. Η εφαρμογή δεν στέλνει τίποτα μόνη της.</p>
     {% if sheets|length == 0 %}
     <div class="empty">Κανένα είδος δεν είναι στο ελάχιστο ή από κάτω.</div>
     {% endif %}
@@ -92,6 +92,7 @@
       <pre class="message">{{ sheet.message }}</pre>
       <div class="actions">
         <button type="button" class="copyBtn" data-target="msg-{{ loop.index }}">Αντιγραφή</button>
+        <a class="pill" href="{{ sheet.mailto }}">Email</a>
         <button type="button" class="printBtn">Εκτύπωση</button>
       </div>
     </section>
