@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 import subprocess
 import shlex
 import hmac
+import hashlib
+import secrets
 from uuid import uuid4
 from datetime import date, datetime, timedelta
 from collections import defaultdict
@@ -16,44 +18,83 @@ import urllib.request
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from sqlalchemy import select, func, case
+from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 # Robust imports: work both as package (app.*) and flat modules
 try:
+    from app.audit import correlation_id_for_request, record_audit_event
     from app.auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from app.db import acquire_transaction_lock, get_db
     from app.formatting import fmtqty
     from app.models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, AppFlag
+    from app.labeling import (
+        DISTRIBUTION_PROFILE,
+        INTERNAL_PROFILE,
+        LabelValidationError,
+        build_label_payload,
+        business_label_identity,
+        normalize_label_profile,
+        normalize_preservation_profile,
+        preservation_details,
+        product_label_metadata,
+        product_readiness,
+    )
+    from app.label_layout import (
+        LabelLayoutUnavailableError,
+        active_label_contract_snapshots_for_print,
+    )
     from app.stock_domain import (
         get_missing_map,
         get_stock_for_product,
         get_stock_qty,
-        missing_add_shortfall,
         missing_reduce_on_delivery,
+        missing_set_shortfall,
         parse_qty,
         parse_qty_any as parse_qty_any,
         parse_qty_signed as parse_qty_signed,
         signed_qty_expr,
     )
     from app.templating import WarehouseJinja2Templates
+    from app.stock_policy import enforce_stock_action
+    from app.runtime_config import load_hprt_agent_release_settings
 except ImportError:
+    from audit import correlation_id_for_request, record_audit_event
     from auth import require_user, get_current_user, is_warehouse_only, home_for_user
     from db import acquire_transaction_lock, get_db
     from formatting import fmtqty
     from models import User, Product, ProductLot, Category, StockMovement, Location, StockMissing, AppFlag
+    from labeling import (
+        DISTRIBUTION_PROFILE,
+        INTERNAL_PROFILE,
+        LabelValidationError,
+        build_label_payload,
+        business_label_identity,
+        normalize_label_profile,
+        normalize_preservation_profile,
+        preservation_details,
+        product_label_metadata,
+        product_readiness,
+    )
+    from label_layout import (
+        LabelLayoutUnavailableError,
+        active_label_contract_snapshots_for_print,
+    )
     from stock_domain import (
         get_missing_map,
         get_stock_for_product,
         get_stock_qty,
-        missing_add_shortfall,
         missing_reduce_on_delivery,
+        missing_set_shortfall,
         parse_qty,
         parse_qty_any as parse_qty_any,
         parse_qty_signed as parse_qty_signed,
         signed_qty_expr,
     )
     from templating import WarehouseJinja2Templates
+    from stock_policy import enforce_stock_action
+    from runtime_config import load_hprt_agent_release_settings
 
 router = APIRouter()
 
@@ -98,10 +139,46 @@ def _normalize_station(station: str | None) -> str:
     raise HTTPException(status_code=400, detail='Invalid station')
 
 
+# Stock's location selector is the only enqueue destination. ``all`` and a
+# missing value keep today's WORKSHOP queue. Anything outside this map is
+# rejected; browser station text is not a second source of truth.
+_STOCK_LOC_TO_STATION = {
+    "": "WORKSHOP",
+    "all": "WORKSHOP",
+    "workshop": "WORKSHOP",
+    "central": "CENTRAL",
+}
+
+
+def _station_for_stock_loc(loc: object) -> str:
+    if loc is None:
+        normalized = ""
+    elif isinstance(loc, str):
+        normalized = loc.strip().casefold()
+    else:
+        raise HTTPException(status_code=400, detail="Invalid loc")
+    try:
+        return _STOCK_LOC_TO_STATION[normalized]
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail="Invalid loc") from exc
+
+
+def _reject_untrusted_station(payload: dict, station_norm: str) -> None:
+    if "station" not in payload:
+        return
+    raw_station = payload.get("station")
+    if raw_station is None or (isinstance(raw_station, str) and not raw_station.strip()):
+        return
+    if not isinstance(raw_station, str):
+        raise HTTPException(status_code=400, detail="Invalid station")
+    if _normalize_station(raw_station) != station_norm:
+        raise HTTPException(status_code=400, detail="Invalid station")
+
+
 def _station_allowed_for_user(user: User, station: str) -> bool:
     role = (getattr(user, 'role', '') or '').lower()
     if role == 'admin':
-        return station == 'CENTRAL'
+        return station in {'CENTRAL', 'WORKSHOP'}
     if role == 'workshop':
         return station == 'WORKSHOP'
     return False
@@ -117,17 +194,40 @@ def _product_code_for_lot(product: Product) -> str:
     return (cleaned[:8] or 'PRD')
 
 
-def _build_lot_code(product: Product, station: str, production_date, db: Session) -> str:
+def _build_lot_code(
+    product: Product,
+    station: str,
+    production_date,
+    db: Session,
+    *,
+    reserved: set[str] | None = None,
+) -> str:
+    """Allocate the next lot code while serializing its PostgreSQL namespace."""
+    acquire_transaction_lock(
+        db,
+        "product-lot-code",
+        product.id,
+        station,
+        production_date.isoformat(),
+    )
     day_code = production_date.strftime('%y%m%d')
     product_code = _product_code_for_lot(product)
     station_code = 'C' if station == 'CENTRAL' else 'W'
     prefix = f'{product_code}-{day_code}-{station_code}-'
-    count = db.query(func.count(ProductLot.id)).filter(
+    existing_codes = db.query(ProductLot.lot_code).filter(
         ProductLot.product_id == product.id,
         ProductLot.station == station,
         ProductLot.production_date == production_date,
-    ).scalar() or 0
-    seq = int(count) + 1
+        ProductLot.lot_code.like(f"{prefix}%"),
+    ).all()
+    candidates = [code for (code,) in existing_codes]
+    candidates.extend(code for code in (reserved or set()) if code.startswith(prefix))
+    sequences = []
+    for code in candidates:
+        suffix = code[len(prefix):]
+        if suffix.isdigit():
+            sequences.append(int(suffix))
+    seq = max(sequences, default=0) + 1
     return f'{prefix}{seq:02d}'
 
 
@@ -182,10 +282,44 @@ def _fmt_label_date(value) -> str:
 
 
 def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
+    render_payload = None
+    payload_text = getattr(lot, 'label_payload_json', None) or ''
+    if payload_text:
+        try:
+            candidate = json.loads(payload_text)
+        except (TypeError, ValueError):
+            candidate = None
+        if isinstance(candidate, dict):
+            render_payload = candidate
+    profile = normalize_label_profile(getattr(lot, 'label_profile', None) or INTERNAL_PROFILE)
+    label_key = getattr(product, 'label_template', None) or 'default.btw'
+    if render_payload is not None:
+        label_key = 'HPRT_EFET_UNIFIED_50'
+    preservation_profile = normalize_preservation_profile(
+        getattr(lot, "preservation_profile", None)
+    )
+    if render_payload is not None:
+        traceability = render_payload.get("traceability")
+        if isinstance(traceability, dict):
+            effective_days = int(traceability.get("shelf_life_days") or 0)
+        else:
+            effective_days = max(
+                0,
+                int((lot.expiry_date - lot.production_date).days)
+                if lot.expiry_date and lot.production_date
+                else 0,
+            )
+        effective_storage = str(render_payload.get("storage") or "")
+    else:
+        preservation = preservation_details(product, preservation_profile)
+        effective_days = int(preservation["shelf_life_days"])
+        effective_storage = str(preservation["storage"])
     return {
         'id': lot.id,
         'batch_ref': getattr(lot, 'batch_ref', None) or '',
-        'label_key': (getattr(product, 'label_template', None) or 'default.btw'),
+        'label_key': label_key,
+        'label_profile': profile,
+        'render_payload': render_payload,
         'copies': int(float(lot.quantity_labels or 0) or 0),
         'station': lot.station,
         'product_id': product.id,
@@ -194,10 +328,170 @@ def _sr_job_payload(lot: ProductLot, product: Product) -> dict:
         'production_date': _fmt_label_date(lot.production_date),
         'expiry_date': _fmt_label_date(lot.expiry_date),
         'lot_code': lot.lot_code or '',
-        'storage_text': getattr(product, 'storage_text', None) or '',
-        'shelf_life_days': int(getattr(product, 'shelf_life_days', 0) or 0),
+        'preservation_profile': preservation_profile,
+        'storage_text': effective_storage,
+        'shelf_life_days': effective_days,
         'extra_code': getattr(lot, 'extra_code', None) or '',
     }
+
+
+def _claim_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+def _require_print_claim(lot: ProductLot, request: Request) -> None:
+    provided = (request.headers.get('x-print-claim-token', '') or '').strip()
+    expected_hash = getattr(lot, 'claim_token_hash', None) or ''
+    now = datetime.now(ZoneInfo('UTC'))
+    expires_at = getattr(lot, 'claim_expires_at', None)
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=ZoneInfo('UTC'))
+    if (
+        lot.status != 'CLAIMED'
+        or not provided
+        or not expected_hash
+        or not hmac.compare_digest(_claim_token_hash(provided), expected_hash)
+        or expires_at is None
+        or expires_at <= now
+    ):
+        raise HTTPException(status_code=409, detail='Print claim is stale')
+
+
+def _print_error_key(job_id: int) -> str:
+    return f"print_error:{int(job_id)}"
+
+
+def _set_print_error(db: Session, job_id: int, reason: str | None) -> None:
+    key = _print_error_key(job_id)
+    flag = db.get(AppFlag, key)
+    clean = (reason or "Unknown print error").strip()[:255]
+    if flag is None:
+        db.add(AppFlag(key=key, bool_value=True, note=clean))
+    else:
+        flag.bool_value = True
+        flag.note = clean
+
+
+def _clear_print_error(db: Session, job_id: int) -> None:
+    flag = db.get(AppFlag, _print_error_key(job_id))
+    if flag is not None:
+        db.delete(flag)
+
+
+def _print_audit_snapshot(lot: ProductLot) -> dict[str, object]:
+    """Return an operational print snapshot without claim credentials."""
+
+    claim_expires_at = getattr(lot, "claim_expires_at", None)
+    render_contract: dict[str, object] = {}
+    payload_text = getattr(lot, "label_payload_json", None) or ""
+    if payload_text:
+        try:
+            render_payload = json.loads(payload_text)
+        except (TypeError, ValueError):
+            render_payload = None
+        if isinstance(render_payload, dict):
+            render_contract["schema_version"] = render_payload.get("schema_version")
+            for source_key, prefix in (
+                ("layout", "layout"),
+                ("label_content", "content"),
+            ):
+                snapshot = render_payload.get(source_key)
+                if isinstance(snapshot, dict):
+                    render_contract[f"{prefix}_version_id"] = snapshot.get(
+                        "version_id"
+                    )
+                    render_contract[f"{prefix}_sha256"] = snapshot.get(
+                        "settings_sha256"
+                        if source_key == "layout"
+                        else "content_sha256"
+                    )
+    return {
+        "status": lot.status,
+        "station": lot.station,
+        "product_id": lot.product_id,
+        "copies": int(float(lot.quantity_labels or 0)),
+        "batch_ref": lot.batch_ref or "",
+        "lot_code": lot.lot_code or "",
+        "preservation_profile": normalize_preservation_profile(
+            getattr(lot, "preservation_profile", None)
+        ),
+        "production_date": (
+            lot.production_date.isoformat() if lot.production_date is not None else None
+        ),
+        "expiry_date": (
+            lot.expiry_date.isoformat() if lot.expiry_date is not None else None
+        ),
+        "claim_expires_at": (
+            claim_expires_at.isoformat() if claim_expires_at is not None else None
+        ),
+        "render_contract": render_contract,
+    }
+
+
+def _audit_print_transition(
+    db: Session,
+    lot: ProductLot,
+    *,
+    action: str,
+    before: dict[str, object] | None,
+    actor: User | None = None,
+    reason: str | None = None,
+    correlation_id: str,
+) -> None:
+    record_audit_event(
+        db,
+        actor=actor,
+        action=action,
+        entity_type="print_job",
+        entity_id=lot.id,
+        before=before,
+        after=_print_audit_snapshot(lot),
+        reason=reason,
+        correlation_id=correlation_id,
+    )
+
+
+def _print_job_rows(db: Session, *, limit: int = 100) -> list[dict]:
+    rows = (
+        db.query(ProductLot, Product)
+        .join(Product, Product.id == ProductLot.product_id)
+        .order_by(ProductLot.created_at.desc(), ProductLot.id.desc())
+        .limit(max(1, min(limit, 200)))
+        .all()
+    )
+    error_keys = [_print_error_key(lot.id) for lot, _product in rows]
+    error_flags = {
+        flag.key: flag.note or ""
+        for flag in db.query(AppFlag).filter(AppFlag.key.in_(error_keys)).all()
+    } if error_keys else {}
+    return [
+        {
+            "id": lot.id,
+            "batch_ref": lot.batch_ref or "",
+            "product_name": product.name,
+            "sku": product.sku or "",
+            "copies": int(float(lot.quantity_labels or 0)),
+            "station": lot.station,
+            "status": lot.status,
+            "status_label": "PRINTING (CLAIMED)" if lot.status == "CLAIMED" else lot.status,
+            "preservation_profile": normalize_preservation_profile(
+                getattr(lot, "preservation_profile", None)
+            ),
+            "expiry_date": _fmt_label_date(lot.expiry_date),
+            "error_reason": error_flags.get(_print_error_key(lot.id), ""),
+            "created_at": lot.created_at.isoformat() if lot.created_at else "",
+            "can_retry": lot.status in {"ERROR", "CANCELLED"},
+            "can_cancel": lot.status == "QUEUED",
+        }
+        for lot, product in rows
+    ]
+
+
+def _legacy_print_response(payload) -> JSONResponse:
+    response = JSONResponse(payload)
+    response.headers["Deprecation"] = "true"
+    response.headers["Warning"] = '299 - "Legacy unleased print protocol; migrate to /api/print-jobs/next"'
+    return response
 
 # --------------------
 # data helpers
@@ -214,45 +508,35 @@ def _truthy_flag(val: str | None) -> bool:
     return v in {"1", "true", "yes", "on", "y"}
 
 
+def _meaningful_correction_reason(value: str | None) -> bool:
+    reason = (value or "").strip()
+    return len(reason) >= 5 and any(ch.isalnum() for ch in reason)
+
+
 # --------------------
 # DASHBOARD STATS
 # --------------------
 def get_dashboard_stats(db: Session) -> dict:
-    # CENTRAL location
-    central = db.execute(
-        select(Location).where(Location.code == "CENTRAL")
-    ).scalar_one()
-
-    signed_qty = signed_qty_expr()
-
     # 1) products count
     products_count = db.execute(
         select(func.count(Product.id))
     ).scalar_one()
 
-    # central stock per product (CENTRAL only)
-    central_stock = (
-        select(
-            Product.id.label("pid"),
-            func.coalesce(
-                func.sum(
-                    case((StockMovement.location_id == central.id, signed_qty), else_=0)
-                ),
-                0,
-            ).label("central_qty"),
-        )
-        .outerjoin(StockMovement, StockMovement.product_id == Product.id)
-        .group_by(Product.id)
-        .subquery()
+    # Keep the dashboard definitions identical to the Stock page:
+    # LOW = below minimum, PENDING = below target, MISSING = persisted owed quantity.
+    stock_items = [
+        item
+        for items in build_stock_grouped(db).values()
+        for item in items
+    ]
+    low_stock_count = sum(1 for item in stock_items if item["is_low"])
+    pending_stock_count = sum(1 for item in stock_items if item["pending"] > 0)
+    missing_stock_count = sum(1 for item in stock_items if item["missing"] > 0)
+    attention_count = sum(
+        1
+        for item in stock_items
+        if item["is_low"] or item["pending"] > 0 or item["missing"] > 0
     )
-
-    # 2) low stock count (target_central > central_qty)
-    low_stock_count = db.execute(
-        select(func.count())
-        .select_from(Product)
-        .join(central_stock, central_stock.c.pid == Product.id)
-        .where(Product.target_central > central_stock.c.central_qty)
-    ).scalar_one()
 
     # 3) movements today
     movements_today = db.execute(
@@ -263,6 +547,9 @@ def get_dashboard_stats(db: Session) -> dict:
     return {
         "products_count": int(products_count or 0),
         "low_stock_count": int(low_stock_count or 0),
+        "pending_stock_count": int(pending_stock_count or 0),
+        "missing_stock_count": int(missing_stock_count or 0),
+        "attention_count": int(attention_count or 0),
         "movements_today": int(movements_today or 0),
     }
 
@@ -291,12 +578,63 @@ def dashboard(
 # --------------------
 # MOVEMENTS (all users)
 # --------------------
-@router.get("/movements", response_class=HTMLResponse)
-def movements_list(
-    request: Request,
-    user: User = Depends(require_user),
-    db: Session = Depends(get_db),
-):
+MOVEMENT_PAGE_SIZE = 50
+MOVEMENT_TYPES = ("TRANSFER", "IN", "OUT", "ADJ+", "ADJ-")
+
+
+def _parse_filter_date(value: str | None) -> date | None:
+    try:
+        return date.fromisoformat((value or "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _movement_athens_date(value: datetime | None) -> date | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo("UTC"))
+    return value.astimezone(ZoneInfo("Europe/Athens")).date()
+
+
+def _movement_page_url(
+    *,
+    page: int,
+    q: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    product_id: int | None = None,
+    location_id: int | None = None,
+    movement_type: str = "",
+) -> str:
+    """Return a host-independent pagination target for the movement browser."""
+    values = (
+        ("q", (q or "").strip()),
+        ("date_from", date_from),
+        ("date_to", date_to),
+        ("product_id", product_id),
+        ("location_id", location_id),
+        ("movement_type", movement_type),
+        ("page", max(int(page), 1)),
+    )
+    query = urllib.parse.urlencode(
+        [(name, value) for name, value in values if value not in (None, "")]
+    )
+    return f"/movements?{query}"
+
+
+def build_movement_history(
+    db: Session,
+    *,
+    q: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    product_id: int | None = None,
+    location_id: int | None = None,
+    movement_type: str = "",
+    page: int = 1,
+) -> dict:
+    """Build the human ledger: transfer pairs are one event, other rows stay separate."""
     rows = db.execute(
         select(
             StockMovement,
@@ -309,13 +647,176 @@ def movements_list(
         .join(Product, Product.id == StockMovement.product_id)
         .outerjoin(User, User.id == StockMovement.user_id)
         .outerjoin(Location, Location.id == StockMovement.location_id)
-        .order_by(StockMovement.created_at.desc())
-        .limit(200)
+        .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
     ).all()
+
+    grouped: dict[str, list] = defaultdict(list)
+    for row in rows:
+        movement = row[0]
+        key = (
+            f"transfer:{movement.transfer_id}"
+            if movement.transfer_id
+            else f"movement:{movement.id}"
+        )
+        grouped[key].append(row)
+
+    events: list[dict] = []
+    for key, legs in grouped.items():
+        legs.sort(key=lambda row: (row[0].created_at or datetime.min, row[0].id))
+        first = legs[0]
+        transfer = key.startswith("transfer:")
+        event_type = "TRANSFER" if transfer else first[0].movement_type
+        out_leg = next((row for row in legs if row[0].movement_type == "OUT"), None)
+        in_leg = next((row for row in legs if row[0].movement_type == "IN"), None)
+        source = out_leg[5] if out_leg else None
+        destination = in_leg[5] if in_leg else None
+        location_codes = [row[5] for row in legs if row[5]]
+        route = (
+            f"{source} → {destination}"
+            if source and destination
+            else " → ".join(dict.fromkeys(location_codes))
+        )
+        notes = list(dict.fromkeys(row[0].note for row in legs if row[0].note))
+        created_at = max(
+            (row[0].created_at for row in legs if row[0].created_at),
+            default=None,
+        )
+        events.append(
+            {
+                "key": key,
+                "movement_ids": [row[0].id for row in legs],
+                "product_id": first[0].product_id,
+                "product_name": first[1],
+                "unit": first[2],
+                "sku": first[3] or "",
+                "username": next((row[4] for row in legs if row[4]), ""),
+                "movement_type": event_type,
+                "location_ids": {row[0].location_id for row in legs},
+                "location": route if transfer else (first[5] or ""),
+                "qty": (out_leg or first)[0].qty,
+                "note": " · ".join(notes),
+                "created_at": created_at,
+                "is_transfer": transfer,
+            }
+        )
+
+    query = (q or "").strip().casefold()
+    start = _parse_filter_date(date_from)
+    end = _parse_filter_date(date_to)
+    type_filter = (movement_type or "").strip().upper()
+    if type_filter not in MOVEMENT_TYPES:
+        type_filter = ""
+
+    def matches(event: dict) -> bool:
+        if product_id and event["product_id"] != product_id:
+            return False
+        if location_id and location_id not in event["location_ids"]:
+            return False
+        if type_filter and event["movement_type"] != type_filter:
+            return False
+        event_date = _movement_athens_date(event["created_at"])
+        if start and (event_date is None or event_date < start):
+            return False
+        if end and (event_date is None or event_date > end):
+            return False
+        if query:
+            haystack = " ".join(
+                str(event[field] or "")
+                for field in ("product_name", "sku", "username", "note", "location")
+            ).casefold()
+            if query not in haystack:
+                return False
+        return True
+
+    events = [event for event in events if matches(event)]
+
+    def sort_key(event: dict) -> tuple[float, int]:
+        value = event["created_at"]
+        if value is None:
+            timestamp = 0.0
+        else:
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=ZoneInfo("UTC"))
+            timestamp = value.timestamp()
+        return timestamp, max(event["movement_ids"])
+
+    events.sort(key=sort_key, reverse=True)
+    total = len(events)
+    total_pages = max(1, (total + MOVEMENT_PAGE_SIZE - 1) // MOVEMENT_PAGE_SIZE)
+    current_page = min(max(int(page or 1), 1), total_pages)
+    start_index = (current_page - 1) * MOVEMENT_PAGE_SIZE
+
+    return {
+        "events": events[start_index : start_index + MOVEMENT_PAGE_SIZE],
+        "total": total,
+        "page": current_page,
+        "total_pages": total_pages,
+        "has_previous": current_page > 1,
+        "has_next": current_page < total_pages,
+        "date_from": start.isoformat() if start else "",
+        "date_to": end.isoformat() if end else "",
+        "movement_type": type_filter,
+    }
+
+
+@router.get("/movements", response_class=HTMLResponse)
+def movements_list(
+    request: Request,
+    q: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    product_id: int | None = None,
+    location_id: int | None = None,
+    movement_type: str = "",
+    page: int = 1,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    history = build_movement_history(
+        db,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+        product_id=product_id,
+        location_id=location_id,
+        movement_type=movement_type,
+        page=page,
+    )
+    products = db.execute(select(Product).order_by(Product.name.asc())).scalars().all()
+    locations = db.execute(select(Location).order_by(Location.id.asc())).scalars().all()
+
+    pagination_filters = {
+        "q": q,
+        "date_from": history["date_from"],
+        "date_to": history["date_to"],
+        "product_id": product_id,
+        "location_id": location_id,
+        "movement_type": history["movement_type"],
+    }
 
     return templates.TemplateResponse(
         "movements_list.html",
-        {"request": request, "user": user, "rows": rows},
+        {
+            "request": request,
+            "user": user,
+            "products": products,
+            "locations": locations,
+            "movement_types": MOVEMENT_TYPES,
+            "q": q,
+            "product_id": product_id,
+            "location_id": location_id,
+            "previous_page_url": (
+                _movement_page_url(page=history["page"] - 1, **pagination_filters)
+                if history["has_previous"]
+                else None
+            ),
+            "next_page_url": (
+                _movement_page_url(page=history["page"] + 1, **pagination_filters)
+                if history["has_next"]
+                else None
+            ),
+            **history,
+        },
     )
 
 
@@ -329,16 +830,17 @@ def movement_new_form(
         select(Product).where(Product.is_active.is_(True)).order_by(Product.name.asc())
     ).scalars().all()
 
-    locs = db.execute(select(Location).order_by(Location.id.asc())).scalars().all()
+    locations = db.execute(select(Location).order_by(Location.id.asc())).scalars().all()
 
     return templates.TemplateResponse(
         "movement_form.html",
-        {"request": request, "user": user, "products": products, "locs": locs, "action": "/movements/new"},
+        {"request": request, "user": user, "products": products, "locations": locations, "action": "/movements/new"},
     )
 
 
 @router.post("/movements/new")
 def movement_create(
+    request: Request = None,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
     product_id: int = Form(...),
@@ -355,6 +857,10 @@ def movement_create(
     if not q:
         return RedirectResponse(url="/movements/new?err=qty", status_code=303)
 
+    note_clean = (note or "").strip()
+    if mt in {"ADJ+", "ADJ-"} and not _meaningful_correction_reason(note_clean):
+        return RedirectResponse(url="/movements/new?err=reason", status_code=303)
+
     p = db.get(Product, int(product_id))
     if not p or not p.is_active:
         return RedirectResponse(url="/movements/new?err=product", status_code=303)
@@ -369,16 +875,35 @@ def movement_create(
         if available < q:
             return RedirectResponse(url="/movements/new?err=stock", status_code=303)
 
-    db.add(
-        StockMovement(
-            product_id=p.id,
-            location_id=loc.id,
-            qty=q,
-            movement_type=mt,
-            note=(note.strip() if note else None),
-            user_id=user.id,
-        )
+    movement = StockMovement(
+        product_id=p.id,
+        location_id=loc.id,
+        qty=q,
+        movement_type=mt,
+        note=(note_clean or None),
+        user_id=user.id,
     )
+    db.add(movement)
+    db.flush()
+    if mt in {"ADJ+", "ADJ-"}:
+        record_audit_event(
+            db,
+            actor=user,
+            action="stock.adjusted",
+            entity_type="stock_movement",
+            entity_id=movement.id,
+            before=None,
+            after={
+                "product_id": p.id,
+                "location_id": loc.id,
+                "location_code": loc.code,
+                "movement_type": mt,
+                "quantity": q,
+                "signed_delta": q if mt == "ADJ+" else -q,
+            },
+            reason=note_clean,
+            correlation_id=correlation_id_for_request(request),
+        )
     db.commit()
     return RedirectResponse(url="/movements", status_code=303)
 
@@ -482,7 +1007,12 @@ def sort_grouped_categories(grouped: dict[str, list[dict]] | defaultdict, db: Se
     return dict(sorted(grouped.items(), key=lambda kv: cat_sort_key(kv[0] or "")))
 
 
-def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str, list[dict]]:
+def build_stock_grouped(
+    db: Session,
+    loc: str = "all",
+    q: str = "",
+    status: str = "all",
+) -> dict[str, list[dict]]:
     """Builds the same grouped stock structure used by stock.html and stock_print_a4.html.
 
     loc: all | central | workshop  (basic filtering)
@@ -508,6 +1038,8 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.is_active,
             Product.target_central,
             Product.min_stock,
+            Product.shelf_life_days,
+            Product.vacuum_shelf_life_days,
             func.coalesce(
                 func.sum(case((StockMovement.location_id == central.id, signed_qty), else_=0)),
                 0,
@@ -527,6 +1059,8 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             Product.is_active,
             Product.target_central,
             Product.min_stock,
+            Product.shelf_life_days,
+            Product.vacuum_shelf_life_days,
         )
         .order_by(Product.is_active.desc(), Product.name.asc())
     )
@@ -546,6 +1080,9 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
     grouped = defaultdict(list)
 
     loc_norm = (loc or "all").strip().lower()
+    status_norm = (status or "all").strip().lower()
+    if status_norm not in {"all", "attention", "low", "pending", "missing"}:
+        status_norm = "all"
 
     for r in rows:
         c = Decimal(r.central_qty)
@@ -576,6 +1113,15 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
         total = c + w
         low = bool(ms > 0 and c < ms)
 
+        if status_norm == "low" and not low:
+            continue
+        if status_norm == "pending" and pending <= 0:
+            continue
+        if status_norm == "missing" and missing <= 0:
+            continue
+        if status_norm == "attention" and not (low or pending > 0 or missing > 0):
+            continue
+
         item = {
             "id": r.id,
             "name": r.name,
@@ -592,6 +1138,8 @@ def build_stock_grouped(db: Session, loc: str = "all", q: str = "") -> dict[str,
             "missing": missing,
             "total_qty": total,
             "is_low": low,
+            "shelf_life_days": int(r.shelf_life_days or 0),
+            "vacuum_shelf_life_days": int(r.vacuum_shelf_life_days or 0),
         }
         cat = (r.category or "").strip()
         if not cat:
@@ -618,6 +1166,7 @@ def _group_from_category(cat: str | None, name: str | None) -> str:
 def api_stock(
     loc: str = "all",
     q: str = "",
+    status: str = "all",
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
@@ -625,7 +1174,7 @@ def api_stock(
     Lightweight JSON feed for live stock updates (polling).
     Returns only the quantities needed to update the stock table without reloading the page.
     """
-    grouped = build_stock_grouped(db, loc=loc, q=q)
+    grouped = build_stock_grouped(db, loc=loc, q=q, status=status)
 
     items = []
     for _cat, arr in grouped.items():
@@ -656,10 +1205,14 @@ def stock_view(
     request: Request,
     loc: str = "all",
     q: str = "",
+    status: str = "all",
+    pending: str | None = None,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    grouped = build_stock_grouped(db, loc=loc, q=q)
+    # Backward compatibility for old dashboard/bookmarked links.
+    status_norm = "pending" if _truthy_flag(pending) and status == "all" else status
+    grouped = build_stock_grouped(db, loc=loc, q=q, status=status_norm)
 
     return templates.TemplateResponse(
         "stock.html",
@@ -669,6 +1222,7 @@ def stock_view(
             "grouped": grouped,
             "loc": (loc or "all"),
             "q": (q or ""),
+            "status": (status_norm or "all"),
             "can_edit_target": (user.role == "admin"),
             "can_adjust_central": (user.role == "admin"),
             "can_adjust_workshop": (user.role in ("admin", "workshop")),
@@ -688,6 +1242,7 @@ def _eligible_label_products(db: Session):
     )
     out = []
     for p in rows:
+        unified_missing = product_readiness(p, DISTRIBUTION_PROFILE)
         out.append({
             "id": p.id,
             "name": p.name,
@@ -696,9 +1251,33 @@ def _eligible_label_products(db: Session):
             "unit": p.unit or "",
             "shelf_life_days": int(p.shelf_life_days or 0),
             "storage_text": p.storage_text or "",
+            "vacuum_shelf_life_days": int(p.vacuum_shelf_life_days or 0),
+            "vacuum_storage_text": p.vacuum_storage_text or "",
             "label_template": p.label_template or "",
+            "label_metadata": product_label_metadata(p),
+            # Legacy names remain in the JSON for old open browser tabs. Both now
+            # describe the one unified 50x70 product label.
+            "internal_ready": not unified_missing,
+            "internal_missing": list(unified_missing),
+            "distribution_ready": not unified_missing,
+            "distribution_missing": list(unified_missing),
         })
     return out
+
+
+def _hprt_agent_download() -> tuple[str | None, str]:
+    release = load_hprt_agent_release_settings()
+    if release.channel == "production":
+        return (
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21.zip",
+            "↓ Λήψη HPRT Agent v1.0.21 · Production",
+        )
+    if release.channel == "staging":
+        return (
+            "/static/downloads/SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21-STAGING.zip",
+            "↓ Λήψη HPRT Agent v1.0.21 · Staging",
+        )
+    return None, "Η λήψη HPRT Agent είναι απενεργοποιημένη"
 
 
 @router.get("/admin/labels", response_class=HTMLResponse)
@@ -711,16 +1290,101 @@ def labels_center(
     if (user.role or "").lower() not in {"admin", "workshop"}:
         return admin_only_dialog(request, user, next_url="/dashboard")
     default_station = "CENTRAL" if (user.role or "").lower() == "admin" else "WORKSHOP"
+    business = business_label_identity()
+    hprt_agent_download_url, hprt_agent_download_label = _hprt_agent_download()
     return templates.TemplateResponse(
         "labels_center.html",
         {
             "request": request,
             "user": user,
             "products": products,
-            "products_json": json.dumps(products, ensure_ascii=False),
+            "print_jobs": _print_job_rows(db),
             "default_station": default_station,
+            "hprt_agent_download_url": hprt_agent_download_url,
+            "hprt_agent_download_label": hprt_agent_download_label,
+            "business_label_ready": bool(
+                business.name
+                and business.address
+                and (os.getenv("WAREHOUSE_LABEL_RED_MEAT_APPROVAL_NUMBER") or os.getenv("WAREHOUSE_LABEL_APPROVAL_NUMBER"))
+                and os.getenv("WAREHOUSE_LABEL_POULTRY_APPROVAL_NUMBER")
+            ),
         },
     )
+
+
+@router.get("/admin/labels/jobs", response_class=JSONResponse)
+def labels_jobs(
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop"}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return JSONResponse({"ok": True, "jobs": _print_job_rows(db)})
+
+
+@router.post("/admin/labels/jobs/{job_id}/retry", response_class=JSONResponse)
+def labels_job_retry(
+    job_id: int,
+    request: Request = None,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop"}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    lot = db.get(ProductLot, job_id)
+    if lot is None:
+        raise HTTPException(status_code=404, detail="Print job not found")
+    if lot.status not in {"ERROR", "CANCELLED"}:
+        raise HTTPException(status_code=409, detail="Only failed or cancelled jobs can be retried")
+    before = _print_audit_snapshot(lot)
+    previous_status = lot.status
+    lot.status = "QUEUED"
+    lot.claim_token_hash = None
+    lot.claim_expires_at = None
+    _clear_print_error(db, lot.id)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.retried",
+        before=before,
+        actor=user,
+        reason=f"Manual retry after {previous_status}",
+        correlation_id=correlation_id_for_request(request),
+    )
+    db.commit()
+    return JSONResponse({"ok": True, "id": lot.id, "status": lot.status, "message": "Μπήκε ξανά στην ουρά."})
+
+
+@router.post("/admin/labels/jobs/{job_id}/cancel", response_class=JSONResponse)
+def labels_job_cancel(
+    job_id: int,
+    request: Request = None,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop"}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    lot = db.get(ProductLot, job_id)
+    if lot is None:
+        raise HTTPException(status_code=404, detail="Print job not found")
+    if lot.status != "QUEUED":
+        raise HTTPException(status_code=409, detail="Only queued jobs can be cancelled safely")
+    before = _print_audit_snapshot(lot)
+    lot.status = "CANCELLED"
+    lot.claim_token_hash = None
+    lot.claim_expires_at = None
+    _set_print_error(db, lot.id, "Cancelled by user before agent claim")
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.cancelled",
+        before=before,
+        actor=user,
+        reason="Cancelled by user before agent claim",
+        correlation_id=correlation_id_for_request(request),
+    )
+    db.commit()
+    return JSONResponse({"ok": True, "id": lot.id, "status": lot.status})
 
 
 @router.post("/admin/labels/create-batch", response_class=JSONResponse)
@@ -738,41 +1402,122 @@ def labels_create_batch(
         raise HTTPException(status_code=400, detail="Invalid payload")
 
     items = payload.get("items") or []
-    station_norm = _normalize_station(payload.get("station"))
+    try:
+        label_profile = normalize_label_profile(payload.get("label_profile"))
+    except LabelValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Destination follows the Stock loc selector. Free-form station text cannot
+    # choose CENTRAL, and the label stays on the active unified 50×70 profile.
+    station_norm = _station_for_stock_loc(payload.get("loc"))
+    _reject_untrusted_station(payload, station_norm)
     if not _station_allowed_for_user(user, station_norm):
         raise HTTPException(status_code=403, detail="Invalid station for this user")
     if not isinstance(items, list) or not items:
         raise HTTPException(status_code=400, detail="No batch items provided")
 
-    batch_ref = f"LB-{uuid4().hex[:10].upper()}"
-    created = []
+    request_id = (str(payload.get("request_id") or "")).strip()
+    if request_id and (len(request_id) > 128 or not all(ch.isalnum() or ch in "-_" for ch in request_id)):
+        raise HTTPException(status_code=400, detail="Invalid request_id")
+    batch_ref = (
+        f"LB-{hashlib.sha256(request_id.encode('utf-8')).hexdigest()[:20].upper()}"
+        if request_id
+        else f"LB-{uuid4().hex[:20].upper()}"
+    )
+    if request_id:
+        acquire_transaction_lock(db, "label-batch-request", batch_ref)
+    existing = (
+        db.query(ProductLot, Product)
+        .join(Product, Product.id == ProductLot.product_id)
+        .filter(ProductLot.batch_ref == batch_ref)
+        .order_by(ProductLot.id.asc())
+        .all()
+    )
+    if existing:
+        return JSONResponse({
+            "ok": True,
+            "duplicate": True,
+            "message": "Το ίδιο αίτημα υπάρχει ήδη στην ουρά.",
+            "batch_ref": batch_ref,
+            "created_count": len(existing),
+            "items": [_sr_job_payload(lot, product) for lot, product in existing],
+            "station": existing[0][0].station or station_norm,
+            "label_profile": label_profile,
+        })
+
+    try:
+        layout_snapshot, content_snapshot = active_label_contract_snapshots_for_print(db)
+    except LabelLayoutUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="The active 50x70 label layout is unavailable.",
+        ) from exc
+
+    pending_lots: list[tuple[ProductLot, Product, dict, bool]] = []
+    validation_errors: list[dict] = []
+    reserved_lot_codes: set[str] = set()
     today = _today_athens()
 
-    for raw in items:
+    for index, raw in enumerate(items):
         if not isinstance(raw, dict):
+            validation_errors.append({"index": index, "error": "Item must be an object"})
             continue
-        product_id = int(raw.get("product_id") or 0)
-        copies = int(raw.get("copies") or 0)
-        if product_id <= 0 or copies <= 0:
+        try:
+            product_id = int(raw.get("product_id") or 0)
+            copies = int(raw.get("copies") or 0)
+        except (TypeError, ValueError):
+            validation_errors.append({"index": index, "error": "Invalid product or copies"})
+            continue
+        try:
+            preservation_profile = normalize_preservation_profile(
+                raw.get("preservation_profile")
+            )
+        except LabelValidationError as exc:
+            validation_errors.append({"index": index, "error": str(exc)})
+            continue
+        if product_id <= 0 or copies <= 0 or copies > 50:
+            validation_errors.append({"index": index, "product_id": product_id, "error": "Copies must be from 1 to 50"})
             continue
 
         product = db.get(Product, product_id)
         if not product:
+            validation_errors.append({"index": index, "product_id": product_id, "error": "Product not found"})
             continue
         if not product.is_active or product.only_in_freezer:
+            validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": "Product is not eligible for labels"})
             continue
-        if int(product.shelf_life_days or 0) <= 0:
+        try:
+            preservation = preservation_details(product, preservation_profile)
+        except LabelValidationError as exc:
+            validation_errors.append({
+                "index": index,
+                "product_id": product_id,
+                "product_name": product.name,
+                "error": str(exc),
+            })
             continue
 
         production_date = today
-        expiry_date = production_date + timedelta(days=int(product.shelf_life_days or 0))
+        expiry_date = production_date + timedelta(
+            days=int(preservation["shelf_life_days"])
+        )
         lot_code_raw = (str(raw.get("lot_code") or "")).strip()
-        extra_code = (str(raw.get("extra_code") or "")).strip()[:64]
-        lot_code = lot_code_raw or _build_lot_code(product, station_norm, production_date, db)
-
-        exists_same = db.query(ProductLot.id).filter(ProductLot.lot_code == lot_code).first()
-        if exists_same:
-            lot_code = _build_lot_code(product, station_norm, production_date, db)
+        source_lot_code = (str(raw.get("source_lot_code") or "")).strip()[:96]
+        label_origin_override = (str(raw.get("label_origin_override") or "")).strip()[:255]
+        auto_lot_code = not bool(lot_code_raw)
+        lot_code = lot_code_raw or _build_lot_code(
+            product,
+            station_norm,
+            production_date,
+            db,
+            reserved=reserved_lot_codes,
+        )
+        if lot_code_raw and (
+            lot_code in reserved_lot_codes
+            or db.query(ProductLot.id).filter(ProductLot.lot_code == lot_code).first()
+        ):
+            validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": "Lot code already exists"})
+            continue
+        reserved_lot_codes.add(lot_code)
 
         lot = ProductLot(
             product_id=product.id,
@@ -783,33 +1528,109 @@ def labels_create_batch(
             lot_code=lot_code,
             status="QUEUED",
             created_by_user_id=user.id,
+            label_profile=label_profile,
+            preservation_profile=preservation_profile,
+            source_lot_code=source_lot_code or None,
+            label_origin_override=label_origin_override or None,
         )
-        if hasattr(lot, "batch_ref"):
-            lot.batch_ref = batch_ref
-        if hasattr(lot, "extra_code"):
-            lot.extra_code = extra_code
+        lot.batch_ref = batch_ref
+        try:
+            render_payload = build_label_payload(
+                product,
+                lot,
+                profile=label_profile,
+                layout_snapshot=layout_snapshot,
+                content_snapshot=content_snapshot,
+            )
+        except LabelValidationError as exc:
+            validation_errors.append({"index": index, "product_id": product_id, "product_name": product.name, "error": str(exc)})
+            continue
+        lot.label_payload_json = json.dumps(
+            render_payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
 
-        db.add(lot)
-        db.flush()
+        pending_lots.append((lot, product, render_payload, auto_lot_code))
 
-        created.append({
-            "id": lot.id,
-            "product_id": product.id,
-            "product_name": product.name,
-            "copies": copies,
-            "lot_code": lot.lot_code,
-            "production_date": _fmt_label_date(lot.production_date),
-            "expiry_date": _fmt_label_date(lot.expiry_date),
-            "shelf_life_days": int(product.shelf_life_days or 0),
-            "label_template": product.label_template or "",
-            "extra_code": extra_code,
-        })
-
-    if not created:
+    if validation_errors:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Κάποια items δεν είναι έγκυρα.", "items": validation_errors},
+        )
+    if not pending_lots:
         raise HTTPException(status_code=400, detail="No valid label items were created")
 
+    persisted_lots: list[tuple[ProductLot, Product, dict]] = []
+    for lot, product, render_payload, auto_lot_code in pending_lots:
+        for attempt in range(3):
+            try:
+                with db.begin_nested():
+                    db.add(lot)
+                    db.flush()
+                persisted_lots.append((lot, product, render_payload))
+                break
+            except IntegrityError as exc:
+                if not auto_lot_code or attempt == 2:
+                    raise HTTPException(status_code=409, detail="Lot code collision; retry the request") from exc
+                lot.lot_code = _build_lot_code(
+                    product,
+                    station_norm,
+                    lot.production_date,
+                    db,
+                    reserved=reserved_lot_codes,
+                )
+                reserved_lot_codes.add(lot.lot_code)
+                try:
+                    render_payload = build_label_payload(
+                        product,
+                        lot,
+                        profile=label_profile,
+                        layout_snapshot=layout_snapshot,
+                        content_snapshot=content_snapshot,
+                    )
+                except LabelValidationError as validation_exc:
+                    raise HTTPException(status_code=422, detail=str(validation_exc)) from validation_exc
+                lot.label_payload_json = json.dumps(
+                    render_payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+    created = [
+        {
+            **_sr_job_payload(lot, product),
+            "render_payload": render_payload,
+        }
+        for lot, product, render_payload in persisted_lots
+    ]
+
+    correlation_id = correlation_id_for_request(request)
+    for lot, _product, _render_payload in persisted_lots:
+        _audit_print_transition(
+            db,
+            lot,
+            action="print.job.queued",
+            before=None,
+            actor=user,
+            reason="Batch label request accepted",
+            correlation_id=correlation_id,
+        )
+
     db.commit()
-    return JSONResponse({"ok": True, "batch_ref": batch_ref, "created_count": len(created), "items": created, "station": station_norm})
+    return JSONResponse({"ok": True, "duplicate": False, "message": "Μπήκε στην ουρά.", "batch_ref": batch_ref, "created_count": len(created), "items": created, "station": station_norm, "label_profile": label_profile})
+
+
+def _label_payload_supported(lot: ProductLot, maximum_schema: int = 7) -> bool:
+    try:
+        payload = json.loads(lot.label_payload_json or 'null')
+    except (TypeError, ValueError):
+        payload = None
+    schema = payload.get('schema_version') if isinstance(payload, dict) else None
+    # Preserve established handling of legacy/malformed payloads. New valid
+    # integer schemas can only be delivered through a compatible protocol.
+    return not (isinstance(schema, int) and not isinstance(schema, bool) and schema > maximum_schema)
 
 
 @router.get("/api/print-jobs/next-batch", response_class=JSONResponse)
@@ -824,14 +1645,15 @@ def api_print_jobs_next_batch(
         token = request.headers.get('x-agent-token', '')
     _validate_agent_token(station_norm, token)
 
-    first_row = (
+    pending = (
         db.query(ProductLot)
         .filter(ProductLot.station == station_norm, ProductLot.status == 'QUEUED')
         .order_by(ProductLot.created_at.asc(), ProductLot.id.asc())
-        .first()
+        .yield_per(64)
     )
+    first_row = next((lot for lot in pending if _label_payload_supported(lot)), None)
     if not first_row:
-        return JSONResponse({'batch': None})
+        return _legacy_print_response({'batch': None})
 
     batch_ref = getattr(first_row, 'batch_ref', None) or ''
     q = (
@@ -844,11 +1666,11 @@ def api_print_jobs_next_batch(
     else:
         q = q.filter(ProductLot.id == first_row.id)
     rows = q.order_by(ProductLot.created_at.asc(), ProductLot.id.asc()).all()
-    return JSONResponse({
+    return _legacy_print_response({
         'batch': {
             'batch_ref': batch_ref,
             'station': station_norm,
-            'jobs': [_sr_job_payload(lot, product) for lot, product in rows],
+            'jobs': [_sr_job_payload(lot, product) for lot, product in rows if _label_payload_supported(lot)],
         }
     })
 
@@ -869,17 +1691,30 @@ def api_print_jobs_batch_done(
         payload = {}
     ids = payload.get("ids") or []
     done = []
+    correlation_id = correlation_id_for_request(request)
     for raw_id in ids:
         try:
             lot = db.get(ProductLot, int(raw_id))
         except Exception:
             lot = None
-        if not lot or lot.station != station_norm:
+        if not lot or lot.station != station_norm or lot.status != "QUEUED":
             continue
+        if not _label_payload_supported(lot):
+            continue
+        before = _print_audit_snapshot(lot)
         lot.status = "PRINTED"
+        _clear_print_error(db, lot.id)
+        _audit_print_transition(
+            db,
+            lot,
+            action="print.job.printed",
+            before=before,
+            reason=f"Legacy batch acknowledgement from {station_norm} agent",
+            correlation_id=correlation_id,
+        )
         done.append(lot.id)
     db.commit()
-    return JSONResponse({"ok": True, "station": station_norm, "done_ids": done})
+    return _legacy_print_response({"ok": True, "station": station_norm, "done_ids": done})
 
 
 
@@ -902,12 +1737,13 @@ def labels_queue(
         .join(Product, Product.id == ProductLot.product_id)
         .filter(ProductLot.station == station_norm, ProductLot.status == 'QUEUED')
         .order_by(ProductLot.created_at.asc(), ProductLot.id.asc())
-        .limit(limit)
-        .all()
+        .yield_per(64)
     )
 
     out = []
     for lot, product in rows:
+        if not _label_payload_supported(lot):
+            continue
         out.append({
             'id': lot.id,
             'product_id': product.id,
@@ -921,7 +1757,9 @@ def labels_queue(
             'storage_text': getattr(product, 'storage_text', None) or '',
             'label_template': getattr(product, 'label_template', None) or 'default.btw',
         })
-    return JSONResponse(out)
+        if len(out) >= limit:
+            break
+    return _legacy_print_response(out)
 
 
 @router.post("/labels/done", response_class=JSONResponse)
@@ -952,9 +1790,24 @@ def labels_done(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail='Station mismatch')
     _validate_agent_token(station_norm, token)
 
+    if lot.status != 'QUEUED':
+        raise HTTPException(status_code=409, detail='Legacy acknowledgement cannot override a leased or terminal job')
+    if not _label_payload_supported(lot):
+        raise HTTPException(status_code=409, detail='New label schemas require the leased print protocol')
+
+    before = _print_audit_snapshot(lot)
     lot.status = 'PRINTED'
+    _clear_print_error(db, lot.id)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.printed",
+        before=before,
+        reason=f"Legacy acknowledgement from {station_norm} agent",
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
-    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
+    return _legacy_print_response({'ok': True, 'id': lot.id, 'status': lot.status})
 
 
 @router.post("/labels/error", response_class=JSONResponse)
@@ -985,9 +1838,25 @@ def labels_error(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail='Station mismatch')
     _validate_agent_token(station_norm, token)
 
+    if lot.status != 'QUEUED':
+        raise HTTPException(status_code=409, detail='Legacy acknowledgement cannot override a leased or terminal job')
+    if not _label_payload_supported(lot):
+        raise HTTPException(status_code=409, detail='New label schemas require the leased print protocol')
+
+    before = _print_audit_snapshot(lot)
     lot.status = 'ERROR'
+    error_clean = (payload.get('error_message') or 'Legacy agent print error').strip()[:255]
+    _set_print_error(db, lot.id, error_clean)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.error",
+        before=before,
+        reason=error_clean,
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
-    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
+    return _legacy_print_response({'ok': True, 'id': lot.id, 'status': lot.status})
 
 
 
@@ -1003,19 +1872,82 @@ def api_print_jobs_next(
     if request is not None:
         token = request.headers.get('x-agent-token', '')
     _validate_agent_token(station_norm, token)
+    # Capability declaration is not authorization: the existing station token
+    # is always checked first. Agents before 1.0.20 omit the header and must
+    # never lease a new schema-8 job merely because it reached the queue head.
+    declared_schema = (request.headers.get('x-label-schema-max', '') if request is not None else '').strip()
+    maximum_schema = 8 if declared_schema == '8' else 7
 
-    row = (
+    acquire_transaction_lock(db, 'warehouse-print-queue', station_norm)
+    now = datetime.now(ZoneInfo('UTC'))
+    candidates = (
         db.query(ProductLot, Product)
         .join(Product, Product.id == ProductLot.product_id)
-        .filter(ProductLot.station == station_norm, ProductLot.status == 'QUEUED')
+        .filter(
+            ProductLot.station == station_norm,
+            or_(
+                ProductLot.status == 'QUEUED',
+                and_(
+                    ProductLot.status == 'CLAIMED',
+                    ProductLot.claim_expires_at < now,
+                ),
+            ),
+        )
         .order_by(ProductLot.created_at.asc(), ProductLot.id.asc())
-        .first()
+        .with_for_update(skip_locked=True)
     )
+    row = None
+    offset = 0
+    upgrade_required = False
+    while row is None:
+        # Bounded pages keep memory modest while allowing compatible older
+        # jobs behind any number of new jobs to remain printable. No payload
+        # or lease is mutated while an incompatible candidate is skipped.
+        page = candidates.offset(offset).limit(64).all()
+        for candidate in page:
+            candidate_lot, _candidate_product = candidate
+            if not _label_payload_supported(candidate_lot, maximum_schema):
+                upgrade_required = True
+                continue
+            row = candidate
+            break
+        if row is not None or len(page) < 64:
+            break
+        offset += len(page)
     if not row:
-        return JSONResponse({'job': None})
+        db.rollback()
+        return JSONResponse(
+            {'ok': True, 'job': None, 'agent_upgrade_required': upgrade_required},
+            media_type='application/json; charset=utf-8',
+        )
 
     lot, product = row
-    return JSONResponse({'job': _sr_job_payload(lot, product)})
+    before = _print_audit_snapshot(lot)
+    claim_token = secrets.token_urlsafe(32)
+    claim_expires_at = now + timedelta(minutes=3)
+    lot.status = 'CLAIMED'
+    lot.claim_token_hash = _claim_token_hash(claim_token)
+    lot.claim_expires_at = claim_expires_at
+    _clear_print_error(db, lot.id)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.claimed",
+        before=before,
+        reason=f"Claimed by {station_norm} agent",
+        correlation_id=correlation_id_for_request(request),
+    )
+    db.commit()
+    job = _sr_job_payload(lot, product)
+    job.update({
+        'target_station': station_norm,
+        'claim_token': claim_token,
+        'lease_expires_at': claim_expires_at.isoformat(),
+    })
+    return JSONResponse(
+        {'ok': True, 'job': job},
+        media_type='application/json; charset=utf-8',
+    )
 
 
 @router.post("/api/print-jobs/{job_id}/done", response_class=JSONResponse)
@@ -1034,7 +1966,21 @@ def api_print_jobs_done(
     if lot.station != station_norm:
         raise HTTPException(status_code=400, detail='Station mismatch')
 
+    _require_print_claim(lot, request)
+
+    before = _print_audit_snapshot(lot)
     lot.status = 'PRINTED'
+    lot.claim_token_hash = None
+    lot.claim_expires_at = None
+    _clear_print_error(db, lot.id)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.printed",
+        before=before,
+        reason=f"Confirmed by {station_norm} agent",
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
     return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status})
 
@@ -1056,9 +2002,24 @@ def api_print_jobs_fail(
     if lot.station != station_norm:
         raise HTTPException(status_code=400, detail='Station mismatch')
 
+    _require_print_claim(lot, request)
+
+    before = _print_audit_snapshot(lot)
     lot.status = 'ERROR'
+    lot.claim_token_hash = None
+    lot.claim_expires_at = None
+    error_clean = (error_message or 'Unknown print error').strip()[:255]
+    _set_print_error(db, lot.id, error_clean)
+    _audit_print_transition(
+        db,
+        lot,
+        action="print.job.error",
+        before=before,
+        reason=error_clean,
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
-    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status, 'error_message': (error_message or '')[:500]})
+    return JSONResponse({'ok': True, 'id': lot.id, 'status': lot.status, 'error_message': error_clean})
 
 
 @router.post("/api/print-agent/labels", response_class=JSONResponse)
@@ -1073,77 +2034,20 @@ def api_print_agent_labels(
 
 @router.post("/labels/quick-print")
 def labels_quick_print(
-    request: Request,
-    product_id: int = Form(...),
-    station: str = Form(...),
+    request: Request = None,
+    product_id: int = Form(0),
+    station: str = Form(""),
     quantity: str = Form("0"),
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    wants_json = (request.headers.get("x-requested-with", "").lower() == "fetch") or ("application/json" in (request.headers.get("accept", "").lower()))
-
-    def _json_error(message: str, status_code: int = 400):
-        if wants_json:
-            return JSONResponse({"ok": False, "error": message}, status_code=status_code)
-        if message == "label_product":
-            return RedirectResponse(url="/stock?err=label_product", status_code=303)
-        if message == "label_qty":
-            return RedirectResponse(url="/stock?err=label_qty", status_code=303)
-        if message == "label_shelf_life":
-            return RedirectResponse(url=f"/products/{product.id}/edit?err=label_shelf_life", status_code=303)
-        return RedirectResponse(url="/stock?err=label", status_code=303)
-
-    product = db.get(Product, product_id)
-    if not product:
-        return _json_error("Το προϊόν δεν βρέθηκε.", 404) if wants_json else RedirectResponse(url="/stock?err=label_product", status_code=303)
-
-    station_norm = _normalize_station(station)
-    if not _station_allowed_for_user(user, station_norm):
-        if wants_json:
-            return JSONResponse({"ok": False, "error": "Μη έγκυρος σταθμός για αυτόν τον χρήστη."}, status_code=403)
-        raise HTTPException(status_code=403, detail="Invalid station for this user")
-
-    qty_dec = parse_qty(quantity) or Decimal("0")
-    if qty_dec <= 0:
-        return JSONResponse({"ok": False, "error": "Δεν υπάρχει διαθέσιμη ποσότητα για εκτύπωση ετικέτας."}, status_code=400) if wants_json else RedirectResponse(url="/stock?err=label_qty", status_code=303)
-
-    if int(product.shelf_life_days or 0) <= 0:
-        return JSONResponse({"ok": False, "error": "Λείπει το shelf life του προϊόντος."}, status_code=400) if wants_json else RedirectResponse(url=f"/products/{product.id}/edit?err=label_shelf_life", status_code=303)
-
-    production_date = _today_athens()
-    expiry_date = production_date + timedelta(days=int(product.shelf_life_days or 0))
-    lot_code = _build_lot_code(product, station_norm, production_date, db)
-
-    lot = ProductLot(
-        product_id=product.id,
-        station=station_norm,
-        quantity_labels=float(qty_dec),
-        production_date=production_date,
-        expiry_date=expiry_date,
-        lot_code=lot_code,
-        status="CREATED",
-        created_by_user_id=user.id,
+    # This legacy path could create an Agent job without an immutable dynamic
+    # payload.  All current entry points use /admin/labels/create-batch, which
+    # validates and snapshots both regulated content and the active layout.
+    raise HTTPException(
+        status_code=410,
+        detail="Use the current Label Center or the Stock print action.",
     )
-    db.add(lot)
-    db.flush()
-
-    try:
-        lot.status = _run_label_print_hook(product, lot)
-    except Exception:
-        lot.status = "QUEUED"
-
-    db.commit()
-
-    if wants_json:
-        return JSONResponse({
-            "ok": True,
-            "message": f"Το label στάλθηκε: {product.name}",
-            "product_id": product.id,
-            "lot_code": lot_code,
-            "status": lot.status,
-            "station": station_norm,
-        })
-    return RedirectResponse(url="/stock?ok=label", status_code=303)
 
 
 def _telegram_send(text: str) -> None:
@@ -1349,6 +2253,7 @@ def workshop_in(
     product_id: int = Form(...),
     qty: str = Form(...),
 ):
+    enforce_stock_action(user, "stock_in", "WORKSHOP")
     q = parse_qty(qty)
     if not q:
         return RedirectResponse("/stock", 303)
@@ -1379,6 +2284,7 @@ def workshop_out(
     product_id: int = Form(...),
     qty: str = Form(...),
 ):
+    enforce_stock_action(user, "stock_out", "WORKSHOP")
     q = parse_qty(qty)
     if not q:
         return RedirectResponse("/stock", 303)
@@ -1413,6 +2319,7 @@ def central_out(
     product_id: int = Form(...),
     qty: str = Form(...),
 ):
+    enforce_stock_action(user, "stock_out", "CENTRAL")
     q = parse_qty(qty)
     if not q:
         return RedirectResponse("/stock", 303)
@@ -1447,6 +2354,7 @@ def transfer_workshop_to_central(
     product_id: int = Form(...),
     qty: str = Form(...),
 ):
+    enforce_stock_action(user, "transfer", "WORKSHOP:CENTRAL")
     q = parse_qty(qty)
     if not q:
         return RedirectResponse("/stock", 303)
@@ -1498,6 +2406,7 @@ def transfer_central_to_workshop(
     product_id: int = Form(...),
     qty: str = Form(...),
 ):
+    enforce_stock_action(user, "transfer", "CENTRAL:WORKSHOP")
     q = parse_qty(qty)
     if not q:
         return RedirectResponse("/stock", 303)
@@ -1543,15 +2452,14 @@ def transfer_central_to_workshop(
 # Stock UI helper endpoints
 # ------------------------
 @router.post("/stock/target")
-async def stock_set_target(
+def stock_set_target(
     request: Request,
     product_id: int = Form(...),
     target: str = Form(...),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
+    enforce_stock_action(user, "target", "CENTRAL")
     try:
         target_dec = Decimal(target)
     except Exception:
@@ -1593,6 +2501,8 @@ async def stock_set_target(
         return JSONResponse(
             {
                 "ok": True,
+                "action": "target",
+                "message": "Target updated.",
                 "product_id": product_id,
                 "central_qty_text": fmtqty(c_qty, p.unit),
                 "workshop_qty_text": fmtqty(w_qty, p.unit),
@@ -1608,12 +2518,13 @@ async def stock_set_target(
     return RedirectResponse(url="/stock", status_code=303)
 
 @router.post("/stock/adjust")
-async def stock_adjust(
+def stock_adjust(
     request: Request,
     product_id: int = Form(...),
     location: str = Form(...),
     qty: str = Form(...),
     direction: str | None = Form(None),
+    reason: str = Form(""),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
@@ -1626,10 +2537,14 @@ async def stock_adjust(
     if loc not in ("CENTRAL", "WORKSHOP"):
         raise HTTPException(status_code=422, detail="Invalid location")
 
-    if loc == "CENTRAL" and user.role != "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-    if loc == "WORKSHOP" and user.role not in ("admin", "workshop"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    enforce_stock_action(user, "adjust", loc)
+
+    reason_clean = (reason or "").strip()
+    if not _meaningful_correction_reason(reason_clean):
+        raise HTTPException(
+            status_code=422,
+            detail="Correction reason is required (at least 5 characters)",
+        )
 
     try:
         q = Decimal(str(qty).replace(",", ".").strip())
@@ -1661,9 +2576,28 @@ async def stock_adjust(
         movement_type=mt,
         qty=q_abs,
         user_id=user.id,
-        note="UI adjust",
+        note=reason_clean,
     )
     db.add(mv)
+    db.flush()
+    record_audit_event(
+        db,
+        actor=user,
+        action="stock.adjusted",
+        entity_type="stock_movement",
+        entity_id=mv.id,
+        before=None,
+        after={
+            "product_id": product_id,
+            "location_id": loc_row.id,
+            "location_code": loc,
+            "movement_type": mt,
+            "quantity": q_abs,
+            "signed_delta": q,
+        },
+        reason=reason_clean,
+        correlation_id=correlation_id_for_request(request),
+    )
     db.commit()
 
     # If requested via fetch/AJAX, return JSON so the page does not reload.
@@ -1698,6 +2632,8 @@ async def stock_adjust(
         return JSONResponse(
             {
                 "ok": True,
+                "action": "adjust",
+                "message": f"{loc.title()} stock corrected.",
                 "product_id": product_id,
                 "central_qty_text": fmtqty(c_qty, p.unit),
                 "workshop_qty_text": fmtqty(w_qty, p.unit),
@@ -1712,15 +2648,14 @@ async def stock_adjust(
 
     return RedirectResponse(url="/stock", status_code=303)
 @router.post("/stock/transfer_wc")
-async def stock_transfer_workshop_to_central_ui(
+def stock_transfer_workshop_to_central_ui(
     request: Request,
     product_id: int = Form(...),
     qty: str = Form("1"),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
-    if user.role not in ("admin", "workshop"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    enforce_stock_action(user, "transfer", "WORKSHOP:CENTRAL")
 
     try:
         q = Decimal(qty)
@@ -1796,6 +2731,8 @@ async def stock_transfer_workshop_to_central_ui(
         return JSONResponse(
             {
                 "ok": True,
+                "action": "transfer",
+                "message": "Transferred from Workshop to Central.",
                 "product_id": product_id,
                 "central_qty_text": fmtqty(c_qty, p.unit),
                 "workshop_qty_text": fmtqty(w_qty, p.unit),
@@ -1812,14 +2749,13 @@ async def stock_transfer_workshop_to_central_ui(
 
 
 @router.post("/stock/fulfill")
-async def stock_fulfill_pending(
+def stock_fulfill_pending(
     request: Request,
     product_id: int = Form(...),
     db: Session = Depends(get_db),
     user: User = Depends(require_login),
 ):
-    if user.role not in ("admin", "workshop"):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    enforce_stock_action(user, "fulfill", "WORKSHOP:CENTRAL")
 
 
     # If requested via fetch/AJAX, return JSON so the page does not reload.
@@ -1856,6 +2792,8 @@ async def stock_fulfill_pending(
             return JSONResponse(
                 {
                     "ok": True,
+                    "action": "fulfill",
+                    "message": "Nothing pending for this product.",
                     "product_id": product_id,
                     "central_qty_text": fmtqty(c_qty, p.unit),
                     "workshop_qty_text": fmtqty(ws_qty, p.unit),
@@ -1903,9 +2841,10 @@ async def stock_fulfill_pending(
         )
     )
 
-    # Reduce existing Missing with any delivery, then add any new shortfall.
-    missing_reduce_on_delivery(db, product_id, deliver)
-    missing_add_shortfall(db, product_id, shortfall)
+    # A fulfill attempt recalculates the one current unresolved shortage. It must
+    # replace the prior value rather than add the same shortage again on every
+    # later partial delivery.
+    missing_set_shortfall(db, product_id, shortfall)
     db.commit()
 
     if wants_json:
@@ -1928,6 +2867,8 @@ async def stock_fulfill_pending(
         return JSONResponse(
             {
                 "ok": True,
+                "action": "fulfill",
+                "message": "Pending stock fulfilled.",
                 "product_id": product_id,
                 "central_qty_text": fmtqty(c2, p.unit),
                 "workshop_qty_text": fmtqty(w2, p.unit),

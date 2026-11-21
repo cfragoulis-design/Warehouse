@@ -11,7 +11,8 @@
     .top{padding:16px 20px;background:#111936;border-bottom:1px solid #243055;display:flex;align-items:center;justify-content:space-between;gap:12px}
     .card{max-width:560px;margin:24px auto;padding:20px;background:#111936;border:1px solid #243055;border-radius:12px}
     label{display:block;margin-top:14px;font-weight:800}
-    input,select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #243055;background:#0b1020;color:#e7e9ee}
+    input,select,textarea{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #243055;background:#0b1020;color:#e7e9ee}
+    textarea{min-height:76px;resize:vertical}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     @media (max-width:680px){.grid2{grid-template-columns:1fr}}
     .actions{margin-top:18px;display:flex;gap:10px;align-items:center}
@@ -52,9 +53,10 @@
           <input name="sku" value="{{ product.sku if product else '' }}">
         </div>
         <div>
-          <label>Μονάδα</label>
-          <select name="unit">
+          <label for="product_unit">Μονάδα</label>
+          <select id="product_unit" name="unit">
             <option value="box" {% if product and product.unit=='box' %}selected{% endif %}>Κιβώτια</option>
+            <option value="kg" {% if product and product.unit=='kg' %}selected{% endif %}>Κιλά</option>
             <option value="pcs" {% if product and product.unit=='pcs' %}selected{% endif %}>Τεμάχια</option>
             <option value="tray" {% if product and product.unit=='tray' %}selected{% endif %}>Δίσκος</option>
           </select>
@@ -106,8 +108,8 @@
 
       <div class="grid2">
         <div>
-          <label>Shelf Life (days)</label>
-          <input name="shelf_life_days" type="number" min="0" step="1" value="{{ product.shelf_life_days if product and product.shelf_life_days is not none else 0 }}">
+          <label>Ημέρες συντήρησης — κανονική συσκευασία</label>
+          <input name="shelf_life_days" type="number" min="0" max="3650" step="1" value="{{ product.shelf_life_days if product and product.shelf_life_days is not none else 0 }}">
           <div class="muted">Απαιτείται για αυτόματο υπολογισμό λήξης στις ετικέτες.</div>
         </div>
         <div>
@@ -117,9 +119,77 @@
         </div>
       </div>
 
-      <label>Storage Text</label>
+      <label>Κείμενο συντήρησης — κανονική συσκευασία</label>
       <input name="storage_text" value="{{ product.storage_text if product and product.storage_text else '' }}" placeholder="π.χ. Διατηρείται στους 0–4°C">
-      <div class="muted">Προαιρετικό κείμενο συντήρησης για την ετικέτα.</div>
+      <div class="muted">Υποχρεωτικό για αυτόματη ετικέτα. Παράδειγμα: Διατηρείται στους 0–4°C.</div>
+
+      {% set vacuum_configured = product and product.vacuum_shelf_life_days is not none %}
+      <input type="hidden" name="vacuum_fields_present" value="1">
+      <div class="checkrow">
+        <input id="vacuum_enabled" name="vacuum_enabled" type="checkbox" value="1" {% if vacuum_configured %}checked{% endif %}>
+        <label class="label" for="vacuum_enabled">Το ίδιο προϊόν διατίθεται και σε συσκευασία Vacuum</label>
+      </div>
+      <div class="muted">Δεν δημιουργείται δεύτερο προϊόν. Στην εκτύπωση επιλέγεται Κανονική ή Vacuum συσκευασία και υπολογίζεται η αντίστοιχη λήξη.</div>
+
+      <div id="vacuum_settings" class="grid2{% if not vacuum_configured %} hide{% endif %}">
+        <div>
+          <label for="vacuum_shelf_life_days">Ημέρες συντήρησης — Vacuum</label>
+          <input id="vacuum_shelf_life_days" name="vacuum_shelf_life_days" type="number" min="1" max="3650" step="1" value="{{ product.vacuum_shelf_life_days if product and product.vacuum_shelf_life_days is not none else '' }}">
+          <div class="muted">Υποχρεωτικό όταν είναι ενεργή η συσκευασία Vacuum.</div>
+        </div>
+        <div>
+          <label for="vacuum_storage_text">Κείμενο συντήρησης — Vacuum</label>
+          <input id="vacuum_storage_text" name="vacuum_storage_text" value="{{ product.vacuum_storage_text if product and product.vacuum_storage_text else '' }}" placeholder="Αν μείνει κενό, χρησιμοποιείται το κανονικό κείμενο">
+          <div class="muted">Προαιρετική διαφορετική οδηγία συντήρησης. Η ένδειξη «Συσκευασία υπό κενό» προστίθεται πάντα αυτόματα στην ετικέτα.</div>
+        </div>
+      </div>
+
+      <h3 style="margin:24px 0 4px;color:#8ab4ff">Στοιχεία δυναμικής ετικέτας ΕΦΕΤ</h3>
+      <div class="muted">Συμπληρώνονται μία φορά ανά προϊόν και χρησιμοποιούνται αυτόματα σε κάθε νέα παρτίδα.</div>
+
+      {% set approval_profile = (product.approval_profile if product and product.approval_profile else 'UNASSIGNED') %}
+      <label>Προφίλ κωδικού έγκρισης</label>
+      <select name="approval_profile" required>
+        <option value="UNASSIGNED" {% if approval_profile == 'UNASSIGNED' %}selected{% endif %}>Χρειάζεται έλεγχο</option>
+        <option value="RED_MEAT" {% if approval_profile == 'RED_MEAT' %}selected{% endif %}>Κόκκινο κρέας</option>
+        <option value="POULTRY" {% if approval_profile == 'POULTRY' %}selected{% endif %}>Πουλερικά</option>
+      </select>
+      <div class="muted">Επιλέγει ρητά τον σωστό κωδικό έγκρισης. Το όνομα ή η κατηγορία δεν αποφασίζει πλέον αυτόματα. Το «Χρειάζεται έλεγχο» εμποδίζει την εκτύπωση ετικέτας.</div>
+
+      <label>Νόμιμη/περιγραφική ονομασία τροφίμου</label>
+      <input name="label_legal_name" value="{{ product.label_legal_name if product and product.label_legal_name else '' }}" placeholder="Αν μείνει κενό, χρησιμοποιείται το Όνομα προϊόντος">
+
+      <div class="checkrow">
+        <input id="label_single_ingredient" name="label_single_ingredient" type="checkbox" value="1" {% if product and product.label_single_ingredient %}checked{% endif %}>
+        <label class="label" for="label_single_ingredient">Προϊόν ενός συστατικού</label>
+      </div>
+      <div class="muted">Π.χ. νωπό μοσχάρι. Αν δεν είναι ενεργό, απαιτείται κατάλογος συστατικών για ετικέτα διάθεσης.</div>
+
+      <div class="checkrow">
+        <input id="label_plain_piece" name="label_plain_piece" type="checkbox" value="1" aria-describedby="label_plain_piece_help" {% if product and product.label_plain_piece %}checked{% endif %}>
+        <label class="label" for="label_plain_piece">Απλό προϊόν εσωτερικής ιχνηλασιμότητας — χωρίς πρόσθετα και δηλωτέα αλλεργιογόνα</label>
+      </div>
+      <div id="label_plain_piece_help" class="muted">Για μονάδα «Τεμάχια», «Κιβώτια» ή «Δίσκος», π.χ. κοπανάκι κοτόπουλο. Παραλείπει μόνο τα κενά συστατικά και αλλεργιογόνα. Προέλευση, LOT, ημερομηνίες, συντήρηση, κωδικός έγκρισης και διατροφική δήλωση ή ξεχωριστή τεκμηριωμένη εξαίρεση παραμένουν υποχρεωτικά.</div>
+
+      <label>Συστατικά</label>
+      <textarea name="label_ingredients" placeholder="Κατά φθίνουσα σειρά περιεκτικότητας">{{ product.label_ingredients if product and product.label_ingredients else '' }}</textarea>
+
+      <label>Αλλεργιογόνα / δήλωση αλλεργιογόνων</label>
+      <textarea name="label_allergens" placeholder="Δηλώνεται ρητά ακόμη και όταν δεν υπάρχουν">{{ product.label_allergens if product and product.label_allergens else '' }}</textarea>
+
+      <label>Χώρα καταγωγής / τόπος προέλευσης</label>
+      <input name="label_origin" value="{{ product.label_origin if product and product.label_origin else '' }}" placeholder="Όπου απαιτείται από την κατηγορία προϊόντος">
+
+      <label>Οδηγίες χρήσης</label>
+      <textarea name="label_usage_instructions" placeholder="Προαιρετικό, όταν απαιτούνται για ασφαλή/σωστή χρήση">{{ product.label_usage_instructions if product and product.label_usage_instructions else '' }}</textarea>
+
+      <label>Διατροφική δήλωση</label>
+      <textarea name="label_nutrition" placeholder="Ανά 100 g: ενέργεια, λιπαρά, κορεσμένα, υδατάνθρακες, σάκχαρα, πρωτεΐνες, αλάτι">{{ product.label_nutrition if product and product.label_nutrition else '' }}</textarea>
+      <div class="checkrow">
+        <input id="label_nutrition_exempt" name="label_nutrition_exempt" type="checkbox" value="1" {% if product and product.label_nutrition_exempt %}checked{% endif %}>
+        <label class="label" for="label_nutrition_exempt">Τεκμηριωμένη εξαίρεση από διατροφική δήλωση</label>
+      </div>
+      <div class="muted">Αν δεν υπάρχει διατροφική δήλωση, ενεργοποιείται μόνο όταν έχει επιβεβαιωθεί ότι ισχύει εξαίρεση για το προϊόν.</div>
 
       <div class="checkrow">
         <input
@@ -158,6 +228,12 @@
   const hidden = document.getElementById("category_hidden");
   const wrap = document.getElementById("custom_wrap");
   const custom = document.getElementById("custom_input");
+  const unit = document.getElementById("product_unit");
+  const plainPiece = document.getElementById("label_plain_piece");
+  const vacuumEnabled = document.getElementById("vacuum_enabled");
+  const vacuumSettings = document.getElementById("vacuum_settings");
+  const vacuumDays = document.getElementById("vacuum_shelf_life_days");
+  const vacuumStorage = document.getElementById("vacuum_storage_text");
 
   function sync(){
     const v = sel.value || "";
@@ -170,10 +246,31 @@
     }
   }
 
+  function syncPlainPiece(){
+    if(!unit || !plainPiece) return;
+    const allowedUnits = ["pcs", "box", "tray"];
+    const invalid = plainPiece.checked && !allowedUnits.includes(unit.value);
+    plainPiece.setCustomValidity(invalid ? "Η επιλογή ισχύει μόνο με μονάδα Τεμάχια, Κιβώτια ή Δίσκος." : "");
+  }
+
+  function syncVacuum(){
+    if(!vacuumEnabled || !vacuumSettings || !vacuumDays || !vacuumStorage) return;
+    const enabled = vacuumEnabled.checked;
+    vacuumSettings.classList.toggle("hide", !enabled);
+    vacuumDays.disabled = !enabled;
+    vacuumStorage.disabled = !enabled;
+    vacuumDays.required = enabled;
+  }
+
   sel.addEventListener("change", sync);
   if(custom) custom.addEventListener("input", sync);
+  if(unit) unit.addEventListener("change", syncPlainPiece);
+  if(plainPiece) plainPiece.addEventListener("change", syncPlainPiece);
+  if(vacuumEnabled) vacuumEnabled.addEventListener("change", syncVacuum);
 
   sync();
+  syncPlainPiece();
+  syncVacuum();
 })();
 </script>
 

@@ -130,6 +130,59 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_template VARCHAR(255)"
             )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_legal_name VARCHAR(255)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_ingredients TEXT"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_allergens TEXT"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_origin VARCHAR(255)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_usage_instructions TEXT"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_nutrition TEXT"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_single_ingredient BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_plain_piece BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS label_nutrition_exempt BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            if engine.dialect.name == "postgresql":
+                conn.exec_driver_sql(
+                    """
+                    DO $compatibility$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_constraint
+                            WHERE conname = 'ck_products_label_plain_piece_unit'
+                              AND conrelid = 'products'::regclass
+                        ) THEN
+                            ALTER TABLE products
+                                ADD CONSTRAINT ck_products_label_plain_piece_unit
+                                CHECK (
+                                    NOT label_plain_piece
+                                    OR lower(trim(unit)) IN ('pcs', 'box', 'tray')
+                                )
+                                NOT VALID;
+                        END IF;
+                    END
+                    $compatibility$;
+                    """
+                )
+                conn.exec_driver_sql(
+                    "ALTER TABLE products VALIDATE CONSTRAINT ck_products_label_plain_piece_unit"
+                )
     except Exception as exc:
         _handle_startup_ddl_failure("products.label_metadata", exc)
 
@@ -163,6 +216,31 @@ def init_db() -> None:
             )
             conn.exec_driver_sql(
                 "ALTER TABLE product_lots ADD COLUMN IF NOT EXISTS extra_code VARCHAR(64)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE product_lots ADD COLUMN IF NOT EXISTS label_profile VARCHAR(32) NOT NULL DEFAULT 'INTERNAL'"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE product_lots ADD COLUMN IF NOT EXISTS source_lot_code VARCHAR(96)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE product_lots ADD COLUMN IF NOT EXISTS net_quantity_text VARCHAR(64)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE product_lots ADD COLUMN IF NOT EXISTS label_origin_override VARCHAR(255)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE product_lots ADD COLUMN IF NOT EXISTS label_payload_json TEXT"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE product_lots ADD COLUMN IF NOT EXISTS claim_token_hash VARCHAR(64)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE product_lots ADD COLUMN IF NOT EXISTS claim_expires_at TIMESTAMPTZ"
+            )
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_product_lots_print_claim "
+                "ON product_lots (station, status, claim_expires_at, created_at, id)"
             )
             conn.exec_driver_sql(
                 "CREATE INDEX IF NOT EXISTS ix_product_lots_batch_ref ON product_lots(batch_ref);"

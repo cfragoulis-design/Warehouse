@@ -1,0 +1,10 @@
+{
+  "product": "Sklavounos Warehouse HPRT Agent",
+  "version": "1.0.21-staging",
+  "creator": "Christos Fragoulis",
+  "source_commit": "5303a2e0d209f632d26c015802524410d54c98a7",
+  "package": "SKLAVOUNOS-WAREHOUSE-HPRT-AGENT-V1.0.21-STAGING.zip",
+  "package_sha256": "04aeba2d8b12582af8ad0609dd7bee89eec165abc6a9b4e74cf7881bc9874ba4",
+  "contains_agent_token": false,
+  "production_release": false
+}

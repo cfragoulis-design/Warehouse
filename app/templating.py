@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any, Mapping
 
 from fastapi import Request
@@ -28,12 +29,18 @@ class WarehouseJinja2Templates(Jinja2Templates):
         request = context.get("request")
         if not isinstance(request, Request):
             raise RuntimeError("Template context must contain a Request instance")
-        return super().TemplateResponse(
-            request,
-            name,
-            context,
-            status_code=status_code,
-            headers=headers,
-            media_type=media_type,
-            background=background,
-        )
+        template_response = super().TemplateResponse
+        kwargs = {
+            "name": name,
+            "context": context,
+            "status_code": status_code,
+            "headers": headers,
+            "media_type": media_type,
+            "background": background,
+        }
+        # Starlette 1.x requires ``request`` as an explicit argument, while
+        # older supported releases read it only from the context mapping.
+        # Keep this compatibility boundary deterministic for both runtimes.
+        if "request" in inspect.signature(template_response).parameters:
+            kwargs["request"] = request
+        return template_response(**kwargs)
