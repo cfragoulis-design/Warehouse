@@ -34,6 +34,7 @@ try:
         User,
         Supplier,
         Consumable,
+        ConsumableCategoryImage,
         ConsumableStock,
         PurchaseOrder,
         PurchaseOrderItem,
@@ -63,7 +64,7 @@ except ImportError:
         worker_choices,
         workers_for_admin,
     )
-    from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement, Worker
+    from models import User, Supplier, Consumable, ConsumableCategoryImage, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement, Worker
     from templating import WarehouseJinja2Templates
 
 router = APIRouter()
@@ -685,6 +686,60 @@ def _take_categories(rows: list[dict]) -> list[dict]:
     return named
 
 
+def _category_image_ids(db: Session) -> dict[str, int]:
+    rows = (
+        db.query(ConsumableCategoryImage.category_name, ConsumableCategoryImage.id)
+        .filter(ConsumableCategoryImage.image_bytes.isnot(None))
+        .all()
+    )
+    return {name: image_id for name, image_id in rows}
+
+
+def _apply_category_images(categories: list[dict], images: dict[str, int]) -> None:
+    for category in categories:
+        category["category_image_id"] = images.get(category["name"])
+
+
+@router.post("/consumables/category-image")
+def category_image_upload(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_editor),
+    category: str = Form(...),
+    file: UploadFile = File(...),
+):
+    del user
+    name = (category or "").strip()
+    if not name or name == OTHER_CATEGORY_LABEL:
+        raise HTTPException(status_code=400, detail="Η κατηγορία δεν δέχεται φωτογραφία")
+    raw = file.file.read()
+    try:
+        blob = jpeg_thumbnail(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Η εικόνα δεν διαβάστηκε") from exc
+    row = db.query(ConsumableCategoryImage).filter_by(category_name=name).one_or_none()
+    if row is None:
+        row = ConsumableCategoryImage(category_name=name)
+        db.add(row)
+    row.image_bytes = blob
+    row.image_content_type = "image/jpeg"
+    db.commit()
+    return JSONResponse({"ok": True, "id": row.id, "category": name})
+
+
+@router.get("/consumables/category-image/{image_id}")
+def category_image(
+    image_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+):
+    del user
+    row = db.get(ConsumableCategoryImage, image_id)
+    blob = row.image_bytes if row is not None else None
+    if not blob:
+        raise HTTPException(status_code=404, detail="No image")
+    return Response(content=blob, media_type=row.image_content_type or "image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+
 @router.get("/consumables/take")
 def consumables_take_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
     rows, low_count = _workshop_consumable_rows(db)
@@ -699,6 +754,8 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
         .all()
     )
 
+    categories = _take_categories(rows)
+    _apply_category_images(categories, _category_image_ids(db))
     return templates.TemplateResponse(
         "consumables_take.html",
         {
@@ -709,7 +766,7 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "recent": recent,
             "kiosk": kiosk_ui_enabled(request, user),
             "kiosk_cat": request.query_params.get("cat") if kiosk_ui_enabled(request, user) else None,
-            "categories": _take_categories(rows),
+            "categories": categories,
             "workers": worker_choices(active_workers(db)),
             "runout_items": [
                 {"id": row["id"], "name": row["name"], "days_left": row["days_left"]}
