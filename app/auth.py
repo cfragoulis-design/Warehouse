@@ -112,36 +112,50 @@ def _require_same_origin(request: Request) -> None:
     raise HTTPException(status_code=403, detail="Cross-origin form submission rejected")
 
 
+_ADMIN_LOCK_SECONDS = 15 * 60
+_ADMIN_MAX_FAILURES = 5
+
+
 def _login_failure_key(username: str) -> str:
     return username.strip().casefold()
 
 
-def _login_retry_after(username: str, *, now: float | None = None) -> int:
+def _pin_limits(user: User | None) -> tuple[int, int]:
+    if user is not None and (user.role or "").lower() == "admin":
+        maximum = _LOGIN_MAX_FAILURES if _LOGIN_MAX_FAILURES < _ADMIN_MAX_FAILURES else _ADMIN_MAX_FAILURES
+        return _ADMIN_LOCK_SECONDS, maximum
+    return _LOGIN_WINDOW_SECONDS, _LOGIN_MAX_FAILURES
+
+
+def _login_retry_after(username: str, *, now: float | None = None, window: int | None = None, maximum: int | None = None) -> int:
     current = time.monotonic() if now is None else now
+    window = _LOGIN_WINDOW_SECONDS if window is None else window
+    maximum = _LOGIN_MAX_FAILURES if maximum is None else maximum
     key = _login_failure_key(username)
     with _login_failures_lock:
         failures = _login_failures.get(key)
         if not failures:
             return 0
-        while failures and current - failures[0] >= _LOGIN_WINDOW_SECONDS:
+        while failures and current - failures[0] >= window:
             failures.popleft()
         if not failures:
             _login_failures.pop(key, None)
             return 0
-        if len(failures) < _LOGIN_MAX_FAILURES:
+        if len(failures) < maximum:
             return 0
-        return max(1, int(_LOGIN_WINDOW_SECONDS - (current - failures[0])))
+        return max(1, int(window - (current - failures[0])))
 
 
-def _record_login_failure(username: str, *, now: float | None = None) -> int:
+def _record_login_failure(username: str, *, now: float | None = None, window: int | None = None, maximum: int | None = None) -> int:
     current = time.monotonic() if now is None else now
+    window = _LOGIN_WINDOW_SECONDS if window is None else window
     key = _login_failure_key(username)
     with _login_failures_lock:
         failures = _login_failures.setdefault(key, deque())
-        while failures and current - failures[0] >= _LOGIN_WINDOW_SECONDS:
+        while failures and current - failures[0] >= window:
             failures.popleft()
         failures.append(current)
-    return _login_retry_after(username, now=current)
+    return _login_retry_after(username, now=current, window=window, maximum=maximum)
 
 
 def _clear_login_failures(username: str) -> None:
@@ -218,8 +232,10 @@ def login(
     _require_same_origin(request)
     username = username.strip()
     pin = pin.strip()
+    user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+    window, maximum = _pin_limits(user)
 
-    retry_after = _login_retry_after(username)
+    retry_after = _login_retry_after(username, window=window, maximum=maximum)
     if retry_after:
         return templates.TemplateResponse(
             "login.html",
@@ -228,9 +244,8 @@ def login(
             headers={"Retry-After": str(retry_after)},
         )
 
-    user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if not user or not user.is_active or not verify_pin(pin, user.pin_hash):
-        retry_after = _record_login_failure(username)
+        retry_after = _record_login_failure(username, window=window, maximum=maximum)
         if retry_after:
             return templates.TemplateResponse(
                 "login.html",
@@ -243,6 +258,9 @@ def login(
     _clear_login_failures(username)
     request.session.clear()
     request.session["uid"] = user.id
+    request.session["role"] = (user.role or "").lower()
+    if (user.role or "").lower() == "admin":
+        request.session["admin_pin_until"] = time.time() + _ADMIN_LOCK_SECONDS
     return RedirectResponse(url=home_for_user(user), status_code=303)
 
 
@@ -253,6 +271,51 @@ def logout(request: Request):
     # KioskDeviceMiddleware deletes the long-lived warehouse device cookie.
     request.state.kiosk_clear = True
     return RedirectResponse(url="/login", status_code=303)
+
+
+@router.get("/admin/confirm-pin")
+def confirm_pin_form(request: Request, user: User | None = Depends(get_current_user)):
+    if user is None or (user.role or "").lower() != "admin":
+        return RedirectResponse("/login", status_code=303)
+    return templates.TemplateResponse(
+        "confirm_pin.html",
+        {"request": request, "user": user, "next": request.query_params.get("next") or "/dashboard", "err": ""},
+    )
+
+
+@router.post("/admin/confirm-pin")
+def confirm_pin(
+    request: Request,
+    pin: str = Form(...),
+    next_path: str = Form("/dashboard"),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    _require_same_origin(request)
+    if user is None or (user.role or "").lower() != "admin":
+        return RedirectResponse("/login", status_code=303)
+    fresh = db.get(User, user.id)
+    if fresh is None or not verify_pin(pin, fresh.pin_hash):
+        return templates.TemplateResponse(
+            "confirm_pin.html",
+            {"request": request, "user": user, "next": next_path, "err": "Λάθος PIN"},
+            status_code=403,
+        )
+    request.session["admin_pin_until"] = time.time() + _ADMIN_LOCK_SECONDS
+    target = next_path if next_path.startswith("/") and not next_path.startswith("//") else "/dashboard"
+    return RedirectResponse(target, status_code=303)
+
+
+@router.post("/admin/kiosk-key/rotate")
+def rotate_kiosk_device_key(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
+    del user
+    try:
+        from app.kiosk_session import rotate_kiosk_key
+    except ImportError:
+        from kiosk_session import rotate_kiosk_key
+    version = rotate_kiosk_key(db)
+    request.session["kiosk_key_version"] = version
+    return RedirectResponse("/dashboard", status_code=303)
 
 
 def _ensure_user(db: Session, username: str, role: str, pin: str) -> bool:
