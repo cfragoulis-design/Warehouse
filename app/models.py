@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -704,6 +704,17 @@ class ConsumableMovement(Base):
     )
     pin_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ConsumableLot(Base):
+    __tablename__ = "consumable_lots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), index=True, nullable=False)
+    lot_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    qty_remaining: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
+    alerted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class PurchaseOrder(Base):
