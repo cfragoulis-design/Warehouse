@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import FileResponse
 
 try:
     from app.runtime_config import load_runtime_settings, resolve_session_secret
@@ -227,3 +228,11 @@ def ready():
         status_code=200 if status.ready else 503,
         content=status.as_dict(),
     )
+
+
+@app.get("/sw.js")
+def service_worker():
+    path = BASE_DIR / "static" / "sw.js"
+    if not path.exists():
+        path = BASE_DIR / "app" / "static" / "sw.js"
+    return FileResponse(path, media_type="application/javascript", headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})

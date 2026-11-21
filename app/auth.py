@@ -158,6 +158,7 @@ WAREHOUSE_ALLOWED_PATHS = (
     "/consumables/movements",
     "/logout",
     "/health",
+    "/sw.js",
 )
 
 

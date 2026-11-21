@@ -34,6 +34,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20261120_003",
         "20261120_004",
         "20261121_012",
+        "20261121_014",
     ]
     by_version = {migration.version: migration for migration in catalog}
     profiles_migration = by_version["20260906_001"]
@@ -275,6 +276,14 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "GRANT SELECT ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_OPERATIONS_PROD_READER" in pins_sql
     assert "DROP TABLE" not in pins_sql
     assert "DELETE FROM" not in pins_sql
+    keys = by_version["20261121_014"]
+    keys_sql = keys.sql.upper()
+    assert "ADD COLUMN IF NOT EXISTS CLIENT_KEY UUID" in keys_sql
+    assert "UX_CONSUMABLE_MOVEMENTS_CLIENT_KEY" in keys_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_PRODUCTION_APP" in keys_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE CONSUMABLE_MOVEMENTS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in keys_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_OPERATIONS_PROD_READER" in keys_sql
+    assert "DROP TABLE" not in keys_sql
 
 
 def test_runtime_role_identifier_is_explicit_and_bounded() -> None:

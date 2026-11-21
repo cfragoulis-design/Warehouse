@@ -92,6 +92,8 @@
       .cards{grid-template-columns:repeat(3,minmax(0,1fr))}
     }
     .ajaxToast{position:fixed;left:16px;right:16px;bottom:16px;z-index:99;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:12px 14px;border-radius:16px;border:1px solid rgba(16,185,129,.55);background:rgba(15,23,42,.98);box-shadow:0 10px 30px rgba(0,0,0,.35);color:#a7f3d0;font-weight:900;font-size:20px;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .18s ease,transform .18s ease}
+    .offlineBanner{position:sticky;top:0;z-index:40;background:#7c2d12;color:#ffedd5;font-weight:800;font-size:18px;padding:10px 14px;text-align:center}
+    .offlineBanner[hidden]{display:none !important}
     .ajaxToast.show{opacity:1;pointer-events:auto;transform:none}
     .ajaxToast.err{border-color:rgba(239,68,68,.55);color:#ffd3d3}
     .undoBtn{min-height:56px;min-width:140px;padding:8px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.08);color:#fff;font-size:18px;font-weight:900}
@@ -162,6 +164,9 @@
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
 <body class="take-screen{% if kiosk %} kiosk{% endif %}{% if kiosk and not kiosk_cat %} kiosk-home{% endif %}" {% if kiosk %}data-kiosk="1"{% endif %}>
+  {% if kiosk %}
+  <div id="offlineBanner" class="offlineBanner" hidden>Εκτός σύνδεσης – <span id="offlineCount">0</span> κινήσεις σε αναμονή</div>
+  {% endif %}
   <div class="top">
     <div class="toprow">
       <div>
@@ -736,6 +741,9 @@
     });
     setInterval(tickIdleClock, 1000);
     resetIdle(false);
+    if(navigator.serviceWorker) navigator.serviceWorker.register('/sw.js');
+    window.addEventListener('online', flushQueue);
+    refreshOfflineBanner();
   }else{
     document.addEventListener('pointerdown', noteSessionTouch, {passive:true});
     markCategory(categoryFromLocation());
@@ -989,6 +997,77 @@
       if(pinMessage) pinMessage.textContent='Λάθος PIN';
     }
   }
+  async function enqueueMove(url, fields){
+    const db = await new Promise((resolve, reject) => {
+      const open = indexedDB.open('wh-kiosk-queue', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('moves', {keyPath:'client_key'});
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
+    });
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('moves', 'readwrite');
+      tx.objectStore('moves').put({client_key: fields.client_key, url: url, fields: fields});
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }
+  async function queuedMoves(){
+    const db = await new Promise((resolve, reject) => {
+      const open = indexedDB.open('wh-kiosk-queue', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('moves', {keyPath:'client_key'});
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
+    });
+    const rows = await new Promise((resolve) => {
+      const tx = db.transaction('moves', 'readonly');
+      const req = tx.objectStore('moves').getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+    db.close();
+    return rows;
+  }
+  async function dropQueued(key){
+    const db = await new Promise((resolve, reject) => {
+      const open = indexedDB.open('wh-kiosk-queue', 1);
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
+    });
+    await new Promise((resolve) => {
+      const tx = db.transaction('moves', 'readwrite');
+      tx.objectStore('moves').delete(key);
+      tx.oncomplete = () => resolve();
+    });
+    db.close();
+  }
+  async function refreshOfflineBanner(){
+    const banner = document.getElementById('offlineBanner');
+    if(!banner) return;
+    let n = 0;
+    try { n = (await queuedMoves()).length; } catch (err) { n = 0; }
+    const count = document.getElementById('offlineCount');
+    if(count) count.textContent = String(n);
+    banner.hidden = navigator.onLine && n === 0;
+  }
+  async function flushQueue(){
+    if(!navigator.onLine) { await refreshOfflineBanner(); return; }
+    let rows = [];
+    try { rows = await queuedMoves(); } catch (err) { return; }
+    for(const row of rows){
+      const fd = new FormData();
+      Object.keys(row.fields || {}).forEach(key => fd.set(key, row.fields[key]));
+      try {
+        const res = await fetch(row.url, {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        const data = await res.json().catch(() => null);
+        if(res.ok && data && data.ok){
+          updateCard(data);
+          await dropQueued(row.client_key);
+        }
+      } catch (err) { break; }
+    }
+    await refreshOfflineBanner();
+  }
   async function confirmWho(){
     const action=pendingTake;
     clearTimeout(whoTimer);
@@ -1003,14 +1082,15 @@
     }
     const form=action.form;
     form.classList.add('updating');
+    const fd=new FormData(form);
+    let url=form.dataset.takeAction;
+    fd.delete('delta');
+    fd.delete('qty_display');
+    fd.delete('worker_id');
+    fd.set('qty', String(action.amount));
+    fd.set('client_key', crypto.randomUUID());
+    if(action.mode==='add') url=form.dataset.addAction;
     try{
-      const fd=new FormData(form);
-      let url=form.dataset.takeAction;
-      fd.delete('delta');
-      fd.delete('qty_display');
-      fd.delete('worker_id');
-      fd.set('qty', String(action.amount));
-      if(action.mode==='add') url=form.dataset.addAction;
       const res=await fetch(url,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
       const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
       if(!res.ok || !data.ok) throw new Error(greekError(data.message));
@@ -1029,7 +1109,15 @@
       });
       armSessionTimer();
     }catch(err){
-      showToast(err.message || 'Δεν ενημερώθηκε το απόθεμα', true, null);
+      if(!navigator.onLine || (err && err.name === 'TypeError')){
+        const fields = {};
+        fd.forEach((value, key) => { fields[key] = String(value); });
+        try { await enqueueMove(url, fields); } catch (storeErr) {}
+        await refreshOfflineBanner();
+        showToast('Αποθηκεύτηκε στη συσκευή', false, null);
+      } else {
+        showToast(err.message || 'Δεν ενημερώθηκε το απόθεμα', true, null);
+      }
     }finally{
       form.classList.remove('updating');
     }
