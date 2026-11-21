@@ -42,6 +42,7 @@ if not runtime_settings.operations_source_mode:
         from app.production_report_service import router as production_report_router
         from app.consumables_report import router as consumables_report_router
         from app.supplier_alerts import router as supplier_alerts_router
+        from app.receipt_drafts import router as receipt_drafts_router
         from app.seed import seed_categories, seed_locations
         from app.services import router as services_router
         from app.workshop_message_service import router as workshop_message_router
@@ -58,6 +59,7 @@ if not runtime_settings.operations_source_mode:
         from production_report_service import router as production_report_router
         from consumables_report import router as consumables_report_router
         from supplier_alerts import router as supplier_alerts_router
+        from receipt_drafts import router as receipt_drafts_router
         from seed import seed_categories, seed_locations
         from services import router as services_router
         from workshop_message_service import router as workshop_message_router
@@ -208,6 +210,7 @@ if not runtime_settings.operations_source_mode:
     app.include_router(production_report_router)
     app.include_router(consumables_report_router)
     app.include_router(supplier_alerts_router)
+    app.include_router(receipt_drafts_router)
 app.include_router(operations_summary_router)
 
 

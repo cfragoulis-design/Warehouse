@@ -311,6 +311,7 @@ def migration_catalog() -> tuple[MigrationDefinition, ...]:
         ("20261121_013", "20261121_013_category_images.sql"),
         ("20261121_014", "20261121_014_movement_idempotency.sql"),
         ("20261121_015", "20261121_015_supplier_alerts.sql"),
+        ("20261121_016", "20261121_016_receipt_drafts.sql"),
     )
     catalog: list[MigrationDefinition] = []
     for version, filename in entries:
