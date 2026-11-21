@@ -18,6 +18,10 @@
     .wrap{max-width:980px;margin:0 auto;padding:16px}
     .card{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:14px;margin-bottom:14px}
     form.row, .worker{display:grid;grid-template-columns:1.4fr 1fr auto auto auto;gap:8px;align-items:center;margin-top:8px}
+    .pinRow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 16px}
+    .pinRow input{width:140px;min-height:48px;font-size:22px;letter-spacing:.2em}
+    .pinRow button{min-height:48px;font-weight:800}
+    .bulk textarea{width:100%;min-height:120px;font-family:ui-monospace,monospace}
     .cardRow{display:flex;gap:8px;align-items:center;margin:4px 0 10px}
     .cardRow input{flex:1}
     input,select,button{font:inherit;color:inherit;background:#0e1530;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
@@ -40,6 +44,14 @@
     </div>
   </div>
   <main class="wrap">
+    <section class="card">
+      <strong>PIN για πολλούς</strong>
+      <p class="muted">Μία γραμμή ανά άτομο: κωδικός εργαζομένου και 4 ψηφία. Το PIN αποθηκεύεται κρυπτογραφημένο.</p>
+      <form class="bulk" method="post" action="/workers/pins">
+        <textarea name="pins" placeholder="fabaad68 1234" aria-label="Λίστα PIN"></textarea>
+        <button type="submit">Ορισμός PIN</button>
+      </form>
+    </section>
     <section class="card">
       <strong>Νέος</strong>
       <form class="row" method="post" action="/workers/new">
@@ -64,6 +76,12 @@
         <button type="submit" formaction="/workers/{{ w.id }}/card">Αποθήκευση κάρτας</button>
       </form>
       {% if w.one_employee_ref %}<div class="muted">{{ w.one_employee_ref }} · {{ location_labels.get(w.location, w.location or '') }}</div>{% endif %}
+      <form class="pinRow" method="post" action="/workers/{{ w.id }}/pin">
+        <span class="muted">{% if w.pin_hash %}Έχει PIN{% else %}Χωρίς PIN{% endif %}</span>
+        <input name="pin" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••" aria-label="Νέο PIN για {{ w.display_name }}" />
+        <button type="submit">Ορισμός PIN</button>
+        {% if w.pin_hash %}<button type="submit" name="clear" value="1">Αφαίρεση</button>{% endif %}
+      </form>
       {% endfor %}
     </section>
   </main>

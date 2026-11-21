@@ -36,7 +36,10 @@ KIOSK_DEVICE_MAX_AGE_SECONDS = 180 * 24 * 60 * 60
 
 KIOSK_MODE_COOKIE = "wh_kiosk"
 KIOSK_DEVICE_COOKIE = "wh_kiosk_device"
+WORKER_SESSION_COOKIE = "wh_worker"
+WORKER_SESSION_MAX_AGE_SECONDS = 60
 _DEVICE_SALT = "warehouse-kiosk-device-v1"
+_WORKER_SALT = "warehouse-worker-session-v1"
 
 
 def fold_search(value: str) -> str:
@@ -49,7 +52,7 @@ def fold_search(value: str) -> str:
     return text.replace("ς", "σ")
 
 
-def _serializer() -> URLSafeTimedSerializer:
+def _serializer(salt: str = _DEVICE_SALT) -> URLSafeTimedSerializer:
     try:
         from app.runtime_config import load_runtime_settings, resolve_session_secret
     except ImportError:  # pragma: no cover - flat module layout
@@ -58,11 +61,51 @@ def _serializer() -> URLSafeTimedSerializer:
     secret = resolve_session_secret(load_runtime_settings())
     if not secret:
         raise RuntimeError("kiosk device cookie requires a session secret")
-    return URLSafeTimedSerializer(secret, salt=_DEVICE_SALT)
+    return URLSafeTimedSerializer(secret, salt=salt)
 
 
 def issue_kiosk_device_token(user_id: int) -> str:
     return _serializer().dumps({"uid": int(user_id), "v": 1})
+
+
+def issue_worker_session_token(worker_id: int, user_id: int, device_uid: int) -> str:
+    """Signed proof that this kiosk user typed that worker's PIN.
+
+    ``device_uid`` is the kiosk device cookie's user id, or 0 when that cookie
+    is absent. A copy of the token used on another device or another login
+    does not resolve.
+    """
+    return _serializer(_WORKER_SALT).dumps(
+        {
+            "wid": int(worker_id),
+            "uid": int(user_id),
+            "dev": int(device_uid),
+            "v": 1,
+        }
+    )
+
+
+def read_worker_session_token(
+    token: str | None,
+    *,
+    user_id: int,
+    device_uid: int,
+    max_age: int = WORKER_SESSION_MAX_AGE_SECONDS,
+) -> int | None:
+    if not token:
+        return None
+    try:
+        data = _serializer(_WORKER_SALT).loads(token, max_age=max_age)
+    except BadSignature:
+        return None
+    if not isinstance(data, dict) or data.get("v") != 1:
+        return None
+    if data.get("uid") != int(user_id) or data.get("dev") != int(device_uid):
+        return None
+    worker_id = data.get("wid")
+    if isinstance(worker_id, bool) or not isinstance(worker_id, int) or worker_id <= 0:
+        return None
+    return worker_id
 
 
 def read_kiosk_device_uid(

@@ -377,6 +377,7 @@ class Worker(Base):
     one_employee_ref: Mapped[str | None] = mapped_column(String(16), unique=True, nullable=True)
     card_uid: Mapped[str | None] = mapped_column(String(64), nullable=True)
     location: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    pin_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     created_at: Mapped[datetime] = mapped_column(
@@ -420,6 +421,7 @@ class ConsumableMovement(Base):
         index=True,
         nullable=True,
     )
+    pin_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

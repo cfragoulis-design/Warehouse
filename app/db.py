@@ -313,6 +313,12 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE consumables ADD COLUMN IF NOT EXISTS barcode VARCHAR(64)"
             )
+            conn.exec_driver_sql(
+                "ALTER TABLE workers ADD COLUMN IF NOT EXISTS pin_hash VARCHAR(255)"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE consumable_movements ADD COLUMN IF NOT EXISTS pin_verified BOOLEAN NOT NULL DEFAULT FALSE"
+            )
     except Exception as exc:
         _handle_startup_ddl_failure("workers", exc)
 

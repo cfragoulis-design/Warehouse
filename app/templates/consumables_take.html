@@ -107,6 +107,16 @@
     .whoBtn{min-height:120px;border-radius:18px;border:1px solid var(--line);background:#111936;color:var(--text);font-size:28px;font-weight:800;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 14px}
     .whoBtn small{font-size:16px;font-weight:700;color:#a7b0c7}
     .whoCancel{width:100%;min-height:72px;border-radius:18px;border:1px solid var(--line);background:#111936;color:var(--text);font-size:22px;font-weight:800}
+    .workerBanner{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:1100px;margin:10px auto 0;padding:8px 4px}
+    .workerBanner[hidden]{display:none !important}
+    .workerBannerName{font-size:28px;font-weight:900;line-height:1.1}
+    .workerEnd{min-height:64px;min-width:160px;padding:0 22px;border-radius:16px;border:0;background:#ef4444;color:#fff;font-size:24px;font-weight:900}
+    .pinName{margin:0;font-size:28px;text-align:center}
+    .pinDots{min-height:52px;text-align:center;font-size:42px;letter-spacing:.35em;font-weight:900}
+    .pinMessage{min-height:28px;margin:0;text-align:center;color:#fecdd3;font-size:20px;font-weight:800}
+    .pinPad{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    .pinPad[hidden]{display:none !important}
+    .pinKey{min-height:84px;border-radius:18px;border:1px solid var(--line);background:#111936;color:var(--text);font-size:32px;font-weight:900}
     body.kiosk .wrap{max-width:1280px}
     body.kiosk .catbar{display:none}
     .kioskHome,.cards{touch-action:pan-y}
@@ -156,9 +166,13 @@
     <div class="toprow">
       <div>
         <div class="title">Λήψη αναλωσίμων</div>
-        {% if not kiosk %}<div class="sub">Σύνδεση: {{ user.username }} • Συνεργείο</div>{% endif %}
+        {% if not kiosk %}<div class="sub">Σύνδεση: {{ user.username }} • Εργαστήριο</div>{% endif %}
       </div>
       <span id="app-datetime" class="app-datetime"></span>
+    </div>
+    <div id="workerBanner" class="workerBanner" hidden>
+      <span id="workerBannerName" class="workerBannerName">Είσαι:</span>
+      <button type="button" id="workerEnd" class="workerEnd">Τέλος</button>
     </div>
     {% if not kiosk %}
     <div class="nav">
@@ -343,13 +357,35 @@
 
   <div id="whoOverlay" class="whoOverlay" hidden>
     <div class="whoCard" role="dialog" aria-modal="true" aria-labelledby="whoTitle">
-      <h2 id="whoTitle">Ποιος είσαι;</h2>
-      <div class="whoGrid">
-        {% for w in workers %}
-        <button type="button" class="whoBtn" data-worker="{{ w.id }}"{% if w.card_uid %} data-card="{{ w.card_uid }}"{% endif %}>{{ w.display_name }}<small>{{ w.location }}</small></button>
-        {% endfor %}
+      <div id="whoPick">
+        <h2 id="whoTitle">Ποιος είσαι;</h2>
+        <div class="whoGrid">
+          {% for w in workers %}
+          <button type="button" class="whoBtn" data-worker="{{ w.id }}" data-has-pin="{{ 1 if w.has_pin else 0 }}"{% if w.card_uid %} data-card="{{ w.card_uid }}"{% endif %}>{{ w.display_name }}<small>{{ w.location }}</small></button>
+          {% endfor %}
+        </div>
+        <button type="button" class="whoCancel" id="whoCancel">Άκυρο</button>
       </div>
-      <button type="button" class="whoCancel" id="whoCancel">Άκυρο</button>
+      <div id="whoPin" hidden>
+        <h2 id="pinName" class="pinName"></h2>
+        <div id="pinDots" class="pinDots" aria-hidden="true"></div>
+        <p id="pinMessage" class="pinMessage"></p>
+        <div class="pinPad" id="pinPad">
+          <button type="button" class="pinKey" data-digit="1">1</button>
+          <button type="button" class="pinKey" data-digit="2">2</button>
+          <button type="button" class="pinKey" data-digit="3">3</button>
+          <button type="button" class="pinKey" data-digit="4">4</button>
+          <button type="button" class="pinKey" data-digit="5">5</button>
+          <button type="button" class="pinKey" data-digit="6">6</button>
+          <button type="button" class="pinKey" data-digit="7">7</button>
+          <button type="button" class="pinKey" data-digit="8">8</button>
+          <button type="button" class="pinKey" data-digit="9">9</button>
+          <button type="button" class="pinKey" data-digit="clear">C</button>
+          <button type="button" class="pinKey" data-digit="0">0</button>
+          <button type="button" class="pinKey" data-digit="back">⌫</button>
+        </div>
+        <button type="button" class="whoCancel" id="pinBack">Πίσω</button>
+      </div>
     </div>
   </div>
 
@@ -393,7 +429,7 @@
   }
   function tapControl(node){
     if(!node || !node.closest) return null;
-    return node.closest('#kioskHome .homeCard, #cards .item button, #cards .item input, #cards .item select, #cards .item textarea, #cards .item label, .kioskStrip .stripBtn');
+    return node.closest('#kioskHome .homeCard, #cards .item button, #cards .item input, #cards .item select, #cards .item textarea, #cards .item label, .kioskStrip .stripBtn, #whoOverlay button, #workerBanner button');
   }
   function wantsProgrammaticFocus(control){
     if(!control || !control.matches) return false;
@@ -560,6 +596,7 @@
     fillIdleLists();
     tickIdleClock();
     idleScreen.hidden=false;
+    endSession();
   }
   function hideIdle(){
     if(idleScreen) idleScreen.hidden=true;
@@ -577,6 +614,7 @@
     const wasOpen=!!(idleScreen && !idleScreen.hidden);
     resetIdle(false);
     if(wasOpen) openKioskHome(true);
+    noteSessionTouch();
   }
   function categoryFromLocation(){
     if((location.hash||'').indexOf('#cat=')===0){
@@ -699,6 +737,7 @@
     setInterval(tickIdleClock, 1000);
     resetIdle(false);
   }else{
+    document.addEventListener('pointerdown', noteSessionTouch, {passive:true});
     markCategory(categoryFromLocation());
     if(selectedCat){
       try{localStorage.setItem(CATEGORY_STORAGE_KEY, selectedCat);}catch(err){}
@@ -780,7 +819,6 @@
         const fd=new FormData();
         fd.set('qty', undo.qty);
         fd.set('note', 'Αναίρεση');
-        if(undo.workerId) fd.set('worker_id', undo.workerId);
         const res=await fetch(undo.url,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
         const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
         if(!res.ok || !data.ok) throw new Error(greekError(data.message));
@@ -823,30 +861,146 @@
     });
   });
   const whoOverlay=document.getElementById('whoOverlay');
+  const whoPick=document.getElementById('whoPick');
+  const whoPin=document.getElementById('whoPin');
   const whoCancel=document.getElementById('whoCancel');
+  const pinName=document.getElementById('pinName');
+  const pinDots=document.getElementById('pinDots');
+  const pinMessage=document.getElementById('pinMessage');
+  const pinPad=document.getElementById('pinPad');
+  const workerBanner=document.getElementById('workerBanner');
+  const workerBannerName=document.getElementById('workerBannerName');
+  const NO_PIN_MESSAGE='Δεν έχεις PIN — ζήτα από τον υπεύθυνο';
+  const SESSION_IDLE_MS = 60000;
   let whoTimer=null;
   let pendingTake=null;
-  let pendingWorker=null;
+  let pinWorkerId='';
+  let pinDigits='';
+  let sessionName='';
+  let sessionTimer=null;
+  let sessionTouchAt=0;
+  function showBanner(name){
+    sessionName=name || '';
+    if(workerBannerName) workerBannerName.textContent=sessionName ? 'Είσαι: '+sessionName : 'Είσαι:';
+    if(workerBanner) workerBanner.hidden=!sessionName;
+  }
+  function armSessionTimer(){
+    clearTimeout(sessionTimer);
+    if(!sessionName) return;
+    sessionTimer=setTimeout(endSession, SESSION_IDLE_MS);
+  }
+  function endSession(){
+    const had=!!sessionName;
+    showBanner('');
+    clearTimeout(sessionTimer);
+    sessionTouchAt=0;
+    if(!had) return;
+    fetch('/consumables/take/session/end',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}}).catch(()=>{});
+  }
+  function noteSessionTouch(){
+    if(!sessionName) return;
+    armSessionTimer();
+    const now=Date.now();
+    if(now-sessionTouchAt<15000) return;
+    sessionTouchAt=now;
+    fetch('/consumables/take/session/touch',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}})
+      .then(res=>res.json())
+      .then(data=>{ if(!data || !data.ok) showBanner(''); else armSessionTimer(); })
+      .catch(()=>{});
+  }
+  function loadSession(){
+    fetch('/consumables/take/session',{headers:{'Accept':'application/json'},cache:'no-store'})
+      .then(res=>res.json())
+      .then(data=>{
+        if(data && data.ok && data.name){
+          showBanner(data.name);
+          armSessionTimer();
+        }
+      })
+      .catch(()=>{});
+  }
+  function renderPinDots(){
+    if(pinDots) pinDots.textContent=pinDigits ? '•'.repeat(pinDigits.length) : '';
+  }
+  function showPinStep(name, hasPin){
+    if(whoPick) whoPick.hidden=true;
+    if(whoPin) whoPin.hidden=false;
+    if(pinName) pinName.textContent=name;
+    pinDigits='';
+    renderPinDots();
+    if(pinMessage) pinMessage.textContent=hasPin ? '' : NO_PIN_MESSAGE;
+    if(pinPad) pinPad.hidden=!hasPin;
+  }
+  function showPickStep(){
+    if(whoPin) whoPin.hidden=true;
+    if(whoPick) whoPick.hidden=false;
+    pinWorkerId='';
+    pinDigits='';
+    if(pinMessage) pinMessage.textContent='';
+  }
   function closeWho(){
     pendingTake=null;
     clearTimeout(whoTimer);
+    showPickStep();
     if(whoOverlay) whoOverlay.hidden=true;
   }
   function openWho(action){
     pendingTake=action;
-    if(pendingWorker){
-      confirmWho(String(pendingWorker.id), pendingWorker.name);
+    if(sessionName){
+      confirmWho();
       return;
     }
     if(!whoOverlay) return;
+    showPickStep();
     whoOverlay.hidden=false;
     clearTimeout(whoTimer);
     whoTimer=setTimeout(closeWho, WHO_TIMEOUT_MS);
   }
-  async function confirmWho(workerId, workerName){
+  function chooseWorker(btn){
+    if(!btn) return;
+    pinWorkerId=btn.dataset.worker || '';
+    const name=(btn.childNodes[0] && btn.childNodes[0].textContent || '').trim();
+    if(whoOverlay) whoOverlay.hidden=false;
+    clearTimeout(whoTimer);
+    whoTimer=setTimeout(closeWho, WHO_TIMEOUT_MS);
+    showPinStep(name, btn.dataset.hasPin==='1');
+  }
+  async function submitPin(){
+    const digits=pinDigits;
+    const fd=new FormData();
+    fd.set('worker_id', pinWorkerId);
+    fd.set('pin', digits);
+    pinDigits='';
+    renderPinDots();
+    try{
+      const res=await fetch('/consumables/take/session',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+      const data=await res.json().catch(()=>({ok:false,message:'Λάθος PIN'}));
+      if(!res.ok || !data.ok){
+        if(pinMessage) pinMessage.textContent=data.message || 'Λάθος PIN';
+        return;
+      }
+      showBanner(data.name || '');
+      armSessionTimer();
+      sessionTouchAt=Date.now();
+      if(whoOverlay) whoOverlay.hidden=true;
+      showPickStep();
+      if(pendingTake) confirmWho();
+    }catch(err){
+      if(pinMessage) pinMessage.textContent='Λάθος PIN';
+    }
+  }
+  async function confirmWho(){
     const action=pendingTake;
-    closeWho();
+    clearTimeout(whoTimer);
+    if(whoOverlay) whoOverlay.hidden=true;
+    pendingTake=null;
+    showPickStep();
     if(!action) return;
+    if(!sessionName){
+      pendingTake=action;
+      openWho(action);
+      return;
+    }
     const form=action.form;
     form.classList.add('updating');
     try{
@@ -854,22 +1008,26 @@
       let url=form.dataset.takeAction;
       fd.delete('delta');
       fd.delete('qty_display');
+      fd.delete('worker_id');
       fd.set('qty', String(action.amount));
-      fd.set('worker_id', String(workerId));
       if(action.mode==='add') url=form.dataset.addAction;
       const res=await fetch(url,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
       const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
       if(!res.ok || !data.ok) throw new Error(greekError(data.message));
+      if(!data.worker_name){
+        showBanner('');
+        showToast('Η συνεδρία έληξε', true, null);
+        return;
+      }
       updateCard(data);
       action.setQty(1);
       const verb=action.mode==='add'?'Έβαλες':'Πήρες';
       const unit=data.unit ? ' '+data.unit : '';
-      const who=workerName ? ' · '+workerName : '';
-      showToast(verb+' '+data.qty+unit+who, false, {
+      showToast(verb+' '+data.qty+unit+' · '+data.worker_name, false, {
         url: action.mode==='add' ? form.dataset.takeAction : form.dataset.addAction,
-        qty: String(data.qty),
-        workerId: String(workerId)
+        qty: String(data.qty)
       });
+      armSessionTimer();
     }catch(err){
       showToast(err.message || 'Δεν ενημερώθηκε το απόθεμα', true, null);
     }finally{
@@ -877,9 +1035,25 @@
     }
   }
   document.querySelectorAll('.whoBtn').forEach(btn=>{
-    btn.addEventListener('click', ()=>confirmWho(btn.dataset.worker, (btn.childNodes[0] && btn.childNodes[0].textContent || '').trim()));
+    btn.addEventListener('click', ()=>chooseWorker(btn));
   });
+  document.querySelectorAll('.pinKey').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const digit=btn.dataset.digit || '';
+      if(digit==='clear') pinDigits='';
+      else if(digit==='back') pinDigits=pinDigits.slice(0, -1);
+      else if(pinDigits.length<4) pinDigits+=digit;
+      renderPinDots();
+      if(pinMessage) pinMessage.textContent='';
+      if(pinDigits.length===4) submitPin();
+    });
+  });
+  const pinBack=document.getElementById('pinBack');
+  if(pinBack) pinBack.addEventListener('click', showPickStep);
   if(whoCancel) whoCancel.addEventListener('click', closeWho);
+  const workerEnd=document.getElementById('workerEnd');
+  if(workerEnd) workerEnd.addEventListener('click', endSession);
+  loadSession();
   const SCAN_GAP_MS = 40;
   let scanBuffer='';
   let scanAt=0;
@@ -896,12 +1070,8 @@
     const workerBtn=[...document.querySelectorAll('.whoBtn[data-card]')].find(btn => (btn.dataset.card||'').toLowerCase()===want);
     const item=[...document.querySelectorAll('.item[data-barcode]')].find(el => (el.dataset.barcode||'').toLowerCase()===want);
     if(workerBtn){
-      pendingWorker={id:workerBtn.dataset.worker, name:(workerBtn.childNodes[0] && workerBtn.childNodes[0].textContent || '').trim()};
-      if(pendingTake){
-        confirmWho(pendingWorker.id, pendingWorker.name);
-        return;
-      }
-      showToast(pendingWorker.name, false, null);
+      chooseWorker(workerBtn);
+      return;
     }
     if(item){
       if(isKiosk) openKioskCategory(item.dataset.category||'');
