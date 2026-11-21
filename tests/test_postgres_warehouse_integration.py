@@ -81,9 +81,52 @@ def _job(response) -> dict | None:
     return json.loads(response.body.decode("utf-8"))["job"]
 
 
+_KIOSK_GRANT_ROLES = (
+    "warehouse_production_app",
+    "warehouse_operations_prod_reader",
+)
+
+
+def _kiosk_grant_role_url() -> str:
+    database_url = os.environ["WAREHOUSE_CRITICAL_FLOW_DATABASE_URL"].strip()
+    return schema_migrations._psycopg_url(make_url(database_url))
+
+
+@pytest.fixture
+def kiosk_grant_roles():
+    """Kiosk migrations grant to these production roles. Drop them afterwards.
+
+    Roles are cluster-wide, and the later release-job proof expects to create
+    warehouse_production_app itself.
+    """
+    url = _kiosk_grant_role_url()
+    with psycopg.connect(url, autocommit=True) as admin:
+        for role_name in _KIOSK_GRANT_ROLES:
+            exists = admin.execute(
+                "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = %s",
+                (role_name,),
+            ).fetchone()
+            if exists is None:
+                admin.execute(sql.SQL("CREATE ROLE {}").format(sql.Identifier(role_name)))
+    try:
+        yield
+    finally:
+        with psycopg.connect(url, autocommit=True) as admin:
+            for role_name in _KIOSK_GRANT_ROLES:
+                exists = admin.execute(
+                    "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = %s",
+                    (role_name,),
+                ).fetchone()
+                if exists is None:
+                    continue
+                admin.execute(sql.SQL("DROP OWNED BY {}").format(sql.Identifier(role_name)))
+                admin.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role_name)))
+
+
 def test_schema_migrations_second_application_is_an_idempotent_noop(
-    postgres_engine, monkeypatch: pytest.MonkeyPatch
+    postgres_engine, kiosk_grant_roles, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    del kiosk_grant_roles
     database_url = os.environ["WAREHOUSE_CRITICAL_FLOW_DATABASE_URL"].strip()
     runtime_database_url = os.getenv(
         "WAREHOUSE_CRITICAL_FLOW_RUNTIME_DATABASE_URL", ""
@@ -121,17 +164,6 @@ def test_schema_migrations_second_application_is_an_idempotent_noop(
     assert recorded_prefix
     assert pending_versions
     assert pending_versions[-1] == catalog[-1].version
-    with psycopg.connect(psycopg_url, autocommit=True) as admin:
-        for role_name in (
-            "warehouse_production_app",
-            "warehouse_operations_prod_reader",
-        ):
-            exists = admin.execute(
-                "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = %s",
-                (role_name,),
-            ).fetchone()
-            if exists is None:
-                admin.execute(sql.SQL("CREATE ROLE {}").format(sql.Identifier(role_name)))
     with psycopg.connect(psycopg_url, autocommit=False) as connection:
         connection.execute(
             sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(
