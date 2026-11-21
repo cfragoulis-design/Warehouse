@@ -40,6 +40,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20261121_016",
         "20261121_017",
         "20261121_018",
+        "20261121_019",
     ]
     by_version = {migration.version: migration for migration in catalog}
     profiles_migration = by_version["20260906_001"]
@@ -323,6 +324,13 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_PRODUCTION_APP" in reasons_sql
     assert "GRANT USAGE, SELECT ON SEQUENCE CONSUMABLE_MOVEMENTS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in reasons_sql
     assert "GRANT SELECT ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_OPERATIONS_PROD_READER" in reasons_sql
+    lots = by_version["20261121_019"]
+    lots_sql = lots.sql.upper()
+    assert "CREATE TABLE IF NOT EXISTS CONSUMABLE_LOTS" in lots_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE CONSUMABLE_LOTS TO WAREHOUSE_PRODUCTION_APP" in lots_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE CONSUMABLE_LOTS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in lots_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLE_LOTS TO WAREHOUSE_OPERATIONS_PROD_READER" in lots_sql
+    assert "DROP TABLE" not in lots_sql
 
 
 def test_runtime_role_identifier_is_explicit_and_bounded() -> None:

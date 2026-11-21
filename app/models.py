@@ -787,6 +787,17 @@ class KioskSilenceAlert(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class ConsumableLot(Base):
+    __tablename__ = "consumable_lots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), index=True, nullable=False)
+    lot_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    qty_remaining: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
+    alerted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
 class PurchaseOrder(Base):
     __tablename__ = "purchase_orders"
 

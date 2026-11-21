@@ -296,6 +296,7 @@
             <div class="catLabel">{{ r.category }}</div>
             <h3>{{ r.name }}</h3>
             <div class="meta">συσκευασία {{ r.pack_display }} {{ r.unit }}</div>
+        {% if r.fifo_hint %}<div class="meta">{{ r.fifo_hint }}</div>{% endif %}
           </div>
         </div>
         <div class="stockrow">
