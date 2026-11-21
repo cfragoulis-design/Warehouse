@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <title>Επιβεβαίωση PIN</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <style>
+    body{margin:0;background:#0b1020;color:#e7e9ee;font-family:system-ui,Arial,sans-serif}
+    form{max-width:360px;margin:48px auto;display:grid;gap:10px}
+    input,button{font:inherit;padding:12px;border-radius:10px;border:1px solid #243055;background:#0e1530;color:inherit}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+  <form method="post" action="/admin/confirm-pin">
+    <h1>PIN διαχειριστή</h1>
+    <p>Η κάρτα δεν αρκεί. Γράψε το PIN για να συνεχίσεις.</p>
+    {% if err %}<p>{{ err }}</p>{% endif %}
+    <input type="hidden" name="next_path" value="{{ next }}" />
+    <input name="pin" inputmode="numeric" autocomplete="off" aria-label="PIN" />
+    <button type="submit">Συνέχεια</button>
+  </form>
+</body>
+</html>
