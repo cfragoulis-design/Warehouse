@@ -570,9 +570,13 @@ def dashboard(
     if is_warehouse_only(user):
         return RedirectResponse(url="/consumables/take", status_code=303)
     stats = get_dashboard_stats(db)
+    try:
+        from app.kiosk_health import status_snapshot
+    except ImportError:
+        from kiosk_health import status_snapshot
     return templates.TemplateResponse(
         "dashboard.html",
-        {"request": request, "user": user, "stats": stats},
+        {"request": request, "user": user, "stats": stats, "kiosk_status": status_snapshot(db)},
     )
 
 # --------------------

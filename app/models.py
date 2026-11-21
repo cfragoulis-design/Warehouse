@@ -768,6 +768,24 @@ class ConsumableReceiptLine(Base):
     consumable_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=True)
 
 
+class KioskHeartbeat(Base):
+    __tablename__ = "kiosk_heartbeats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    mem_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    disk_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    temp_c: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class KioskSilenceAlert(Base):
+    __tablename__ = "kiosk_silence_alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class PurchaseOrder(Base):
     __tablename__ = "purchase_orders"
 
