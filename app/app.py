@@ -45,6 +45,7 @@ if not runtime_settings.operations_source_mode:
         from app.receipt_drafts import router as receipt_drafts_router
         from app.kiosk_health import router as kiosk_health_router
         from app.mini_count import router as mini_count_router
+        from app.accountability import router as accountability_router
         from app.seed import seed_categories, seed_locations
         from app.services import router as services_router
         from app.workshop_message_service import router as workshop_message_router
@@ -64,6 +65,7 @@ if not runtime_settings.operations_source_mode:
         from receipt_drafts import router as receipt_drafts_router
         from kiosk_health import router as kiosk_health_router
         from mini_count import router as mini_count_router
+        from accountability import router as accountability_router
         from seed import seed_categories, seed_locations
         from services import router as services_router
         from workshop_message_service import router as workshop_message_router
@@ -217,6 +219,7 @@ if not runtime_settings.operations_source_mode:
     app.include_router(receipt_drafts_router)
     app.include_router(kiosk_health_router)
     app.include_router(mini_count_router)
+    app.include_router(accountability_router)
 app.include_router(operations_summary_router)
 
 

@@ -706,6 +706,8 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
         pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
         category = _category_label(c.category)
         unit = c.unit or "τεμ"
+        cost_pack = _d(getattr(c, "cost_per_pack", None))
+        unit_cost = (cost_pack / pack) if pack > 0 else Decimal("0")
         rows.append({
             "id": c.id,
             "name": c.name,
@@ -718,6 +720,7 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
             "desired_qty": _d(c.desired_qty),
             "on_hand": on_hand,
             "on_hand_display": _fmt_qty(on_hand),
+            "unit_cost": f"{unit_cost.quantize(Decimal('0.01')):.2f}",
             "is_low": is_low,
             "notes": c.notes or "",
             "barcode": c.barcode or "",
@@ -829,6 +832,11 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
         .limit(12)
         .all()
     )
+    try:
+        from app.accountability import threshold_value
+    except ImportError:
+        from accountability import threshold_value
+    high_value = threshold_value(db)
 
     categories = _take_categories(rows)
     _apply_category_images(categories, _category_image_ids(db))
@@ -861,6 +869,7 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "categories": categories,
             "count_items": count_items,
             "workers": worker_choices(active_workers(db)),
+            "high_value": high_value,
             "runout_items": [
                 {"id": row["id"], "name": row["name"], "days_left": row["days_left"]}
                 for row in rows

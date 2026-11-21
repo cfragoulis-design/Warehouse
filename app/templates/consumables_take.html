@@ -163,7 +163,7 @@
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
-<body class="take-screen{% if kiosk %} kiosk{% endif %}{% if kiosk and not kiosk_cat %} kiosk-home{% endif %}" {% if kiosk %}data-kiosk="1"{% endif %}>
+<body class="take-screen{% if kiosk %} kiosk{% endif %}{% if kiosk and not kiosk_cat %} kiosk-home{% endif %}" {% if kiosk %}data-kiosk="1"{% endif %} data-high-value="{{ high_value }}">
   {% if kiosk %}
   <div id="offlineBanner" class="offlineBanner" hidden>Εκτός σύνδεσης – <span id="offlineCount">0</span> κινήσεις σε αναμονή</div>
   {% endif %}
@@ -285,7 +285,7 @@
     {% else %}
     <section class="cards" id="cards">
       {% for r in rows %}
-      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}"{% if r.days_left is not none %} data-days="{{ r.days_left }}"{% endif %}{% if r.barcode %} data-barcode="{{ r.barcode }}"{% endif %}>
+      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}" data-unit-cost="{{ r.unit_cost }}"{% if r.days_left is not none %} data-days="{{ r.days_left }}"{% endif %}{% if r.barcode %} data-barcode="{{ r.barcode }}"{% endif %}>
         <div class="itemHead">
           {% if r.has_image %}
           <img class="thumb" src="/consumables/{{ r.id }}/image" alt="" loading="lazy" decoding="async" />
@@ -919,6 +919,8 @@
   let pinWorkerId='';
   let pinDigits='';
   let sessionName='';
+  let sessionWorkerId='';
+  let cardWorkerId='';
   let sessionTimer=null;
   let sessionTouchAt=0;
   function showBanner(name){
@@ -934,6 +936,8 @@
   function endSession(){
     const had=!!sessionName;
     showBanner('');
+    sessionWorkerId='';
+    cardWorkerId='';
     clearTimeout(sessionTimer);
     sessionTouchAt=0;
     if(!had) return;
@@ -1022,6 +1026,7 @@
         return;
       }
       showBanner(data.name || '');
+      sessionWorkerId=pinWorkerId;
       armSessionTimer();
       sessionTouchAt=Date.now();
       if(whoOverlay) whoOverlay.hidden=true;
@@ -1105,6 +1110,16 @@
   async function confirmWho(){
     const action=pendingTake;
     clearTimeout(whoTimer);
+    const limit = Number(document.body.dataset.highValue || '0');
+    const unitCost = action && action.form ? Number(action.form.closest('.item').dataset.unitCost || '0') : 0;
+    const cardOk = !!(cardWorkerId && sessionWorkerId && String(cardWorkerId)===String(sessionWorkerId));
+    if(action && limit > 0 && unitCost * action.amount >= limit && !cardOk){
+      if(whoOverlay) whoOverlay.hidden=true;
+      pendingTake=null;
+      showPickStep();
+      showToast('Χρειάζεται κάρτα', true, null);
+      return;
+    }
     if(whoOverlay) whoOverlay.hidden=true;
     pendingTake=null;
     showPickStep();
@@ -1192,6 +1207,7 @@
     const workerBtn=[...document.querySelectorAll('.whoBtn[data-card]')].find(btn => (btn.dataset.card||'').toLowerCase()===want);
     const item=[...document.querySelectorAll('.item[data-barcode]')].find(el => (el.dataset.barcode||'').toLowerCase()===want);
     if(workerBtn){
+      cardWorkerId=workerBtn.dataset.worker || '';
       chooseWorker(workerBtn);
       return;
     }
