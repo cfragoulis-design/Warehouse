@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ευθύνη εργαζομένων</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <style>
+    body{margin:0;background:#0b1020;color:#e7e9ee;font-family:system-ui,Segoe UI,Arial,sans-serif}
+    .wrap{max-width:960px;margin:0 auto;padding:16px}
+    table{width:100%;border-collapse:collapse;margin-bottom:18px}
+    td,th{text-align:left;padding:8px;border-bottom:1px solid #243055}
+    .flag{color:#fecdd3;font-weight:800}
+    input,button{font:inherit;color:inherit;background:#0e1530;border:1px solid #243055;border-radius:8px;padding:8px}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>Ποιος πήρε τι</h1>
+    <form method="post" action="/consumables/accountability/threshold">
+      <label>Όριο κάρτας € <input name="amount" value="{{ threshold }}" inputmode="decimal" /></label>
+      <button type="submit">Αποθήκευση</button>
+    </form>
+    <p>Πάνω από αυτό το κόστος, η λήψη στο κιόσκι θέλει κάρτα NFC, όχι μόνο πάτημα ονόματος.</p>
+    <table>
+      <thead><tr><th>Μήνας</th><th>Εργαζόμενος</th><th>Είδος</th><th>Ποσότητα</th><th></th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.month }}</td><td>{{ row.worker }}</td><td>{{ row.item }}</td><td>{{ row.qty }}</td>
+          <td>{% if row.anomaly %}<span class="flag">πάνω από 3×</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <h2>Αναιρέσεις</h2>
+    <table>
+      <tbody>
+        {% for movement, name, worker in undos %}
+        <tr><td>{{ name }}</td><td>{{ worker or '—' }}</td><td>{{ movement.qty }}</td><td>{{ movement.created_at }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>
