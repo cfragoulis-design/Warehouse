@@ -177,7 +177,9 @@ def _warehouse_path_allowed(path: str) -> bool:
     # Allow the warehouse-only user to open the mobile stock page and to use
     # the card buttons that post to /consumables/{id}/take and /consumables/{id}/add.
     # Other consumables/admin routes remain blocked by default.
-    if path.startswith("/consumables/") and path.endswith(("/take", "/add", "/image")):
+    if path == "/consumables/count/done":
+        return True
+    if path.startswith("/consumables/") and path.endswith(("/take", "/add", "/image", "/count")):
         return True
     return path in WAREHOUSE_ALLOWED_PATHS
 

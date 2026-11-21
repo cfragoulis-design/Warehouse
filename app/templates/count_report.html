@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Αποκλίσεις καταμέτρησης</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <style>
+    body{margin:0;background:#0b1020;color:#e7e9ee;font-family:system-ui,Segoe UI,Arial,sans-serif}
+    .wrap{max-width:860px;margin:0 auto;padding:16px}
+    table{width:100%;border-collapse:collapse}
+    td,th{text-align:left;padding:8px;border-bottom:1px solid #243055}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>Αποκλίσεις καταμέτρησης</h1>
+    <table>
+      <thead><tr><th>Είδος</th><th>Διαφορά</th><th>Αιτία</th><th>Υπόλοιπο</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr><td>{{ row.name }}</td><td>{{ row.qty }}</td><td>{{ row.reason }}</td><td>{{ row.stock_after }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

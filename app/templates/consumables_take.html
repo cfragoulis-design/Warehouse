@@ -355,6 +355,30 @@
   </div>
   {% endif %}
 
+  {% if kiosk and count_items %}
+  <div id="countOverlay" class="whoOverlay">
+    <div class="whoCard">
+      <h2>Πρωινή καταμέτρηση</h2>
+      {% for item in count_items %}
+      <form method="post" action="/consumables/{{ item.id }}/count" class="countRow">
+        <strong>{{ item.name }}</strong>
+        <span>σύστημα {{ item.on_hand_display }}</span>
+        <input name="counted" inputmode="numeric" aria-label="Μέτρηση {{ item.name }}" required />
+        <select name="reason" aria-label="Αιτία {{ item.name }}">
+          <option>φύρα</option>
+          <option>λάθος</option>
+          <option>χωρίς καταγραφή</option>
+        </select>
+        <button type="submit">Καταχώριση</button>
+      </form>
+      {% endfor %}
+      <form method="post" action="/consumables/count/done">
+        <button class="whoCancel" type="submit">Τέλος</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
   <div id="whoOverlay" class="whoOverlay" hidden>
     <div class="whoCard" role="dialog" aria-modal="true" aria-labelledby="whoTitle">
       <div id="whoPick">

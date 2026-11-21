@@ -220,6 +220,7 @@ def _log_consumable_movement(
     note: str | None = None,
     worker_id: int | None = None,
     pin_verified: bool = False,
+    reason: str | None = None,
 ) -> None:
     db.add(
         ConsumableMovement(
@@ -231,6 +232,7 @@ def _log_consumable_movement(
             created_by_user_id=getattr(user, "id", None),
             worker_id=worker_id,
             pin_verified=bool(pin_verified and worker_id),
+            reason=(reason or "").strip() or None,
             note=(note or "").strip() or None,
         )
     )
@@ -699,6 +701,23 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
         .all()
     )
 
+    categories = _take_categories(rows)
+    count_items = []
+    if kiosk_ui_enabled(request, user):
+        from datetime import datetime, timezone
+        from decimal import Decimal as _Dec
+        try:
+            from app.mini_count import count_is_due, pick_count_items
+        except ImportError:
+            from mini_count import count_is_due, pick_count_items
+        if count_is_due(db, datetime.now(timezone.utc)):
+            variances = {}
+            for cid, qty in db.query(ConsumableMovement.consumable_id, ConsumableMovement.qty).filter(ConsumableMovement.reason.isnot(None)):
+                variances[int(cid)] = variances.get(int(cid), _Dec("0")) + abs(_d(qty))
+            count_items = pick_count_items(
+                [{"id": row["id"], "name": row["name"], "on_hand_display": row["on_hand_display"], "stock_value": row["on_hand"]} for row in rows],
+                variances,
+            )
     return templates.TemplateResponse(
         "consumables_take.html",
         {
@@ -709,7 +728,8 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "recent": recent,
             "kiosk": kiosk_ui_enabled(request, user),
             "kiosk_cat": request.query_params.get("cat") if kiosk_ui_enabled(request, user) else None,
-            "categories": _take_categories(rows),
+            "categories": categories,
+            "count_items": count_items,
             "workers": worker_choices(active_workers(db)),
             "runout_items": [
                 {"id": row["id"], "name": row["name"], "days_left": row["days_left"]}
