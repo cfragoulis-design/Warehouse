@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <title>Ετικέτες Α4</title>
+  <style>
+    body{margin:0;background:#fff;color:#000;font-family:system-ui,Arial,sans-serif}
+    .sheet{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8mm;padding:10mm}
+    .label{border:1px dashed #bbb;padding:4mm;break-inside:avoid}
+    .name{font-size:16px;font-weight:800}
+    .cat{font-size:12px;color:#333}
+    .code{font-size:11px;letter-spacing:.04em}
+    svg{width:100%;height:16mm}
+    @media screen { body{background:#111;color:#eee} .label{background:#fff;color:#000} }
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+  <div class="sheet">
+    {% for label in labels %}
+    <div class="label">
+      <div class="cat">{{ label.category }}</div>
+      <div class="name">{{ label.name }}</div>
+      {{ label.svg | safe }}
+      <div class="code">{{ label.code }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

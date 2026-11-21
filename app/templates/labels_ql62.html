@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <title>Ετικέτα 62mm</title>
+  <style>
+    @page { size: 62mm 29mm; margin: 1mm }
+    body{margin:0;font-family:system-ui,Arial,sans-serif;color:#000}
+    .label{width:60mm;height:27mm;padding:1mm}
+    .name{font-size:12px;font-weight:800}
+    .cat{font-size:9px}
+    svg{width:58mm;height:12mm}
+    .code{font-size:9px}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+  {% for label in labels %}
+  <div class="label">
+    <div class="cat">{{ label.category }}</div>
+    <div class="name">{{ label.name }}</div>
+    {{ label.svg | safe }}
+    <div class="code">{{ label.code }}</div>
+  </div>
+  {% endfor %}
+</body>
+</html>
