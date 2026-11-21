@@ -413,3 +413,19 @@ def init_db() -> None:
     except Exception as exc:
         _handle_startup_ddl_failure("consumables.image", exc)
 
+    # One Telegram note per supplier per day. Idempotent; the guarded migration grants privileges.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS consumable_alert_log (
+                    id SERIAL PRIMARY KEY,
+                    supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+                    alert_date DATE NOT NULL,
+                    UNIQUE (supplier_id, alert_date)
+                );
+                """
+            )
+    except Exception as exc:
+        _handle_startup_ddl_failure("consumable_alert_log", exc)
+

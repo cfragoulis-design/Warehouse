@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from collections import defaultdict
 
@@ -236,6 +237,22 @@ def _log_consumable_movement(
     )
 
 
+def _notify_supplier_alerts(db: Session) -> None:
+    """Best-effort. A take or receipt is already committed, so an alert failure must not fail it."""
+    try:
+        try:
+            from app.supplier_alerts import dispatch_supplier_alerts
+        except ImportError:
+            from supplier_alerts import dispatch_supplier_alerts
+        items = db.query(Consumable).filter(Consumable.is_active.is_(True)).all()
+        stock_map, on_order_map, _listed, suppliers = _admin_context_maps(db)
+        rows = [_admin_row(item, stock_map, on_order_map, suppliers) for item in items]
+        dispatch_supplier_alerts(db, rows)
+    except Exception:
+        logging.getLogger(__name__).exception("Supplier alert dispatch failed")
+        db.rollback()
+
+
 def _admin_context_maps(db: Session):
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
         ConsumableStock.location_code == WORKSHOP_CODE
@@ -432,6 +449,15 @@ def consumables_order_sheet(
     rows = [_admin_row(item, stock_map, on_order_map, suppliers) for item in consumables if item.is_active]
     flags = forecast_flags(db, [row["id"] for row in rows])
     sheets = build_order_sheet(rows, flags)
+    emails = {supplier.name: (supplier.email or "") for supplier in suppliers.values()}
+    from urllib.parse import quote
+    for sheet in sheets:
+        address = emails.get(sheet["supplier_name"], "")
+        sheet["mailto"] = "mailto:%s?subject=%s&body=%s" % (
+            address,
+            quote("Παραγγελία αναλωσίμων"),
+            quote(sheet["message"]),
+        )
     return templates.TemplateResponse(
         "consumables_orders.html",
         {"request": request, "user": user, "sheets": sheets},
@@ -872,6 +898,7 @@ def consumable_take_submit(
         pin_verified=pin_verified,
     )
     db.commit()
+    _notify_supplier_alerts(db)
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))
         data['movement_type'] = 'OUT'
@@ -927,6 +954,7 @@ def consumable_add_submit(
         pin_verified=pin_verified,
     )
     db.commit()
+    _notify_supplier_alerts(db)
 
     if _wants_json(request):
         data = _consumable_ui_state(db, c, _d(st.qty))
