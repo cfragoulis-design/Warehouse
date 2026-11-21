@@ -39,6 +39,7 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20261121_015",
         "20261121_016",
         "20261121_017",
+        "20261121_018",
     ]
     by_version = {migration.version: migration for migration in catalog}
     profiles_migration = by_version["20260906_001"]
@@ -316,6 +317,12 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "GRANT USAGE, SELECT ON SEQUENCE KIOSK_HEARTBEATS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in beats_sql
     assert "GRANT SELECT ON TABLE KIOSK_SILENCE_ALERTS TO WAREHOUSE_OPERATIONS_PROD_READER" in beats_sql
     assert "DROP TABLE" not in beats_sql
+    reasons = by_version["20261121_018"]
+    reasons_sql = reasons.sql.upper()
+    assert "ADD COLUMN IF NOT EXISTS REASON VARCHAR(40)" in reasons_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_PRODUCTION_APP" in reasons_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE CONSUMABLE_MOVEMENTS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in reasons_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_OPERATIONS_PROD_READER" in reasons_sql
 
 
 def test_runtime_role_identifier_is_explicit_and_bounded() -> None:

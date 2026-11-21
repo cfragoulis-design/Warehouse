@@ -180,7 +180,9 @@ def _warehouse_path_allowed(path: str) -> bool:
     # Other consumables/admin routes remain blocked by default.
     if path.startswith("/consumables/category-image/"):
         return True
-    if path.startswith("/consumables/") and path.endswith(("/take", "/add", "/image")):
+    if path == "/consumables/count/done":
+        return True
+    if path.startswith("/consumables/") and path.endswith(("/take", "/add", "/image", "/count")):
         return True
     return path in WAREHOUSE_ALLOWED_PATHS
 
