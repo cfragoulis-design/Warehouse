@@ -8,6 +8,7 @@ from decimal import Decimal
 from sqlalchemy import (
     String,
     Integer,
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -930,6 +931,48 @@ class KioskDailyReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ForecastSetting(Base):
+    """Forecast defaults and seasonal multipliers (key -> JSON/text value)."""
+
+    __tablename__ = "forecast_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ConsumableForecastParam(Base):
+    """Lead time / safety stock override for one supplier or one item (NULL = inherit)."""
+
+    __tablename__ = "consumable_forecast_params"
+    __table_args__ = (UniqueConstraint("scope", "ref_id", name="ux_consumable_forecast_params_scope"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope: Mapped[str] = mapped_column(String(10), nullable=False)
+    ref_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    lead_time_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    safety_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class TelegramAskLog(Base):
+    """Telegram questions: update-id dedup, per-chat rate limit, audit (read-only answers)."""
+
+    __tablename__ = "telegram_ask_log"
+    __table_args__ = (
+        Index("ux_telegram_ask_log_update", "update_id", unique=True),
+        Index("ix_telegram_ask_log_chat_time", "chat_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    update_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    chat_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    intent: Mapped[str] = mapped_column(String(30), nullable=False, default="")
+    question: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class KioskSilenceAlert(Base):

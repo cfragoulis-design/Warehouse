@@ -37,6 +37,9 @@ VOICE_TAKE = "nextgen_voice_take"
 SMART_VOICE = "nextgen_smart_voice"
 AUTO_REORDER = "nextgen_auto_reorder"
 MORNING_REPORT = "nextgen_morning_report"
+FORECAST = "nextgen_forecast"
+TELEGRAM_ASK = "nextgen_telegram_ask"
+TELEGRAM_ASK_LLM = "nextgen_telegram_ask_llm"
 
 FEATURES: tuple[tuple[str, str, str], ...] = (
     (VISION, "Αναγνώριση προϊόντος με κάμερα", "Κρατάς το προϊόν μπροστά στην κάμερα του κιοσκιού και σου προτείνει το είδος. Θέλει USB κάμερα στο κιόσκι."),
@@ -44,6 +47,9 @@ FEATURES: tuple[tuple[str, str, str], ...] = (
     (SMART_VOICE, "Έξυπνη φωνή", "Καλωσορίζει με το όνομα μετά το PIN. Η υπενθύμιση της κάμερας μιλάει μόνο αν δεν καταχωρήθηκε ανάληψη."),
     (AUTO_REORDER, "Αυτόματη παραγγελία με έγκριση", "Όταν κάτι πάει να τελειώσει, έρχεται στο Telegram έτοιμη παραγγελία ανά προμηθευτή με «Έγκριση». Δεν στέλνεται τίποτα σε προμηθευτή."),
     (MORNING_REPORT, "Πρωινή αναφορά στο Telegram", "Κάθε πρωί: τι πάρθηκε χθες, τι τελειώνει, ασυνήθιστες κινήσεις."),
+    (FORECAST, "Πρόβλεψη κατανάλωσης", "Πότε τελειώνει κάθε είδος και πόσο να παραγγείλεις (χρόνος παράδοσης + απόθεμα ασφαλείας, γιορτές και τουριστική περίοδος). Τροφοδοτεί την αυτόματη παραγγελία και την πρωινή αναφορά."),
+    (TELEGRAM_ASK, "Ερωτήσεις στο Telegram", "Ρωτάς τον bot «πόσα γάντια έχουμε;», «τι τελειώνει;» και απαντάει από τα δεδομένα. Μόνο στη συνομιλία των ειδοποιήσεων, μόνο ανάγνωση."),
+    (TELEGRAM_ASK_LLM, "Ερωτήσεις: βοήθεια από AI (προαιρετικό)", "Μόνο για ερωτήσεις που δεν καταλαβαίνει. Θέλει κλειδί TELEGRAM_ASK_LLM_API_KEY (πληρωμένο). Χωρίς κλειδί δεν κάνει τίποτα."),
 )
 FEATURE_KEYS = tuple(key for key, _title, _help in FEATURES)
 
@@ -99,6 +105,18 @@ def report_time(db: Session) -> tuple[int, int]:
         pass
     hour_text, minute_text = DEFAULT_REPORT_TIME.split(":")
     return int(hour_text), int(minute_text)
+
+
+def smart_forecast_flags(db: Session, *, now: datetime | None = None) -> dict | None:
+    """Forecast flags for the reorder plan / run-out ranking, or None (= existing
+    8-week average) while the forecast switch is off."""
+    if not flag_on(db, FORECAST):
+        return None
+    try:
+        from app.smart_forecast import forecast_flags_smart
+    except ImportError:  # pragma: no cover
+        from smart_forecast import forecast_flags_smart
+    return forecast_flags_smart(db, now=now)
 
 
 def kiosk_page_config(db: Session) -> dict:

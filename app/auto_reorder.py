@@ -159,7 +159,12 @@ def offer_reorder_drafts(db: Session, *, now: datetime | None = None, send=None,
         return []
     posted: list[str] = []
     try:
-        plans = reorder_plan(db, now=moment) if plans is None else plans
+        if plans is None:
+            try:
+                from app.kiosk_nextgen import smart_forecast_flags
+            except ImportError:  # pragma: no cover
+                from kiosk_nextgen import smart_forecast_flags
+            plans = reorder_plan(db, now=moment, flags=smart_forecast_flags(db, now=moment))
         suppliers = {s.name: s.id for s in db.query(Supplier).all()}
         for plan in plans:
             name = plan["supplier_name"]

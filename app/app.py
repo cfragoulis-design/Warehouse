@@ -47,6 +47,8 @@ if not runtime_settings.operations_source_mode:
         from app.mini_count import router as mini_count_router
         from app.smart_routes import router as smart_router
         from app.nextgen_routes import router as nextgen_router
+        from app.forecast_routes import router as forecast_router
+        from app.telegram_ask import router as telegram_ask_router
         from app.accountability import router as accountability_router
         from app.shelf_labels import router as shelf_labels_router
         from app.seed import seed_categories, seed_locations
@@ -70,6 +72,8 @@ if not runtime_settings.operations_source_mode:
         from mini_count import router as mini_count_router
         from smart_routes import router as smart_router
         from nextgen_routes import router as nextgen_router
+        from forecast_routes import router as forecast_router
+        from telegram_ask import router as telegram_ask_router
         from accountability import router as accountability_router
         from shelf_labels import router as shelf_labels_router
         from seed import seed_categories, seed_locations
@@ -238,6 +242,8 @@ if not runtime_settings.operations_source_mode:
     app.include_router(mini_count_router)
     app.include_router(smart_router)
     app.include_router(nextgen_router)
+    app.include_router(forecast_router)
+    app.include_router(telegram_ask_router)
     app.include_router(accountability_router)
     app.include_router(shelf_labels_router)
 app.include_router(operations_summary_router)

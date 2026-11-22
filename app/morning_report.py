@@ -85,13 +85,22 @@ def build_morning_report(db: Session, *, now: datetime | None = None) -> str:
         lines.append(f"👷 {people}")
     else:
         lines.append("📦 Χθες δεν καταχωρήθηκε καμία λήψη" + (f" ({adds} παραλαβές)" if adds else "") + ".")
-    ranking = [row for row in runout_ranking(db, now=moment) if row["level"] in ("now", "soon")]
+    try:
+        from app.kiosk_nextgen import smart_forecast_flags
+    except ImportError:  # pragma: no cover
+        from kiosk_nextgen import smart_forecast_flags
+    smart = smart_forecast_flags(db, now=moment)
+    ranking = [row for row in runout_ranking(db, now=moment, flags=smart) if row["level"] in ("now", "soon")]
     lines.append("")
     if ranking:
         lines.append("⏳ Τελειώνουν:")
         for row in ranking[:8]:
             when = f" ({row['runout_label']})" if row.get("runout_label") else ""
-            lines.append(f"• {row['name']}: {row['on_hand_display']} {row['unit']} — {row['days_phrase']}{when}")
+            extra = ""
+            info = (smart or {}).get(int(row["id"]))
+            if info is not None and info.get("confidence") not in ("high", "medium"):
+                extra = " · " + (info.get("note") or "εκτίμηση")
+            lines.append(f"• {row['name']}: {row['on_hand_display']} {row['unit']} — {row['days_phrase']}{when}{extra}")
         if len(ranking) > 8:
             lines.append(f"  …και άλλα {len(ranking) - 8}")
     else:

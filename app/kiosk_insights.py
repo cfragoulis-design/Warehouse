@@ -214,12 +214,16 @@ def runout_ranking(db: Session, *, now: datetime | None = None, rows: list[dict]
 # --------------------------------------------------------------------- 2. reorder plan
 
 
-def plan_quantity(*, desired, on_hand, on_order, pack_size, daily, cover_days: int = COVER_DAYS) -> tuple[int, Decimal, Decimal]:
-    """``(packs, units, target)``: reach max(desired, daily x cover_days), rounded up to packs."""
+def plan_quantity(*, desired, on_hand, on_order, pack_size, daily, cover_days: int = COVER_DAYS, target_units=None) -> tuple[int, Decimal, Decimal]:
+    """``(packs, units, target)``: reach max(desired, daily x cover_days), rounded up to packs.
+
+    ``target_units`` (from the consumption forecast: lead time + order cycle +
+    safety stock) replaces the ``daily x cover_days`` part when given."""
     pack = _d(pack_size)
     if pack <= 0:
         pack = Decimal("1")
-    target = max(_d(desired), (_d(daily) * Decimal(cover_days)).to_integral_value(rounding=ROUND_CEILING))
+    cover = _d(daily) * Decimal(cover_days) if target_units is None else _d(target_units)
+    target = max(_d(desired), cover.to_integral_value(rounding=ROUND_CEILING))
     gap = target - _d(on_hand) - _d(on_order)
     if gap <= 0:
         return 0, Decimal("0"), target
@@ -241,19 +245,23 @@ def reorder_plan(db: Session, *, now: datetime | None = None, rows: list[dict] |
         info = flags.get(int(row["id"]))
         at_min = _at_or_below_min(row)
         days = None if info is None else int(info["days_left"])
-        soon = days is not None and days <= PLAN_HORIZON_DAYS
+        horizon = PLAN_HORIZON_DAYS if info is None else int(info.get("plan_horizon_days") or PLAN_HORIZON_DAYS)
+        soon = days is not None and days <= horizon
         if not at_min and not soon:
             continue
         daily = Decimal("0") if info is None else _d(info.get("daily_qty"))
         packs, units, target = plan_quantity(
             desired=row["desired_qty"], on_hand=row["on_hand"], on_order=row.get("on_order"),
             pack_size=row["pack_size"], daily=daily,
+            target_units=None if info is None else info.get("target_units"),
         )
         if packs <= 0:
             continue
         parts = ["στο ελάχιστο"] if at_min else []
         if days is not None:
             parts.append(f"{days_phrase(days)} ({runout_label(info.get('runout_date'))})")
+        if info is not None and info.get("note"):
+            parts.append(info["note"])
         reason = " · ".join(parts)
         if _d(row.get("on_order")) > 0:
             reason += f" · {_fmt(row['on_order'])} ήδη σε παραγγελία"
