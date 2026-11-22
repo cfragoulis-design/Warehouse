@@ -44,6 +44,15 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
     ),
     "consumable_anomalies": frozenset({"id", "kind", "dedup_key", "created_at", "notified_at", "acknowledged_at"}),
     "kiosk_page_status": frozenset({"device_key", "last_seen_at", "queue_len", "online", "page_version"}),
+    # Kiosk next-gen (migration 20261122_022): the take page and every PIN
+    # session read the feature switches and may write kiosk_events; the alert
+    # pass may read reorder drafts.
+    "kiosk_events": frozenset({"id", "kind", "worker_id", "detail", "created_at"}),
+    "consumable_reorder_drafts": frozenset({"id", "supplier_name", "signature", "status", "notified_day"}),
+    "kiosk_daily_reports": frozenset({"kind", "report_day", "sent"}),
+    "consumable_visual_refs": frozenset({"id", "consumable_id", "source", "features"}),
+    "kiosk_worker_voice": frozenset({"worker_id", "spoken_name", "greet"}),
+    "kiosk_voice_clips": frozenset({"clip_key", "voice", "audio"}),
     "products": frozenset(
         {
             "id",

@@ -1234,6 +1234,7 @@
       sessionTouchAt=Date.now();
       if(whoOverlay) whoOverlay.hidden=true;
       showPickStep();
+      document.dispatchEvent(new CustomEvent('kiosk:session-start', {detail:{worker_id: sessionWorkerId, name: sessionName}}));
       if(pendingTake) confirmWho();
     }catch(err){
       if(pinMessage) pinMessage.textContent='Λάθος PIN';
@@ -1441,6 +1442,7 @@
       });
       armSessionTimer();
       if(typeof promoteFavorites==='function') promoteFavorites(data.worker_id);
+      document.dispatchEvent(new CustomEvent('kiosk:moved', {detail:{mode: action.mode, item_id: form.closest('.item') ? form.closest('.item').dataset.id : '', qty: data.qty}}));
     }catch(err){
       if(!navigator.onLine || (err && err.name === 'TypeError')){
         const fields = {};
@@ -1583,10 +1585,44 @@
     }catch(err){}
   }
   setInterval(refreshStock, STOCK_REFRESH_MS);
+  // Small bridge for optional add-ons (kiosk next-gen). Uses the normal take
+  // flow: «Ποιος είσαι;», PIN, lots and the offline queue all still apply.
+  window.KioskBridge = {
+    isKiosk: isKiosk,
+    session: function(){ return {worker_id: sessionWorkerId, name: sessionName}; },
+    toast: function(message, isError){ showToast(message, !!isError, null); },
+    noteActivity: function(){ if(typeof noteActivity==='function') noteActivity(); },
+    focusItem: function(id, qty){
+      const item=document.querySelector('.item[data-id="'+id+'"]');
+      if(!item) return null;
+      if(isKiosk) openKioskCategory(item.dataset.category||'');
+      const input=item.querySelector('.qty');
+      const amount=Math.max(1, Math.round(Number(qty)||1));
+      if(input){ input.value=String(amount); const minus=item.querySelector('[data-add="-1"]'); if(minus) minus.disabled=amount<=1; }
+      item.classList.add('scanHit');
+      item.scrollIntoView({block:'center'});
+      setTimeout(()=>item.classList.remove('scanHit'), 1600);
+      return item;
+    },
+    move: function(id, qty, mode){
+      const item=this.focusItem(id, qty);
+      if(!item) return false;
+      const form=item.querySelector('form.takeform');
+      const button=item.querySelector('button[data-mode="'+(mode==='add'?'add':'take')+'"]');
+      if(!form || !button || button.disabled) return false;
+      form.requestSubmit(button);
+      return true;
+    }
+  };
   document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState==='visible') refreshStock();
   });
 })();
 </script>
+{% if nextgen %}
+<script type="application/json" id="nextgenConfig">{{ nextgen | tojson }}</script>
+<link rel="stylesheet" href="/static/kiosk-nextgen.css" />
+<script src="/static/kiosk-nextgen.js" defer></script>
+{% endif %}
 </body>
 </html>

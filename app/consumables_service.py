@@ -888,7 +888,8 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
                 [{"id": row["id"], "name": row["name"], "on_hand_display": row["on_hand_display"], "stock_value": row["on_hand"], "pack_size": row["pack_size"], "unit": row["unit"]} for row in rows],
                 variances,
             )
-    return templates.TemplateResponse(
+    nextgen = _nextgen_config(db) if kiosk_ui_enabled(request, user) else {}
+    response = templates.TemplateResponse(
         "consumables_take.html",
         {
             "request": request,
@@ -909,8 +910,25 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             ],
             "favorites": _worker_favorites(db),
             "page_version": _page_version(),
+            "nextgen": nextgen,
         },
     )
+    if nextgen.get("vision") or nextgen.get("voice_take"):
+        response.headers["X-Kiosk-Media"] = "1"
+    return response
+
+
+def _nextgen_config(db: Session) -> dict:
+    """Kiosk next-gen switches for the take page; {} (nothing rendered) when all are off."""
+    try:
+        from app.kiosk_nextgen import kiosk_page_config
+    except ImportError:  # pragma: no cover
+        from kiosk_nextgen import kiosk_page_config
+    try:
+        return kiosk_page_config(db)
+    except Exception:
+        db.rollback()
+        return {}
 
 
 @router.get("/consumables/take/stock")
@@ -1025,7 +1043,13 @@ def worker_session_start(
         if not _card_matches(worker, card_uid):
             return JSONResponse({"ok": False, "message": CARD_MISMATCH_MESSAGE}, status_code=403)
         card = True
-    response = JSONResponse(_session_payload(worker, request, user, card))
+    payload = _session_payload(worker, request, user, card)
+    try:
+        from app.kiosk_nextgen import note_session_start
+    except ImportError:  # pragma: no cover
+        from kiosk_nextgen import note_session_start
+    note_session_start(db, worker.id)
+    response = JSONResponse(payload)
     return issue_session_cookie(response, request, user, worker, card)
 
 

@@ -46,6 +46,7 @@ if not runtime_settings.operations_source_mode:
         from app.kiosk_health import router as kiosk_health_router
         from app.mini_count import router as mini_count_router
         from app.smart_routes import router as smart_router
+        from app.nextgen_routes import router as nextgen_router
         from app.accountability import router as accountability_router
         from app.shelf_labels import router as shelf_labels_router
         from app.seed import seed_categories, seed_locations
@@ -68,6 +69,7 @@ if not runtime_settings.operations_source_mode:
         from kiosk_health import router as kiosk_health_router
         from mini_count import router as mini_count_router
         from smart_routes import router as smart_router
+        from nextgen_routes import router as nextgen_router
         from accountability import router as accountability_router
         from shelf_labels import router as shelf_labels_router
         from seed import seed_categories, seed_locations
@@ -102,8 +104,15 @@ async def add_security_headers(request: Request, call_next):
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'"
     )
+    # Camera/microphone stay blocked everywhere. Only the kiosk take page may ask
+    # for them, and only when an admin switched on a next-gen feature that needs
+    # them (the page marks its response with X-Kiosk-Media; the marker is removed).
+    kiosk_media = response.headers.get("X-Kiosk-Media") == "1" and request.url.path == "/consumables/take"
+    if "X-Kiosk-Media" in response.headers:
+        del response.headers["X-Kiosk-Media"]
     response.headers["Permissions-Policy"] = (
-        "camera=(), geolocation=(), microphone=()"
+        "camera=(self), geolocation=(), microphone=(self)" if kiosk_media
+        else "camera=(), geolocation=(), microphone=()"
     )
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -228,6 +237,7 @@ if not runtime_settings.operations_source_mode:
     app.include_router(kiosk_health_router)
     app.include_router(mini_count_router)
     app.include_router(smart_router)
+    app.include_router(nextgen_router)
     app.include_router(accountability_router)
     app.include_router(shelf_labels_router)
 app.include_router(operations_summary_router)

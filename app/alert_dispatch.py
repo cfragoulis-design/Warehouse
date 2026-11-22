@@ -50,7 +50,7 @@ def _session_factory():
     return SessionLocal
 
 
-def run_alert_pass(db: Session, *, send=None, today=None) -> dict:
+def run_alert_pass(db: Session, *, send=None, today=None, reorder_send=None, now=None) -> dict:
     """One pass. Returns what was sent; does nothing when the flag is OFF."""
     try:
         from app.consumables_service import _admin_context_maps, _admin_row
@@ -83,10 +83,35 @@ def run_alert_pass(db: Session, *, send=None, today=None) -> dict:
     items = db.query(Consumable).filter(Consumable.is_active.is_(True)).all()
     stock_map, on_order_map, _listed, suppliers = _admin_context_maps(db)
     rows = [_admin_row(item, stock_map, on_order_map, suppliers) for item in items]
+    # Kiosk next-gen auto reorder (flag OFF by default): post the ready order
+    # drafts first; suppliers that got one today skip the plain low-stock note.
+    reorder_sent: list[str] = []
+    try:
+        from app.kiosk_nextgen import AUTO_REORDER, REORDER_EARLIEST_HOUR, REORDER_LATEST_HOUR, flag_on
+    except ImportError:  # pragma: no cover
+        from kiosk_nextgen import AUTO_REORDER, REORDER_EARLIEST_HOUR, REORDER_LATEST_HOUR, flag_on
+    if flag_on(db, AUTO_REORDER):
+        try:
+            from app.auto_reorder import offer_reorder_drafts, suppliers_offered_today
+        except ImportError:  # pragma: no cover
+            from auto_reorder import offer_reorder_drafts, suppliers_offered_today
+        try:
+            from datetime import datetime as _dt
+            from zoneinfo import ZoneInfo as _Zone
+
+            moment = now or _dt.now(_Zone("UTC"))
+            hour = moment.astimezone(_Zone("Europe/Athens")).hour
+            if REORDER_EARLIEST_HOUR <= hour < REORDER_LATEST_HOUR:
+                reorder_sent = offer_reorder_drafts(db, send=reorder_send, now=moment)
+            offered = suppliers_offered_today(db, now=moment)
+            rows = [row for row in rows if (row.get("supplier_name") or "") not in offered]
+        except Exception:
+            logger.exception("Reorder offer failed")
+            db.rollback()
     suppliers_sent = dispatch_supplier_alerts(db, rows, today=day, send=sender)
     lots_sent = notify_expiring_lots(db, day, sender)
     anomalies_sent = notify_anomalies(db, sender)
-    return {"enabled": True, "suppliers": suppliers_sent, "lots": lots_sent, "anomalies": anomalies_sent}
+    return {"enabled": True, "suppliers": suppliers_sent, "lots": lots_sent, "anomalies": anomalies_sent, "reorder": reorder_sent}
 
 
 def run_consumable_alerts(session_factory=None, *, send=None) -> None:

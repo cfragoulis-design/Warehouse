@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -86,6 +86,7 @@ def insights_ack(anomaly_id: int, db: Session = Depends(get_db), user: User = De
 @router.post("/consumables/take/page-status")
 def kiosk_page_status(
     request: Request,
+    background_tasks: BackgroundTasks,
     payload: dict = Body(...),
     db: Session = Depends(get_db),
     user: User = Depends(require_consumables_stock_user),
@@ -103,4 +104,12 @@ def kiosk_page_status(
         page_version=version if isinstance(version, str) else "",
         user_agent=request.headers.get("user-agent", ""),
     )
+    # Kiosk next-gen: the page ping doubles as the clock for the morning report
+    # and reorder offers (no server scheduler needed). Does nothing while those
+    # features are off.
+    try:
+        from app.kiosk_nextgen import maybe_schedule_daily_jobs
+    except ImportError:  # pragma: no cover
+        from kiosk_nextgen import maybe_schedule_daily_jobs
+    maybe_schedule_daily_jobs(background_tasks)
     return JSONResponse({"ok": True})

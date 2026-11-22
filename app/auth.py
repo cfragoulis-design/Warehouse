@@ -157,6 +157,8 @@ def _warehouse_path_allowed(path: str) -> bool:
         return True
     if path == "/consumables/count/done":
         return True
+    if path.startswith("/consumables/take/nextgen/"):
+        return True
     if path.startswith("/consumables/") and path.endswith(("/take", "/add", "/image", "/count")):
         return True
     return path in WAREHOUSE_ALLOWED_PATHS

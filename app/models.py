@@ -840,6 +840,98 @@ class ConsumableAnomaly(Base):
     acknowledged_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
+class ConsumableVisualRef(Base):
+    """Image features of one product photo (catalog image or a confirmed kiosk frame)."""
+
+    __tablename__ = "consumable_visual_refs"
+    __table_args__ = (Index("ix_consumable_visual_refs_item", "consumable_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id", ondelete="CASCADE"), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="catalog")
+    image_sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    features: Mapped[str] = mapped_column(Text, nullable=False)
+    worker_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class KioskWorkerVoice(Base):
+    """How the kiosk says a worker's name (Greek spelling for the voice)."""
+
+    __tablename__ = "kiosk_worker_voice"
+
+    worker_id: Mapped[int] = mapped_column(Integer, ForeignKey("workers.id", ondelete="CASCADE"), primary_key=True)
+    spoken_name: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    greet: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class KioskVoiceClip(Base):
+    """Cached synthesized speech (one row per voice + text)."""
+
+    __tablename__ = "kiosk_voice_clips"
+
+    clip_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    voice: Mapped[str] = mapped_column(String(60), nullable=False)
+    spoken_text: Mapped[str] = mapped_column(String(300), nullable=False)
+    audio: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(40), nullable=False, default="audio/mpeg")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class KioskEvent(Base):
+    """Kiosk interaction that is not a stock movement (e.g. a PIN session start)."""
+
+    __tablename__ = "kiosk_events"
+    __table_args__ = (Index("ix_kiosk_events_created", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    worker_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    consumable_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("consumables.id", ondelete="SET NULL"), nullable=True)
+    detail: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ConsumableReorderDraft(Base):
+    """A per-supplier order draft offered on Telegram. Approval never sends anything."""
+
+    __tablename__ = "consumable_reorder_drafts"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'approved', 'dismissed', 'superseded')",
+            name="ck_consumable_reorder_drafts_status",
+        ),
+        Index("ix_consumable_reorder_drafts_supplier", "supplier_name", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True)
+    supplier_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    lines_json: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    total_label: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notified_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+
+class KioskDailyReport(Base):
+    """One row per (kind, Athens day): claims the morning report so it goes out once."""
+
+    __tablename__ = "kiosk_daily_reports"
+
+    kind: Mapped[str] = mapped_column(String(30), primary_key=True)
+    report_day: Mapped[date] = mapped_column(Date, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
 class KioskSilenceAlert(Base):
     __tablename__ = "kiosk_silence_alerts"
 

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Νέες λειτουργίες κιοσκιού</title>
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial,sans-serif}
+    a{color:#a9c7ff;text-decoration:none}
+    .top{position:sticky;top:0;z-index:2;background:rgba(11,16,32,.96);border-bottom:1px solid var(--line);padding:12px 16px}
+    .nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .pill{border:1px solid var(--line);border-radius:999px;padding:8px 12px;font-weight:700}
+    .pill.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45)}
+    .wrap{max-width:1040px;margin:0 auto;padding:16px}
+    .intro,.note{color:var(--muted);margin:0 0 14px}
+    td .note{margin:2px 0 0;font-size:12px}
+    .card{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:14px;margin-bottom:16px}
+    h2{margin:0 0 8px;font-size:20px}
+    h3{margin:12px 0 6px;font-size:17px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+    th{color:var(--muted);font-size:12px;font-weight:700}
+    .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:800;border:1px solid var(--line)}
+    .tag.now{background:rgba(239,68,68,.14);color:#fecaca;border-color:rgba(239,68,68,.45)}
+    .tag.soon{background:rgba(245,158,11,.16);color:#fde68a;border-color:rgba(245,158,11,.45)}
+    .tag.ok{background:rgba(53,194,125,.12);color:#c8f7dd;border-color:rgba(53,194,125,.45)}
+    .tag.muted{color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+    .stat{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:#0e1530}
+    .stat b{display:block;font-size:18px;margin-top:2px}
+    .stat small{color:var(--muted)}
+    pre.message{white-space:pre-wrap;background:#0e1530;border:1px solid var(--line);border-radius:12px;padding:12px;font:15px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+    button{font:inherit;color:inherit;background:#162044;border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:800}
+    .empty{padding:16px;border:1px dashed var(--line);border-radius:12px;color:var(--muted)}
+    .done td{opacity:.55}
+    details summary{cursor:pointer;color:var(--muted);font-weight:700;margin-top:8px}
+  </style>
+  <style>
+    .feat{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;padding:12px 0;border-bottom:1px solid var(--line)}
+    .feat:last-child{border-bottom:0}
+    .feat input[type=checkbox]{width:26px;height:26px;margin-top:2px}
+    .feat b{font-size:17px}
+    .feat p{margin:2px 0 0;color:var(--muted);font-size:14px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+    input[type=text],input[type=time]{font:inherit;color:inherit;background:#0e1530;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+    button.primary{background:rgba(47,124,246,.25);border-color:rgba(47,124,246,.6)}
+    .saved{border:1px solid rgba(53,194,125,.45);background:rgba(53,194,125,.1);color:#c8f7dd;border-radius:12px;padding:10px 12px;margin-bottom:14px;font-weight:800}
+    audio{height:32px;vertical-align:middle}
+    .inline{display:inline}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body class="order-sheet">
+  <div class="top">
+    <strong>Νέες λειτουργίες κιοσκιού</strong>
+    <div class="nav">
+      <a class="pill" href="/dashboard">Dashboard</a>
+      <a class="pill" href="/admin/consumables/insights">Έξυπνη εικόνα</a>
+      <a class="pill primary" href="/admin/consumables/nextgen">Νέες λειτουργίες</a>
+    </div>
+  </div>
+  <main class="wrap">
+    {% if saved %}<div class="saved">Αποθηκεύτηκε.</div>{% endif %}
+    <p class="intro">Κάθε λειτουργία ανάβει ξεχωριστά και είναι κλειστή μέχρι να την ανάψεις εδώ. Κάμερα και μικρόφωνο εμφανίζονται στο κιόσκι μόνο όταν είναι συνδεδεμένα. Τίποτα δεν στέλνεται σε προμηθευτές.</p>
+
+    <section class="card" id="features">
+      <h2>Λειτουργίες</h2>
+      <form method="post" action="/admin/consumables/nextgen/flags">
+        {% for f in features %}
+        <label class="feat">
+          <input type="checkbox" name="{{ f.key }}" {% if f.on %}checked{% endif %} />
+          <span><b>{{ f.title }}</b> <span class="tag {{ 'ok' if f.on else 'muted' }}">{{ 'ΑΝΟΙΧΤΟ' if f.on else 'ΚΛΕΙΣΤΟ' }}</span><p>{{ f.help }}</p>
+          {% if f.key == 'nextgen_morning_report' %}<p>Ώρα αποστολής: <input type="time" name="report_time" value="{{ report_time }}" /></p>{% endif %}
+          {% if f.key == 'nextgen_voice_take' %}<p>Αναγνώριση φωνής στον διακομιστή: <span class="tag {{ 'ok' if stt else 'muted' }}">{{ 'ρυθμισμένη' if stt else 'δεν έχει ρυθμιστεί' }}</span></p>{% endif %}
+          {% if f.key == 'nextgen_auto_reorder' and not public_url %}<p>Το κουμπί «Έγκριση» θέλει τη δημόσια διεύθυνση (WAREHOUSE_PUBLIC_URL ή RAILWAY_PUBLIC_DOMAIN). Χωρίς αυτή, η έγκριση γίνεται από εδώ.</p>{% endif %}
+          </span>
+        </label>
+        {% endfor %}
+        <div class="row"><button type="submit" class="primary">Αποθήκευση</button></div>
+      </form>
+    </section>
+
+    <section class="card" id="hardware">
+      <h2>Υλικό κιοσκιού</h2>
+      <div class="grid">
+        <div class="stat"><small>Κάμερα (USB) για αναγνώριση</small>
+          <b>{% if hardware is none %}—{% elif hardware.camera %}<span class="tag ok">συνδεδεμένη</span>{% else %}<span class="tag soon">δεν υπάρχει</span>{% endif %}</b>
+          <small>{% if hardware %}τελευταίος έλεγχος {{ hardware.seen }}{% else %}Η σελίδα του κιοσκιού το αναφέρει όταν ανοίξει μια λειτουργία.{% endif %}</small>
+        </div>
+        <div class="stat"><small>Μικρόφωνο (USB) για φωνή</small>
+          <b>{% if hardware is none %}—{% elif hardware.mic %}<span class="tag ok">συνδεδεμένο</span>{% else %}<span class="tag soon">δεν υπάρχει</span>{% endif %}</b>
+          <small>{% if hardware %}αναγνώριση ομιλίας: {{ 'ναι' if hardware.speech else 'όχι' }}{% endif %}</small>
+        </div>
+        <div class="stat"><small>Φωτογραφίες ειδών για την κάμερα</small>
+          <b>{{ vision.with_photo }} / {{ vision.items }}</b>
+          <small>{{ vision.learned_frames }} φωτογραφίες από το κιόσκι (μαθαίνει από κάθε επιλογή)</small>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="voices">
+      <h2>Φωνή: πώς λέει τα ονόματα</h2>
+      <p class="note">Μετά το PIN το κιόσκι λέει «Καλημέρα, …!» με τη φωνή Αθηνά. Γράψε το όνομα όπως προφέρεται στα ελληνικά.</p>
+      {% if voices %}
+      <form method="post" action="/admin/consumables/nextgen/voices">
+        <table>
+          <thead><tr><th>Εργαζόμενος</th><th>Λέγεται</th><th>Χαιρετισμός</th><th>Άκου</th></tr></thead>
+          <tbody>
+          {% for v in voices %}
+            <tr>
+              <td>{{ v.display_name }}</td>
+              <td><input type="text" name="spoken_{{ v.id }}" value="{{ v.spoken }}" maxlength="80" /></td>
+              <td><input type="checkbox" name="greet_{{ v.id }}" {% if v.greet %}checked{% endif %} /></td>
+              <td><audio controls preload="none" src="/admin/consumables/nextgen/voice-preview?worker_id={{ v.id }}"></audio></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        <div class="row"><button type="submit" class="primary">Αποθήκευση ονομάτων</button></div>
+      </form>
+      {% else %}
+      <div class="empty">Κανένας εργαζόμενος με PIN.</div>
+      {% endif %}
+    </section>
+
+    <section class="card" id="drafts">
+      <h2>Παραγγελίες για έγκριση</h2>
+      <p class="note">Η «Έγκριση» μόνο σημειώνει την παραγγελία ως εγκεκριμένη και ετοιμάζει το κείμενο για αντιγραφή. Δεν στέλνεται τίποτα σε προμηθευτή.</p>
+      {% if drafts %}
+      {% for d in drafts %}
+      <div class="card" id="draft-{{ d.id }}">
+        <h3>{{ d.supplier_name }} <span class="tag {{ 'soon' if d.status == 'draft' else ('ok' if d.status == 'approved' else 'muted') }}">{{ d.status_label }}</span></h3>
+        <table><tbody>
+          {% for line in d.lines %}<tr><td>{{ line.name }}</td><td class="num">{{ line.packs }} συσκ. ({{ line.units_display }} {{ line.unit }})</td><td><span class="note">{{ line.reason }}</span></td></tr>{% endfor %}
+        </tbody></table>
+        <p class="note">Σύνολο: {{ d.total_label }}{% if d.approved_by %} · {{ d.approved_by }}{% endif %}</p>
+        {% if d.status == 'approved' %}
+        <pre class="message">{{ d.message }}</pre>
+        <div class="actions"><button type="button" class="copyBtn">Αντιγραφή</button></div>
+        {% elif d.status == 'draft' %}
+        <div class="actions">
+          <form class="inline" method="post" action="/admin/consumables/nextgen/drafts/{{ d.id }}/approve"><button type="submit" class="primary">✅ Έγκριση</button></form>
+          <form class="inline" method="post" action="/admin/consumables/nextgen/drafts/{{ d.id }}/dismiss"><button type="submit">Απόρριψη</button></form>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% else %}
+      <div class="empty">Δεν έχει γίνει ακόμα πρόταση παραγγελίας.</div>
+      {% endif %}
+    </section>
+
+    <section class="card" id="report">
+      <h2>Πρωινή αναφορά — προεπισκόπηση</h2>
+      <p class="note">Έτσι θα έρθει στο Telegram (με τα σημερινά στοιχεία). Η προεπισκόπηση δεν στέλνει τίποτα.</p>
+      <pre class="message">{{ preview }}</pre>
+    </section>
+  </main>
+  <script>
+    document.querySelectorAll('.copyBtn').forEach(function(button){
+      button.addEventListener('click', function(){
+        var pre = button.parentNode.previousElementSibling;
+        var text = pre ? pre.textContent : '';
+        var done = function(){ button.textContent = 'Αντιγράφηκε'; setTimeout(function(){ button.textContent = 'Αντιγραφή'; }, 1600); };
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(done, function(){ window.prompt('Αντιγραφή', text); });
+        } else {
+          window.prompt('Αντιγραφή', text);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
