@@ -54,13 +54,13 @@ def run_alert_pass(db: Session, *, send=None, today=None, reorder_send=None, now
     """One pass. Returns what was sent; does nothing when the flag is OFF."""
     try:
         from app.consumables_service import _admin_context_maps, _admin_row
-        from app.digest_service import _telegram_send_safe
+        from app.digest_service import telegram_send_consumables
         from app.lots import notify_expiring_lots
         from app.models import Consumable
         from app.supplier_alerts import athens_today, dispatch_supplier_alerts
     except ImportError:  # pragma: no cover
         from consumables_service import _admin_context_maps, _admin_row
-        from digest_service import _telegram_send_safe
+        from digest_service import telegram_send_consumables
         from lots import notify_expiring_lots
         from models import Consumable
         from supplier_alerts import athens_today, dispatch_supplier_alerts
@@ -78,7 +78,7 @@ def run_alert_pass(db: Session, *, send=None, today=None, reorder_send=None, now
         db.rollback()
     if not telegram_alerts_enabled(db):
         return {"enabled": False, "suppliers": [], "lots": 0, "anomalies": 0}
-    sender = _telegram_send_safe if send is None else send
+    sender = telegram_send_consumables if send is None else send
     day = today or athens_today()
     items = db.query(Consumable).filter(Consumable.is_active.is_(True)).all()
     stock_map, on_order_map, _listed, suppliers = _admin_context_maps(db)

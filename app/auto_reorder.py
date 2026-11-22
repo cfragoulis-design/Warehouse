@@ -114,8 +114,12 @@ def telegram_text(draft: ConsumableReorderDraft, *, with_button: bool) -> str:
 
 
 def telegram_send_markup(text: str, reply_markup: dict | None) -> bool:
+    try:
+        from app.digest_service import consumables_chat_id
+    except ImportError:  # pragma: no cover
+        from digest_service import consumables_chat_id
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    chat_id = consumables_chat_id()
     if not token or not chat_id:
         return False
     payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": "true"}

@@ -133,9 +133,9 @@ def build_morning_report(db: Session, *, now: datetime | None = None) -> str:
 def send_morning_report(db: Session, *, now: datetime | None = None, send=None) -> bool | None:
     """True = sent now, None = already sent today, False = send failed (will retry)."""
     try:
-        from app.digest_service import _telegram_send_safe
+        from app.digest_service import telegram_send_consumables
     except ImportError:  # pragma: no cover
-        from digest_service import _telegram_send_safe
+        from digest_service import telegram_send_consumables
     moment = now or datetime.now(timezone.utc)
     today = moment.astimezone(ATHENS).date()
     claim = KioskDailyReport(kind=KIND, report_day=today, created_at=moment, sent=False, body="")
@@ -147,7 +147,7 @@ def send_morning_report(db: Session, *, now: datetime | None = None, send=None) 
         return None
     try:
         body = build_morning_report(db, now=moment)
-        delivered = bool((send or _telegram_send_safe)(body))
+        delivered = bool((send or telegram_send_consumables)(body))
     except Exception:
         db.rollback()
         delivered = False

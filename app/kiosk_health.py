@@ -12,11 +12,11 @@ from sqlalchemy.orm import Session
 
 try:
     from app.db import get_db
-    from app.digest_service import _telegram_send_safe
+    from app import digest_service as _digest
     from app.models import KioskHeartbeat, KioskSilenceAlert
 except ImportError:
     from db import get_db
-    from digest_service import _telegram_send_safe
+    import digest_service as _digest
     from models import KioskHeartbeat, KioskSilenceAlert
 
 router = APIRouter()
@@ -97,7 +97,7 @@ def watch_silence(db: Session, *, now: datetime | None = None, send=None) -> boo
         last_alert = last_alert.replace(tzinfo=timezone.utc)
     if not should_alert(last_seen, last_alert, moment):
         return False
-    sender = _telegram_send_safe if send is None else send
+    sender = _digest.telegram_send_consumables if send is None else send
     if not sender("Το κιόσκι της αποθήκης δεν αποκρίνεται εδώ και 15 λεπτά."):
         return False
     db.add(KioskSilenceAlert(sent_at=moment))
