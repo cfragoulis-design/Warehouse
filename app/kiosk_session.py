@@ -16,7 +16,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from itsdangerous import BadSignature, URLSafeTimedSerializer
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy.orm import Session
 from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
@@ -40,16 +40,43 @@ WORKER_SESSION_COOKIE = "wh_worker"
 WORKER_SESSION_MAX_AGE_SECONDS = 60
 _DEVICE_SALT = "warehouse-kiosk-device-v1"
 _WORKER_SALT = "warehouse-worker-session-v1"
+_OFFLINE_SALT = "warehouse-offline-attribution-v1"
+# How long a take queued offline keeps its worker attribution. The token is
+# refreshed on every online action, so this is the longest outage it covers.
+OFFLINE_ATTRIBUTION_MAX_AGE_SECONDS = 4 * 60 * 60
 
 
-def fold_search(value: str) -> str:
-    """Case- and accent-insensitive key for Greek item search."""
+def _fold_accents(value: str) -> str:
     import unicodedata
 
     text = (value or "").casefold()
     text = unicodedata.normalize("NFD", text)
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     return text.replace("ς", "σ")
+
+
+_GREEKLISH = (
+    ("ou", "ου"), ("th", "θ"), ("ch", "χ"), ("ps", "ψ"),
+    ("a", "α"), ("b", "β"), ("g", "γ"), ("d", "δ"), ("e", "ε"),
+    ("z", "ζ"), ("h", "η"), ("i", "ι"), ("k", "κ"), ("l", "λ"),
+    ("m", "μ"), ("n", "ν"), ("x", "ξ"), ("o", "ο"), ("p", "π"),
+    ("r", "ρ"), ("s", "σ"), ("t", "τ"), ("y", "υ"), ("u", "υ"), ("f", "φ"), ("w", "ω"),
+)
+
+
+def greeklish_fold(value: str) -> str:
+    """Accent-folded text. Latin greeklish is turned into Greek letters."""
+    text = _fold_accents(value)
+    if not any("a" <= ch <= "z" for ch in text):
+        return text
+    for source, target in _GREEKLISH:
+        text = text.replace(source, target)
+    return _fold_accents(text)
+
+
+def fold_search(value: str) -> str:
+    """Case- and accent-insensitive key. Latin greeklish becomes Greek letters."""
+    return greeklish_fold(value)
 
 
 def _serializer(salt: str = _DEVICE_SALT) -> URLSafeTimedSerializer:
@@ -64,25 +91,50 @@ def _serializer(salt: str = _DEVICE_SALT) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(secret, salt=salt)
 
 
-def issue_kiosk_device_token(user_id: int) -> str:
-    return _serializer().dumps({"uid": int(user_id), "v": 1})
+def issue_kiosk_device_token(user_id: int, key_version: int = 1) -> str:
+    return _serializer().dumps({"uid": int(user_id), "v": 1, "k": int(key_version)})
 
 
-def issue_worker_session_token(worker_id: int, user_id: int, device_uid: int) -> str:
+def issue_worker_session_token(worker_id: int, user_id: int, device_uid: int, card: bool = False) -> str:
     """Signed proof that this kiosk user typed that worker's PIN.
 
     ``device_uid`` is the kiosk device cookie's user id, or 0 when that cookie
     is absent. A copy of the token used on another device or another login
-    does not resolve.
+    does not resolve. ``card`` records that the worker's own card was read
+    together with the PIN (needed for expensive takes).
     """
-    return _serializer(_WORKER_SALT).dumps(
-        {
-            "wid": int(worker_id),
-            "uid": int(user_id),
-            "dev": int(device_uid),
-            "v": 1,
-        }
-    )
+    payload = {"wid": int(worker_id), "uid": int(user_id), "dev": int(device_uid), "v": 1}
+    if card:
+        payload["c"] = 1
+    return _serializer(_WORKER_SALT).dumps(payload)
+
+
+def _worker_claims(data: object, *, user_id: int, device_uid: int) -> tuple[int, bool] | None:
+    if not isinstance(data, dict) or data.get("v") != 1:
+        return None
+    if data.get("uid") != int(user_id) or data.get("dev") != int(device_uid):
+        return None
+    worker_id = data.get("wid")
+    if isinstance(worker_id, bool) or not isinstance(worker_id, int) or worker_id <= 0:
+        return None
+    return worker_id, data.get("c") == 1
+
+
+def read_worker_session_claims(
+    token: str | None,
+    *,
+    user_id: int,
+    device_uid: int,
+    max_age: int = WORKER_SESSION_MAX_AGE_SECONDS,
+) -> tuple[int, bool] | None:
+    """``(worker_id, card_verified)`` for a valid token, else None."""
+    if not token:
+        return None
+    try:
+        data = _serializer(_WORKER_SALT).loads(token, max_age=max_age)
+    except BadSignature:
+        return None
+    return _worker_claims(data, user_id=user_id, device_uid=device_uid)
 
 
 def read_worker_session_token(
@@ -92,26 +144,61 @@ def read_worker_session_token(
     device_uid: int,
     max_age: int = WORKER_SESSION_MAX_AGE_SECONDS,
 ) -> int | None:
-    if not token:
-        return None
+    claims = read_worker_session_claims(token, user_id=user_id, device_uid=device_uid, max_age=max_age)
+    return None if claims is None else claims[0]
+
+
+def issue_offline_attribution_token(worker_id: int, user_id: int, device_uid: int, card: bool = False) -> str:
+    """Signed, short-lived worker attribution stored with a queued offline take.
+
+    Issued at PIN time (and refreshed on each online action), bound to the
+    kiosk login and device, so a replayed movement is attributed to the worker
+    who was signed in when it was queued and cannot be forged by the page.
+    """
+    payload = {"wid": int(worker_id), "uid": int(user_id), "dev": int(device_uid), "v": 1}
+    if card:
+        payload["c"] = 1
+    return _serializer(_OFFLINE_SALT).dumps(payload)
+
+
+@dataclass(frozen=True)
+class OfflineAttribution:
+    status: str  # "ok" | "expired" | "invalid"
+    worker_id: int | None = None
+    card: bool = False
+
+
+def read_offline_attribution_token(
+    token: str | None,
+    *,
+    user_id: int,
+    device_uid: int,
+    max_age: int = OFFLINE_ATTRIBUTION_MAX_AGE_SECONDS,
+) -> OfflineAttribution:
+    serializer = _serializer(_OFFLINE_SALT)
     try:
-        data = _serializer(_WORKER_SALT).loads(token, max_age=max_age)
+        data = serializer.loads(token or "", max_age=max_age)
+    except SignatureExpired as exc:
+        # The signature was valid; only the age is over. Still check the binding.
+        try:
+            data = serializer.load_payload(exc.payload)
+        except BadSignature:
+            return OfflineAttribution("invalid")
+        claims = _worker_claims(data, user_id=user_id, device_uid=device_uid)
+        return OfflineAttribution("invalid") if claims is None else OfflineAttribution("expired", claims[0], False)
     except BadSignature:
-        return None
-    if not isinstance(data, dict) or data.get("v") != 1:
-        return None
-    if data.get("uid") != int(user_id) or data.get("dev") != int(device_uid):
-        return None
-    worker_id = data.get("wid")
-    if isinstance(worker_id, bool) or not isinstance(worker_id, int) or worker_id <= 0:
-        return None
-    return worker_id
+        return OfflineAttribution("invalid")
+    claims = _worker_claims(data, user_id=user_id, device_uid=device_uid)
+    if claims is None:
+        return OfflineAttribution("invalid")
+    return OfflineAttribution("ok", claims[0], claims[1])
 
 
 def read_kiosk_device_uid(
     token: str | None,
     *,
     max_age: int = KIOSK_DEVICE_MAX_AGE_SECONDS,
+    key_version: int = 1,
 ) -> int | None:
     if not token:
         return None
@@ -124,7 +211,35 @@ def read_kiosk_device_uid(
     uid = data.get("uid")
     if isinstance(uid, bool) or not isinstance(uid, int) or uid <= 0:
         return None
+    if int(data.get("k") or 1) != int(key_version):
+        return None
     return uid
+
+
+def kiosk_key_version(db: Session) -> int:
+    try:
+        from app.models import AppFlag
+    except ImportError:
+        from models import AppFlag
+    flag = db.get(AppFlag, "kiosk_key_version")
+    if flag is None or not str(flag.note or "").isdigit():
+        return 1
+    return int(flag.note)
+
+
+def rotate_kiosk_key(db: Session) -> int:
+    try:
+        from app.models import AppFlag
+    except ImportError:
+        from models import AppFlag
+    flag = db.get(AppFlag, "kiosk_key_version")
+    version = (kiosk_key_version(db) + 1)
+    if flag is None:
+        db.add(AppFlag(key="kiosk_key_version", bool_value=True, note=str(version)))
+    else:
+        flag.note = str(version)
+    db.commit()
+    return version
 
 
 def kiosk_ui_enabled(request: Request, user: object) -> bool:
@@ -172,6 +287,7 @@ def decide_kiosk_session(
     kiosk_query: str | None,
     mode_cookie: str | None,
     device_token: str | None,
+    key_version: int = 1,
 ) -> KioskDecision:
     """Choose what to do with the kiosk cookies for this request.
 
@@ -183,7 +299,7 @@ def decide_kiosk_session(
         return KioskDecision("clear")
 
     mode_on = mode_cookie == "1"
-    token_uid = read_kiosk_device_uid(device_token)
+    token_uid = read_kiosk_device_uid(device_token, key_version=key_version)
     session_uid = session.get("uid")
     try:
         candidate = int(session_uid) if session_uid else token_uid
@@ -220,7 +336,7 @@ def _cookie_values(response: Response) -> list[str]:
     ]
 
 
-def kiosk_set_cookie_headers(user_id: int) -> list[str]:
+def kiosk_set_cookie_headers(user_id: int, key_version: int = 1) -> list[str]:
     response = Response()
     common = {
         "max_age": KIOSK_DEVICE_MAX_AGE_SECONDS,
@@ -232,7 +348,7 @@ def kiosk_set_cookie_headers(user_id: int) -> list[str]:
     response.set_cookie(KIOSK_MODE_COOKIE, "1", **common)
     response.set_cookie(
         KIOSK_DEVICE_COOKIE,
-        issue_kiosk_device_token(user_id),
+        issue_kiosk_device_token(user_id, key_version),
         **common,
     )
     return _cookie_values(response)
@@ -282,6 +398,7 @@ class KioskDeviceMiddleware:
         device_token = request.cookies.get(KIOSK_DEVICE_COOKIE)
         relevant = kiosk_query in {"0", "1"} or mode_cookie == "1" or bool(device_token)
         decision = KioskDecision("ignore")
+        key_version = 1
         if relevant:
             try:
                 from app.db import SessionLocal
@@ -290,12 +407,14 @@ class KioskDeviceMiddleware:
 
             db = SessionLocal()
             try:
+                key_version = kiosk_key_version(db)
                 decision = decide_kiosk_session(
                     db=db,
                     session=session,
                     kiosk_query=kiosk_query,
                     mode_cookie=mode_cookie,
                     device_token=device_token,
+                    key_version=key_version,
                 )
             except Exception:
                 logger.exception("kiosk session check failed")
@@ -317,7 +436,7 @@ class KioskDeviceMiddleware:
                         same_user = False
                 headers = MutableHeaders(scope=message)
                 if action == "refresh" and same_user:
-                    for header in kiosk_set_cookie_headers(decision.user_id or 0):
+                    for header in kiosk_set_cookie_headers(decision.user_id or 0, key_version):
                         headers.append("set-cookie", header)
                 elif action == "clear" or action == "refresh":
                     session.pop("kiosk_seen", None)

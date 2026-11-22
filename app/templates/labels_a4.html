@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <title>Ετικέτες Α4</title>
+  <style>
+    @page { size: A4 portrait; margin: 10mm }
+    :root{color-scheme:light}
+    html,body{background:#fff !important;color:#000 !important}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body{margin:0;font-family:system-ui,Arial,sans-serif}
+    .toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 12px;border-bottom:1px solid #ccc;background:#f4f4f5;font-size:14px}
+    .toolbar a{color:#1d4ed8}.toolbar a[aria-current]{font-weight:800;color:#000}
+    .toolbar form{display:flex;gap:8px;align-items:center;margin:0}
+    .toolbar button{font:inherit;padding:6px 12px;border-radius:8px;border:1px solid #888;background:#fff;color:#000;font-weight:700}
+    .toolbar .ok{color:#166534;font-weight:700}
+    .label,.label *{color:#000 !important}
+    .nocode{font-size:11px;font-style:italic;color:#555 !important;border:1px dashed #999;padding:2mm;text-align:center}
+    @media print{.noPrint{display:none !important}}
+    .sheet{display:grid;grid-template-columns:repeat(3,1fr);gap:6mm;padding:0}
+    @media screen{.sheet{width:190mm;margin:8mm auto;padding:0;background:#fff}}
+    .label{border:1px dashed #999;padding:3mm;break-inside:avoid;page-break-inside:avoid;background:#fff}
+    .name{font-size:15px;font-weight:800;line-height:1.15}
+    .cat{font-size:11px}
+    .code{font-size:11px;letter-spacing:.04em}
+    .label svg{display:block;width:100%;height:15mm}
+  </style>
+</head>
+<body>
+  {% include "_labels_toolbar.html" %}
+  <div class="sheet">
+    {% for label in labels %}
+    <div class="label">
+      <div class="cat">{{ label.category }}</div>
+      <div class="name">{{ label.name }}</div>
+      {% if label.svg %}{{ label.svg | safe }}<div class="code">{{ label.code }}</div>{% elif label.code %}<div class="code">{{ label.code }}</div>{% else %}<div class="nocode">χωρίς barcode</div>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

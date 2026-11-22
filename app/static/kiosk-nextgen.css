@@ -1,0 +1,25 @@
+/* Kiosk next-gen add-ons. Loaded only when an admin enabled a next-gen feature. */
+.ngDock{position:fixed;right:16px;bottom:16px;z-index:80;display:flex;gap:10px;align-items:flex-end}
+.ngDock[hidden],.ngBtn[hidden],.ngPanel[hidden],.ngPreview[hidden]{display:none!important}
+.ngBtn{min-height:64px;min-width:64px;padding:0 18px;border-radius:18px;border:1px solid rgba(47,124,246,.6);background:rgba(17,25,54,.97);color:#e7e9ee;font:800 20px/1 system-ui,-apple-system,Segoe UI,Arial,sans-serif;display:inline-flex;align-items:center;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);touch-action:manipulation;-webkit-user-select:none;user-select:none}
+.ngBtn:active{transform:scale(.97)}
+.ngBtn.live{border-color:#ef4444;background:rgba(239,68,68,.18)}
+.ngBtn .ngDot{width:12px;height:12px;border-radius:50%;background:#35c27d;display:inline-block}
+.ngPreview{width:160px;height:120px;border-radius:14px;border:1px solid #243055;object-fit:cover;background:#000;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.ngPanel{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:85;width:min(760px,calc(100% - 24px));max-height:calc(100vh - 120px);overflow:hidden;display:flex;flex-direction:column;border-radius:20px;border:1px solid #2f7cf6;background:rgba(14,21,48,.985);color:#e7e9ee;padding:16px;box-shadow:0 18px 40px rgba(0,0,0,.5);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif}
+.ngPanel h2{margin:0 0 4px;font-size:24px}
+.ngPanel .ngSub{color:#a7b0c7;font-size:18px;margin:0 0 12px}
+.ngList{display:grid;gap:10px;overflow:auto;min-height:0;flex:1 1 auto;overscroll-behavior:contain}
+.ngCand{display:grid;grid-template-columns:72px 1fr auto;gap:12px;align-items:center;border:1px solid #243055;border-radius:16px;padding:8px 10px;background:#111936}
+.ngCand.best{border-color:#35c27d;background:rgba(53,194,125,.10)}
+.ngCand img,.ngCand .ngFallback{width:72px;height:72px;border-radius:12px;object-fit:cover;background:#0b1020;display:flex;align-items:center;justify-content:center;font-weight:900;color:#a7b0c7}
+.ngCand b{display:block;font-size:20px}
+.ngCand small{color:#a7b0c7;font-size:16px}
+.ngActs{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.ngAct{min-height:56px;padding:0 16px;border-radius:14px;border:1px solid #243055;background:#162044;color:#e7e9ee;font:800 18px system-ui,-apple-system,Segoe UI,Arial,sans-serif}
+.ngAct.go{background:rgba(53,194,125,.18);border-color:rgba(53,194,125,.6)}
+.ngAct.add{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.6)}
+.ngFoot{display:flex;justify-content:space-between;gap:10px;margin-top:12px;flex-wrap:wrap;flex:0 0 auto}
+body.ngHasDock{padding-bottom:88px}
+.ngHeard{font-size:22px;font-weight:800;margin:0 0 10px}
+.ngWave{height:10px;border-radius:6px;background:linear-gradient(90deg,#2f7cf6 var(--lvl,0%),#243055 var(--lvl,0%));margin:8px 0 4px}

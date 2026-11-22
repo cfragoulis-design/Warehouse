@@ -25,6 +25,19 @@ def initials(name: str) -> str:
     return (parts[0][0] + parts[1][0]).upper()
 
 
+def card_webp(raw: bytes) -> bytes:
+    """Small WebP for a kiosk card. Falls back to the stored bytes if encode fails."""
+    try:
+        image = Image.open(BytesIO(raw))
+        image = ImageOps.exif_transpose(image).convert("RGB")
+        image.thumbnail((160, 160))
+        out = BytesIO()
+        image.save(out, format="WEBP", quality=60, method=0)
+        return out.getvalue()
+    except Exception:
+        return raw
+
+
 def jpeg_thumbnail(raw: bytes) -> bytes:
     if not raw:
         raise ValueError("empty image")

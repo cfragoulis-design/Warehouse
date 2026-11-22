@@ -33,6 +33,29 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
     # Requiring it here prevents a partially migrated release from reporting ready
     # while every local sign-in would fail at query time.
     "users": frozenset({"id", "username", "role", "pin_hash", "is_active"}),
+    # Every PIN sign-in reads and writes the persistent throttle (migration
+    # 20261121_020); without it the release would be "ready" but no one could
+    # sign in.
+    "auth_login_events": frozenset({"id", "account", "source", "succeeded", "created_at"}),
+    # Smart kiosk (migration 20261121_021): the dashboard kiosk box selects the
+    # new heartbeat columns and every take's alert pass reads the anomaly table.
+    "kiosk_heartbeats": frozenset(
+        {"id", "seen_at", "page_ok", "kiosk_version", "uptime_s", "wifi_signal", "page_alive_s", "watchdog_reloads"}
+    ),
+    "consumable_anomalies": frozenset({"id", "kind", "dedup_key", "created_at", "notified_at", "acknowledged_at"}),
+    "kiosk_page_status": frozenset({"device_key", "last_seen_at", "queue_len", "online", "page_version"}),
+    # Kiosk next-gen (migration 20261122_022): the take page and every PIN
+    # session read the feature switches and may write kiosk_events; the alert
+    # pass may read reorder drafts.
+    "kiosk_events": frozenset({"id", "kind", "worker_id", "detail", "created_at"}),
+    "consumable_reorder_drafts": frozenset({"id", "supplier_name", "signature", "status", "notified_day"}),
+    "kiosk_daily_reports": frozenset({"kind", "report_day", "sent"}),
+    "forecast_settings": frozenset({"key", "value"}),
+    "consumable_forecast_params": frozenset({"scope", "ref_id", "lead_time_days", "safety_days"}),
+    "telegram_ask_log": frozenset({"update_id", "chat_id", "allowed", "intent", "created_at"}),
+    "consumable_visual_refs": frozenset({"id", "consumable_id", "source", "features"}),
+    "kiosk_worker_voice": frozenset({"worker_id", "spoken_name", "greet"}),
+    "kiosk_voice_clips": frozenset({"clip_key", "voice", "audio"}),
     "products": frozenset(
         {
             "id",

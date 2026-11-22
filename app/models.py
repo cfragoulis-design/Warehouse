@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     String,
     Integer,
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     Uuid,
     CheckConstraint,
     UniqueConstraint,
+    Index,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -618,6 +620,17 @@ class Consumable(Base):
     image_content_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
+class ConsumableCategoryImage(Base):
+    """Photo that belongs to a category name, not to one item."""
+
+    __tablename__ = "consumable_category_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category_name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    image_bytes: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True, nullable=True)
+    image_content_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
 class ConsumableStock(Base):
     __tablename__ = "consumable_stock"
     __table_args__ = (
@@ -704,6 +717,280 @@ class ConsumableMovement(Base):
     )
     pin_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    client_key: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), unique=True, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class ConsumableAlertLog(Base):
+    """One Telegram alert per supplier per UTC day."""
+
+    __tablename__ = "consumable_alert_log"
+    __table_args__ = (
+        UniqueConstraint("supplier_id", "alert_date", name="uq_consumable_alert_supplier_day"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey("suppliers.id"), nullable=False)
+    alert_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+
+class ConsumableSupplierCode(Base):
+    """Remember which supplier item code maps to a consumable."""
+
+    __tablename__ = "consumable_supplier_codes"
+    __table_args__ = (
+        UniqueConstraint("supplier_id", "supplier_code", name="uq_supplier_item_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey("suppliers.id"), nullable=False)
+    supplier_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=False)
+
+
+class ConsumableReceiptDraft(Base):
+    __tablename__ = "consumable_receipt_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(Integer, ForeignKey("suppliers.id"), nullable=False)
+    invoice_number: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    mark: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
+
+
+class ConsumableReceiptLine(Base):
+    __tablename__ = "consumable_receipt_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    draft_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumable_receipt_drafts.id", ondelete="CASCADE"), nullable=False)
+    supplier_code: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    description: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
+    consumable_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("consumables.id"), nullable=True)
+
+
+class AuthLoginEvent(Base):
+    """One PIN check for an account from one source (kiosk device or client IP)."""
+
+    __tablename__ = "auth_login_events"
+    __table_args__ = (
+        Index("ix_auth_login_events_account_source", "account", "source", "created_at"),
+        Index("ix_auth_login_events_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account: Mapped[str] = mapped_column(String(120), nullable=False)
+    source: Mapped[str] = mapped_column(String(160), nullable=False)
+    succeeded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class KioskHeartbeat(Base):
+    __tablename__ = "kiosk_heartbeats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    mem_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    disk_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    temp_c: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    kiosk_version: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    uptime_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wifi_signal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_alive_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    watchdog_reloads: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class KioskPageStatus(Base):
+    """Last ping from the kiosk page itself: offline queue length and page build."""
+
+    __tablename__ = "kiosk_page_status"
+
+    device_key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    queue_len: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    online: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    page_version: Mapped[str] = mapped_column(String(60), nullable=False, default="")
+    user_agent: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+
+
+class ConsumableAnomaly(Base):
+    """An unusual movement pattern (large take, repeated undo), deduplicated by key."""
+
+    __tablename__ = "consumable_anomalies"
+    __table_args__ = (
+        Index("ux_consumable_anomalies_dedup", "dedup_key", unique=True),
+        Index("ix_consumable_anomalies_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    dedup_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    consumable_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("consumables.id", ondelete="SET NULL"), nullable=True)
+    worker_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    movement_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    qty: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    baseline: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    occurrences: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    detail: Mapped[str] = mapped_column(String(400), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_by_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class ConsumableVisualRef(Base):
+    """Image features of one product photo (catalog image or a confirmed kiosk frame)."""
+
+    __tablename__ = "consumable_visual_refs"
+    __table_args__ = (Index("ix_consumable_visual_refs_item", "consumable_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id", ondelete="CASCADE"), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="catalog")
+    image_sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    features: Mapped[str] = mapped_column(Text, nullable=False)
+    worker_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class KioskWorkerVoice(Base):
+    """How the kiosk says a worker's name (Greek spelling for the voice)."""
+
+    __tablename__ = "kiosk_worker_voice"
+
+    worker_id: Mapped[int] = mapped_column(Integer, ForeignKey("workers.id", ondelete="CASCADE"), primary_key=True)
+    spoken_name: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    greet: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class KioskVoiceClip(Base):
+    """Cached synthesized speech (one row per voice + text)."""
+
+    __tablename__ = "kiosk_voice_clips"
+
+    clip_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    voice: Mapped[str] = mapped_column(String(60), nullable=False)
+    spoken_text: Mapped[str] = mapped_column(String(300), nullable=False)
+    audio: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(40), nullable=False, default="audio/mpeg")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class KioskEvent(Base):
+    """Kiosk interaction that is not a stock movement (e.g. a PIN session start)."""
+
+    __tablename__ = "kiosk_events"
+    __table_args__ = (Index("ix_kiosk_events_created", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    worker_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    consumable_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("consumables.id", ondelete="SET NULL"), nullable=True)
+    detail: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ConsumableReorderDraft(Base):
+    """A per-supplier order draft offered on Telegram. Approval never sends anything."""
+
+    __tablename__ = "consumable_reorder_drafts"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'approved', 'dismissed', 'superseded')",
+            name="ck_consumable_reorder_drafts_status",
+        ),
+        Index("ix_consumable_reorder_drafts_supplier", "supplier_name", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True)
+    supplier_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    lines_json: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    total_label: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notified_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+
+class KioskDailyReport(Base):
+    """One row per (kind, Athens day): claims the morning report so it goes out once."""
+
+    __tablename__ = "kiosk_daily_reports"
+
+    kind: Mapped[str] = mapped_column(String(30), primary_key=True)
+    report_day: Mapped[date] = mapped_column(Date, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ForecastSetting(Base):
+    """Forecast defaults and seasonal multipliers (key -> JSON/text value)."""
+
+    __tablename__ = "forecast_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ConsumableForecastParam(Base):
+    """Lead time / safety stock override for one supplier or one item (NULL = inherit)."""
+
+    __tablename__ = "consumable_forecast_params"
+    __table_args__ = (UniqueConstraint("scope", "ref_id", name="ux_consumable_forecast_params_scope"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope: Mapped[str] = mapped_column(String(10), nullable=False)
+    ref_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    lead_time_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    safety_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class TelegramAskLog(Base):
+    """Telegram questions: update-id dedup, per-chat rate limit, audit (read-only answers)."""
+
+    __tablename__ = "telegram_ask_log"
+    __table_args__ = (
+        Index("ux_telegram_ask_log_update", "update_id", unique=True),
+        Index("ix_telegram_ask_log_chat_time", "chat_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    update_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    chat_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    intent: Mapped[str] = mapped_column(String(30), nullable=False, default="")
+    question: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class KioskSilenceAlert(Base):
+    __tablename__ = "kiosk_silence_alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ConsumableLot(Base):
+    __tablename__ = "consumable_lots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    consumable_id: Mapped[int] = mapped_column(Integer, ForeignKey("consumables.id"), index=True, nullable=False)
+    lot_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    qty_remaining: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"))
+    alerted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class PurchaseOrder(Base):

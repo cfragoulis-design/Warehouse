@@ -55,8 +55,19 @@
     </section>
     <div class="sectionHead"><div><h2>Βάρδια σε αριθμούς</h2><p>Ελαφριά σύνοψη από τα ήδη διαθέσιμα δεδομένα.</p></div></div>
     <section class="summaryGrid"><div class="summary"><b>{{ stats.products_count if stats is defined else "—" }}</b><span>ενεργά προϊόντα</span></div><div class="summary"><b>{{ stats.movements_today if stats is defined else "—" }}</b><span>κινήσεις σήμερα</span></div><div class="summary"><b>{{ attention }}</b><span>συνολικά θέματα προσοχής</span></div></section>
+    <div class="summary" style="margin-top:20px">
+      <div style="font-weight:900;font-size:16px">Κιόσκι αποθήκης</div>
+      {% if kiosk_status is defined and kiosk_status.seen_at %}
+      <div style="color:var(--muted);font-size:13px;margin-top:6px">Τελευταίο σήμα {{ kiosk_status.seen_at }} · μνήμη {{ kiosk_status.mem_mb or '—' }} MB · δίσκος {{ kiosk_status.disk_pct or '—' }}% · {{ 'OK' if kiosk_status.ok else 'ΠΡΟΒΛΗΜΑ' }}</div>
+      {% else %}
+      <div style="color:var(--muted);font-size:13px;margin-top:6px">Δεν έχει έρθει σήμα ακόμα.</div>
+      {% endif %}
+    </div>
     <details class="toolbox"><summary>Περισσότερα εργαλεία <span>Κατάλογος, προμηθευτές, παραγγελίες και τεχνική κατάσταση</span></summary><div class="tools">
       <a class="tool" href="/products">Προϊόντα<small>Κατάλογος και στοιχεία ειδών</small></a><a class="tool" href="/categories">Κατηγορίες<small>Ταξινόμηση και ενεργές ομάδες</small></a><a class="tool" href="/suppliers">Προμηθευτές<small>Στοιχεία συνεργατών</small></a><a class="tool" href="/purchase-orders">Παραγγελίες αναλώσιμων<small>Πρόχειρες, εκκρεμείς και παραληφθείσες</small></a><a class="tool" href="/consumables/movements">Ιστορικό αναλώσιμων<small>Ποιος πήρε ή πρόσθεσε τι</small></a><a class="tool" href="/movements">Ιστορικό κινήσεων<small>Αναζήτηση και φίλτρα</small></a><a class="tool" href="/ready">Ετοιμότητα συστήματος<small>Έλεγχος σύνδεσης και βάσης δεδομένων</small></a><a class="tool" href="/health">Λειτουργία υπηρεσίας<small>Γρήγορος τεχνικός έλεγχος</small></a>
+    <a class="tool" href="/admin/consumables/settings">Ρυθμίσεις αποθήκης<small>Telegram · ώρα και μέρες πρωινής καταμέτρησης</small></a>
+    <a class="tool" href="/admin/consumables/receipts">Πρόχειρες παραλαβές<small>XML τιμολογίου · χειροκίνητη καταχώριση · έγκριση</small></a>
+    <a class="tool" href="/admin/consumables/insights">Έξυπνη εικόνα αποθήκης<small>Τι τελειώνει · πρόταση παραγγελίας · ασυνήθιστες κινήσεις · υγεία κιοσκιού</small></a>
     </div></details>
     {% if user.role == "admin" %}<section class="adminBox"><h2>Μήνυμα στο Εργαστήριο</h2><p>Παραμένει στην οθόνη του Εργαστηρίου μέχρι να επιβεβαιωθεί.</p><form method="post" action="/admin/workshop-message"><input name="title" placeholder="Τίτλος (προαιρετικός)" /><textarea name="body" required rows="2" placeholder="Γράψε τη σαφή οδηγία..."></textarea><button class="btn" type="submit">Αποστολή</button></form></section>{% endif %}
   </main>

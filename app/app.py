@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import FileResponse
 
 try:
     from app.runtime_config import load_runtime_settings, resolve_session_secret
@@ -40,6 +41,16 @@ if not runtime_settings.operations_source_mode:
         from app.one_sso import router as one_sso_router
         from app.production_report_service import router as production_report_router
         from app.consumables_report import router as consumables_report_router
+        from app.supplier_alerts import router as supplier_alerts_router
+        from app.receipt_drafts import router as receipt_drafts_router
+        from app.kiosk_health import router as kiosk_health_router
+        from app.mini_count import router as mini_count_router
+        from app.smart_routes import router as smart_router
+        from app.nextgen_routes import router as nextgen_router
+        from app.forecast_routes import router as forecast_router
+        from app.telegram_ask import router as telegram_ask_router
+        from app.accountability import router as accountability_router
+        from app.shelf_labels import router as shelf_labels_router
         from app.seed import seed_categories, seed_locations
         from app.services import router as services_router
         from app.workshop_message_service import router as workshop_message_router
@@ -55,6 +66,16 @@ if not runtime_settings.operations_source_mode:
         from one_sso import router as one_sso_router
         from production_report_service import router as production_report_router
         from consumables_report import router as consumables_report_router
+        from supplier_alerts import router as supplier_alerts_router
+        from receipt_drafts import router as receipt_drafts_router
+        from kiosk_health import router as kiosk_health_router
+        from mini_count import router as mini_count_router
+        from smart_routes import router as smart_router
+        from nextgen_routes import router as nextgen_router
+        from forecast_routes import router as forecast_router
+        from telegram_ask import router as telegram_ask_router
+        from accountability import router as accountability_router
+        from shelf_labels import router as shelf_labels_router
         from seed import seed_categories, seed_locations
         from services import router as services_router
         from workshop_message_service import router as workshop_message_router
@@ -87,8 +108,15 @@ async def add_security_headers(request: Request, call_next):
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'"
     )
+    # Camera/microphone stay blocked everywhere. Only the kiosk take page may ask
+    # for them, and only when an admin switched on a next-gen feature that needs
+    # them (the page marks its response with X-Kiosk-Media; the marker is removed).
+    kiosk_media = response.headers.get("X-Kiosk-Media") == "1" and request.url.path == "/consumables/take"
+    if "X-Kiosk-Media" in response.headers:
+        del response.headers["X-Kiosk-Media"]
     response.headers["Permissions-Policy"] = (
-        "camera=(), geolocation=(), microphone=()"
+        "camera=(self), geolocation=(), microphone=(self)" if kiosk_media
+        else "camera=(), geolocation=(), microphone=()"
     )
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -170,12 +198,16 @@ if not runtime_settings.operations_source_mode:
     assert session_secret is not None
     try:
         from app.kiosk_session import KioskDeviceMiddleware, SESSION_MAX_AGE_SECONDS
+        from app.request_security import AdminStepUpMiddleware
     except ImportError:
         from kiosk_session import KioskDeviceMiddleware, SESSION_MAX_AGE_SECONDS
+        from request_security import AdminStepUpMiddleware
 
     # Added first so SessionMiddleware stays outermost and loads the session
     # before the kiosk check. max_age stays the 14-day Starlette default for
     # every role; only a warehouse kiosk gets the separate device cookie.
+    # The existing HTTP middleware already sends the production CSP.
+    app.add_middleware(AdminStepUpMiddleware)
     app.add_middleware(KioskDeviceMiddleware)
     app.add_middleware(
         SessionMiddleware,
@@ -204,6 +236,16 @@ if not runtime_settings.operations_source_mode:
     app.include_router(digest_router)
     app.include_router(production_report_router)
     app.include_router(consumables_report_router)
+    app.include_router(supplier_alerts_router)
+    app.include_router(receipt_drafts_router)
+    app.include_router(kiosk_health_router)
+    app.include_router(mini_count_router)
+    app.include_router(smart_router)
+    app.include_router(nextgen_router)
+    app.include_router(forecast_router)
+    app.include_router(telegram_ask_router)
+    app.include_router(accountability_router)
+    app.include_router(shelf_labels_router)
 app.include_router(operations_summary_router)
 
 
@@ -227,3 +269,11 @@ def ready():
         status_code=200 if status.ready else 503,
         content=status.as_dict(),
     )
+
+
+@app.get("/sw.js")
+def service_worker():
+    path = BASE_DIR / "static" / "sw.js"
+    if not path.exists():
+        path = BASE_DIR / "app" / "static" / "sw.js"
+    return FileResponse(path, media_type="application/javascript", headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})

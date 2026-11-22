@@ -81,8 +81,8 @@ def test_upload_serves_jpeg_and_clear_removes_it() -> None:
         assert item.image_bytes[:2] == b"\xff\xd8"
 
         response = consumable_image(item.id, db, admin)
-        assert response.media_type == "image/jpeg"
-        assert response.body[:2] == b"\xff\xd8"
+        assert response.media_type == "image/webp"
+        assert response.body[:4] == b"RIFF"
 
         consumable_image_clear(item.id, db, admin)
         db.refresh(item)

@@ -55,9 +55,10 @@
     .stock{font-size:32px;font-weight:900;line-height:1}
     .badge{display:inline-flex;align-items:center;border-radius:999px;padding:6px 10px;border:1px solid var(--line);font-size:18px;font-weight:800;color:var(--muted)}
     .badge.low{color:#ffd6d6;border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.10)}
+    .pickTag{color:#fde68a;font-weight:800}
     .badge.ok{color:#c8f7dd;border-color:rgba(53,194,125,.45);background:rgba(53,194,125,.10)}
     .takeform{display:grid;gap:8px}
-    .qtyline{display:grid;grid-template-columns:72px minmax(0,1fr) 72px 72px;gap:8px;align-items:stretch}
+    .qtyline{display:grid;grid-template-columns:64px minmax(0,1fr) 64px 64px minmax(72px,.8fr);gap:8px;align-items:stretch}
     .qtyline input{min-width:0;font-size:28px;font-weight:900;text-align:center;border-radius:14px;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:0;min-height:64px;height:64px;pointer-events:none;caret-color:transparent}
     .smallbtn,.stockBtn{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.04);color:var(--text);font-weight:900;min-height:64px;min-width:64px;padding:8px;cursor:pointer;font-size:22px}
     .smallbtn:active,.stockBtn:active,.pill:active,.toggle:active{transform:scale(0.98)}
@@ -92,6 +93,8 @@
       .cards{grid-template-columns:repeat(3,minmax(0,1fr))}
     }
     .ajaxToast{position:fixed;left:16px;right:16px;bottom:16px;z-index:99;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:12px 14px;border-radius:16px;border:1px solid rgba(16,185,129,.55);background:rgba(15,23,42,.98);box-shadow:0 10px 30px rgba(0,0,0,.35);color:#a7f3d0;font-weight:900;font-size:20px;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .18s ease,transform .18s ease}
+    .offlineBanner{position:sticky;top:0;z-index:40;background:#7c2d12;color:#ffedd5;font-weight:800;font-size:18px;padding:10px 14px;text-align:center}
+    .offlineBanner[hidden]{display:none !important}
     .ajaxToast.show{opacity:1;pointer-events:auto;transform:none}
     .ajaxToast.err{border-color:rgba(239,68,68,.55);color:#ffd3d3}
     .undoBtn{min-height:56px;min-width:140px;padding:8px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.08);color:#fff;font-size:18px;font-weight:900}
@@ -129,6 +132,31 @@
     .homeLow{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 8px;background:rgba(239,68,68,.16);border:1px solid rgba(245,158,11,.75);color:#fecdd3;font-size:15px;font-weight:900}
     .homeLow[hidden]{display:none !important}
     .homeAll{border-style:dashed}
+    .countTile{border-color:rgba(245,158,11,.75)}
+    .countTile .homePhoto.fallback{background:rgba(245,158,11,.18);color:#fde68a}
+    .countOverlay{align-items:flex-start;overflow-y:auto}
+    .countCard{gap:12px}
+    .countRow{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:16px;background:#0e1530}
+    .countRow.done{opacity:.6}
+    .countHead{display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap;font-size:22px}
+    .countSys{color:var(--muted);font-size:17px;font-weight:700}
+    .countSteps{display:flex;gap:16px;flex-wrap:wrap}
+    .countStep{display:flex;align-items:center;gap:8px}
+    .countLabel{display:flex;flex-direction:column;font-size:17px;font-weight:800;min-width:104px}
+    .countLabel small{color:var(--muted);font-weight:700}
+    .countBtn{min-width:64px;min-height:64px;border-radius:14px;border:1px solid var(--line);background:#162044;color:var(--text);font-size:30px;font-weight:900}
+    .countInput{width:84px;min-height:60px;text-align:center;border-radius:12px;border:1px solid var(--line);background:#0b1020;color:var(--text);font-size:26px;font-weight:900}
+    .countFoot{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .countTotal{font-size:20px;font-weight:800;margin-right:auto}
+    .countFoot select{min-height:56px;border-radius:12px;font-size:18px;padding:0 10px}
+    .countSave,.lotSave{min-height:60px;padding:0 20px;border-radius:14px;border:0;background:#2563eb;color:#fff;font-size:20px;font-weight:900}
+    .countSave.confirm{background:#d97706}
+    .countMsg:empty{display:none}
+    .lotCard{width:min(560px,100%)}
+    .lotItem{margin:0;text-align:center;font-size:22px;font-weight:800}
+    .lotField{display:grid;gap:6px;font-size:18px;font-weight:800}
+    .lotField input{min-height:60px;border-radius:14px;border:1px solid var(--line);background:#0b1020;color:var(--text);font-size:24px;padding:0 12px}
+    .lotRow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .kioskBack{display:flex;align-items:center;gap:10px;margin:0 0 10px}
     .kioskBack[hidden]{display:none !important}
     .backBtn{flex:0 0 auto;min-height:64px;padding:0 16px;border-radius:16px;border:1px solid var(--line);background:#162044;color:var(--text);font-size:20px;font-weight:900}
@@ -161,7 +189,10 @@
   </style>
   <link rel="stylesheet" href="/static/sr-theme.css" />
 </head>
-<body class="take-screen{% if kiosk %} kiosk{% endif %}{% if kiosk and not kiosk_cat %} kiosk-home{% endif %}" {% if kiosk %}data-kiosk="1"{% endif %}>
+<body class="take-screen{% if kiosk %} kiosk{% endif %}{% if kiosk and not kiosk_cat %} kiosk-home{% endif %}" {% if kiosk %}data-kiosk="1"{% endif %} data-high-value="{{ high_value }}">
+  {% if kiosk %}
+  <div id="offlineBanner" class="offlineBanner" hidden>Εκτός σύνδεσης – <span id="offlineCount">0</span> κινήσεις σε αναμονή</div>
+  {% endif %}
   <div class="top">
     <div class="toprow">
       <div>
@@ -247,7 +278,9 @@
     <section id="kioskHome" class="kioskHome" aria-label="Κατηγορίες" {% if kiosk_cat %}hidden{% endif %}>
       {% for cat in categories %}
       <button type="button" class="homeCard" data-cat="{{ cat.key }}">
-        {% if cat.image_id %}
+        {% if cat.category_image_id %}
+        <img class="homePhoto" src="/consumables/category-image/{{ cat.category_image_id }}" alt="" />
+        {% elif cat.image_id %}
         <img class="homePhoto" src="/consumables/{{ cat.image_id }}/image" alt="" />
         {% else %}
         <span class="homePhoto fallback">{{ cat.initials }}</span>
@@ -267,6 +300,15 @@
           <span class="homeLow"{% if not low_count %} hidden{% endif %}><b class="lowNum">{{ low_count }}</b> χαμηλά</span>
         </span>
       </button>
+      {% if count_items %}
+      <button type="button" class="homeCard countTile" id="openCount">
+        <span class="homePhoto fallback">ΚΜ</span>
+        <span class="homeText">
+          <span class="homeName">Πρωινή καταμέτρηση</span>
+          <span class="homeMeta">{{ count_items|length }} είδη</span>
+        </span>
+      </button>
+      {% endif %}
     </section>
     {% endif %}
 
@@ -275,7 +317,7 @@
     {% else %}
     <section class="cards" id="cards">
       {% for r in rows %}
-      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}"{% if r.days_left is not none %} data-days="{{ r.days_left }}"{% endif %}{% if r.barcode %} data-barcode="{{ r.barcode }}"{% endif %}>
+      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}" data-unit-cost="{{ r.unit_cost }}"{% if r.days_left is not none %} data-days="{{ r.days_left }}"{% endif %}{% if r.barcode %} data-barcode="{{ r.barcode }}"{% endif %}{% if r.tracks_lots %} data-lots="1"{% endif %}>
         <div class="itemHead">
           {% if r.has_image %}
           <img class="thumb" src="/consumables/{{ r.id }}/image" alt="" loading="lazy" decoding="async" />
@@ -283,9 +325,10 @@
           <span class="thumb fallback">{{ r.initials }}</span>
           {% endif %}
           <div>
-            <div class="catLabel">{{ r.category }}</div>
+            <div class="catLabel">{{ r.category }}<span class="pickTag" hidden> · ★ συχνό σου</span></div>
             <h3>{{ r.name }}</h3>
             <div class="meta">συσκευασία {{ r.pack_display }} {{ r.unit }}</div>
+        {% if r.fifo_hint %}<div class="meta">{{ r.fifo_hint }}</div>{% endif %}
           </div>
         </div>
         <div class="stockrow">
@@ -298,6 +341,7 @@
             <input class="qty" name="qty_display" type="text" inputmode="none" readonly tabindex="-1" value="1" aria-label="Ποσότητα" />
             <button class="smallbtn" type="button" data-add="1" aria-label="Συν 1">+1</button>
             <button class="smallbtn" type="button" data-add="5" aria-label="Συν 5">+5</button>
+            <button class="smallbtn" type="button" data-add="pack" data-pack="{{ r.pack_display }}" aria-label="Πακέτο">πακέτο</button>
           </div>
           <input type="hidden" class="deltaField" name="delta" value="0" />
           <div class="actionRow">
@@ -361,7 +405,7 @@
         <h2 id="whoTitle">Ποιος είσαι;</h2>
         <div class="whoGrid">
           {% for w in workers %}
-          <button type="button" class="whoBtn" data-worker="{{ w.id }}" data-has-pin="{{ 1 if w.has_pin else 0 }}"{% if w.card_uid %} data-card="{{ w.card_uid }}"{% endif %}>{{ w.display_name }}<small>{{ w.location }}</small></button>
+          <button type="button" class="whoBtn" data-worker="{{ w.id }}" data-has-pin="{{ 1 if w.has_pin else 0 }}">{{ w.display_name }}<small>{{ w.location }}</small></button>
           {% endfor %}
         </div>
         <button type="button" class="whoCancel" id="whoCancel">Άκυρο</button>
@@ -389,7 +433,70 @@
     </div>
   </div>
 
+  <div id="lotOverlay" class="whoOverlay" hidden>
+    <form class="whoCard lotCard" id="lotForm" role="dialog" aria-modal="true" aria-labelledby="lotTitle" novalidate>
+      <h2 id="lotTitle">Παρτίδα και λήξη</h2>
+      <p id="lotItem" class="lotItem"></p>
+      <label class="lotField">Παρτίδα<input id="lotCode" maxlength="80" autocomplete="off" placeholder="σκανάρισε ή γράψε" /></label>
+      <label class="lotField">Λήξη<input id="lotExpiry" type="date" /></label>
+      <p id="lotMessage" class="pinMessage"></p>
+      <button type="submit" class="lotSave">Καταχώριση</button>
+      <div class="lotRow">
+        <button type="button" class="whoCancel" id="lotSkip">Χωρίς παρτίδα</button>
+        <button type="button" class="whoCancel" id="lotCancel">Άκυρο</button>
+      </div>
+    </form>
+  </div>
+
+  {% if kiosk and count_items %}
+  <div id="countOverlay" class="whoOverlay countOverlay" hidden>
+    <div class="whoCard countCard">
+      <h2>Πρωινή καταμέτρηση</h2>
+      {% for item in count_items %}
+      <form method="post" action="/consumables/{{ item.id }}/count" class="countRow" data-pack="{{ item.pack_size }}">
+        <div class="countHead">
+          <strong>{{ item.name }}</strong>
+          <span class="countSys">σύστημα {{ item.on_hand_display }} {{ item.unit }}{% if item.pack_size > 1 %} · {{ item.system_packs }} συσκ. + {{ item.system_loose | int if item.system_loose == item.system_loose|int else item.system_loose }}{% endif %}</span>
+        </div>
+        <div class="countSteps">
+          {% if item.pack_size > 1 %}
+          <div class="countStep">
+            <span class="countLabel">Συσκευασίες<small>×{{ item.pack_size | int if item.pack_size == item.pack_size|int else item.pack_size }}</small></span>
+            <button type="button" class="countBtn" data-field="packs" data-dir="-1" aria-label="Μία συσκευασία λιγότερη">−</button>
+            <input class="countInput" name="packs" value="0" inputmode="numeric" aria-label="Συσκευασίες {{ item.name }}" />
+            <button type="button" class="countBtn" data-field="packs" data-dir="1" aria-label="Μία συσκευασία περισσότερη">+</button>
+          </div>
+          {% endif %}
+          <div class="countStep">
+            <span class="countLabel">{% if item.pack_size > 1 %}Χύμα{% else %}Ποσότητα{% endif %}<small>{{ item.unit }}</small></span>
+            <button type="button" class="countBtn" data-field="units" data-dir="-1" aria-label="Ένα λιγότερο">−</button>
+            <input class="countInput" name="units" value="0" inputmode="numeric" aria-label="Μέτρηση {{ item.name }}" />
+            <button type="button" class="countBtn" data-field="units" data-dir="1" aria-label="Ένα περισσότερο">+</button>
+          </div>
+        </div>
+        <div class="countFoot">
+          <span class="countTotal">Σύνολο <b class="countSum">0</b> {{ item.unit }}</span>
+          <select name="reason" aria-label="Αιτία {{ item.name }}">
+            <option>φύρα</option>
+            <option>λάθος</option>
+            <option>χωρίς καταγραφή</option>
+          </select>
+          <input type="hidden" name="confirm" value="" />
+          <button type="submit" class="countSave">Καταχώριση</button>
+        </div>
+        <p class="countMsg pinMessage" role="status"></p>
+      </form>
+      {% endfor %}
+      <form method="post" action="/consumables/count/done">
+        <button class="whoCancel" type="submit">Τέλος</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
   <script type="application/json" id="runoutData">{{ runout_items | tojson }}</script>
+  <script type="application/json" id="favoritesData">{{ favorites | tojson }}</script>
+  <script type="application/json" id="pageVersion">{{ page_version | tojson }}</script>
 
 <script>
 (function(){
@@ -400,6 +507,69 @@
   var KIOSK_SCREEN_MS = 120000;
   var CATEGORY_STORAGE_KEY = 'wh_take_category';
   const isKiosk = document.body.dataset.kiosk === '1';
+  const countOverlay = document.getElementById('countOverlay');
+  const openCount = document.getElementById('openCount');
+  if(openCount && countOverlay){
+    openCount.addEventListener('click', function(){ countOverlay.hidden = false; });
+  }
+  function countNumber(input){
+    var n = Number(String(input && input.value || '0').replace(',', '.'));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+  document.querySelectorAll('.countRow').forEach(function(row){
+    var pack = Number(row.dataset.pack || '1') || 1;
+    var sum = row.querySelector('.countSum');
+    var msg = row.querySelector('.countMsg');
+    var confirmField = row.querySelector('input[name="confirm"]');
+    var save = row.querySelector('.countSave');
+    function total(){
+      var packs = row.querySelector('input[name="packs"]');
+      var units = row.querySelector('input[name="units"]');
+      return (packs ? Math.round(countNumber(packs)) * pack : 0) + countNumber(units);
+    }
+    function changed(){
+      if(sum) sum.textContent = String(Math.round(total() * 1000) / 1000);
+      if(confirmField) confirmField.value = '';
+      if(save){ save.classList.remove('confirm'); save.textContent = 'Καταχώριση'; }
+      if(msg) msg.textContent = '';
+    }
+    row.querySelectorAll('.countBtn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var input = row.querySelector('input[name="' + btn.dataset.field + '"]');
+        if(!input) return;
+        input.value = String(Math.max(0, Math.round(countNumber(input)) + Number(btn.dataset.dir || 0)));
+        changed();
+      });
+    });
+    row.querySelectorAll('.countInput').forEach(function(input){
+      input.addEventListener('input', function(){
+        if(/-/.test(input.value)) input.value = input.value.replace(/-/g, '');
+        changed();
+      });
+    });
+    row.addEventListener('submit', async function(event){
+      event.preventDefault();
+      if(row.classList.contains('done')) return;
+      var fd = new FormData(row);
+      try{
+        var res = await fetch(row.action, {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        var data = await res.json().catch(function(){ return {ok:false}; });
+        if(res.status === 409 && data && data.code === 'confirm_variance'){
+          if(confirmField) confirmField.value = '1';
+          if(save){ save.classList.add('confirm'); save.textContent = 'Ναι, σωστό'; }
+          if(msg) msg.textContent = data.message || 'Μεγάλη διαφορά. Σίγουρα;';
+          return;
+        }
+        if(!res.ok || !data || !data.ok){ if(msg) msg.textContent = (data && data.message) || 'Δεν καταχωρίστηκε'; return; }
+        row.classList.add('done');
+        row.querySelectorAll('button, input, select').forEach(function(el){ el.disabled = true; });
+        if(msg) msg.textContent = '✓ Καταχωρίστηκε: ' + data.counted;
+      }catch(err){
+        if(msg) msg.textContent = 'Δεν υπάρχει σύνδεση';
+      }
+    });
+    changed();
+  });
   var TAP_MOVE_PX = 10;
   var tapGesture = null;
   function pageScrollTop(){
@@ -429,7 +599,7 @@
   }
   function tapControl(node){
     if(!node || !node.closest) return null;
-    return node.closest('#kioskHome .homeCard, #cards .item button, #cards .item input, #cards .item select, #cards .item textarea, #cards .item label, .kioskStrip .stripBtn, #whoOverlay button, #workerBanner button');
+    return node.closest('#kioskHome .homeCard, #cards .item button, #cards .item input, #cards .item select, #cards .item textarea, #cards .item label, .kioskStrip .stripBtn, #whoOverlay button, #countOverlay button, #lotOverlay button, #workerBanner button');
   }
   function wantsProgrammaticFocus(control){
     if(!control || !control.matches) return false;
@@ -490,11 +660,15 @@
   const q=document.getElementById('q'), onlyLow=document.getElementById('onlyLow'), onlyAvailable=document.getElementById('onlyAvailable');
   let selectedCat='';
   function foldSearch(value){
-    return (value || '')
+    let text = (value || '')
       .toLocaleLowerCase('el')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/ς/g, 'σ');
+    if(!/[a-z]/.test(text)) return text;
+    const map = [['ou','ου'],['th','θ'],['ch','χ'],['ps','ψ'],['a','α'],['b','β'],['g','γ'],['d','δ'],['e','ε'],['z','ζ'],['h','η'],['i','ι'],['k','κ'],['l','λ'],['m','μ'],['n','ν'],['x','ξ'],['o','ο'],['p','π'],['r','ρ'],['s','σ'],['t','τ'],['y','υ'],['u','υ'],['f','φ'],['w','ω']];
+    map.forEach(pair => { text = text.split(pair[0]).join(pair[1]); });
+    return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ς/g, 'σ');
   }
   function knownCategory(value){
     if(!value) return '';
@@ -580,7 +754,7 @@
       try{
         JSON.parse(blob.textContent||'[]').forEach(item => {
           if(item && item.days_left != null && Number(item.days_left) <= 7 && low.indexOf(item.name) === -1){
-            soon.push(item.name+' · ~'+item.days_left+' μέρες');
+            soon.push(item.name+' · ~'+item.days_left+' μέρες'+(item.runout ? ' ('+item.runout+')' : ''));
           }
         });
       }catch(err){}
@@ -676,7 +850,7 @@
         lowEl.remove();
       }
     });
-    document.querySelectorAll('.homeCard').forEach(card=>{
+    document.querySelectorAll('.homeCard[data-cat]').forEach(card=>{
       const key=card.dataset.cat||'';
       const stat=key ? (counts[key]||{count:0, low:0}) : {count:total, low:totalLow};
       const countEl=card.querySelector('.catCount');
@@ -718,7 +892,14 @@
   document.querySelectorAll('.catBtn').forEach(btn=>{
     btn.addEventListener('click', ()=>rememberCategory(btn.dataset.cat||''));
   });
-  document.querySelectorAll('.homeCard').forEach(btn=>{
+  document.querySelectorAll('.homeCard[data-cat]').forEach(btn=>{
+    btn.addEventListener('pointerdown', ()=>{
+      const cat = btn.dataset.cat || '';
+      document.querySelectorAll('.item').forEach(item=>{
+        if(cat && item.dataset.category !== cat) return;
+        item.querySelectorAll('img').forEach(img=>{ img.loading = 'eager'; });
+      });
+    });
     btn.addEventListener('click', ()=>openKioskCategory(btn.dataset.cat||''));
   });
   document.querySelectorAll('.stripBtn').forEach(btn=>{
@@ -736,6 +917,12 @@
     });
     setInterval(tickIdleClock, 1000);
     resetIdle(false);
+    if(navigator.serviceWorker) navigator.serviceWorker.register('/sw.js');
+    window.addEventListener('online', flushQueue);
+    refreshOfflineBanner();
+    window.addEventListener('online', reportPageStatus);
+    setInterval(reportPageStatus, 60000);
+    setTimeout(reportPageStatus, 3000);
   }else{
     document.addEventListener('pointerdown', noteSessionTouch, {passive:true});
     markCategory(categoryFromLocation());
@@ -761,9 +948,12 @@
       'Quantity must be greater than zero':'Η ποσότητα πρέπει να είναι μεγαλύτερη από το μηδέν',
       'Could not update stock':'Δεν ενημερώθηκε το απόθεμα',
       'Invalid response':'Μη έγκυρη απάντηση',
-      'No change':'Καμία αλλαγή'
+      'No change':'Καμία αλλαγή',
+      'Invalid offline attribution':'Μη έγκυρη υπογραφή εργαζομένου'
     };
-    return known[message] || 'Δεν ενημερώθηκε το απόθεμα';
+    if(known[message]) return known[message];
+    if(message && /[\u0370-\u03ff]/.test(message)) return message;
+    return 'Δεν ενημερώθηκε το απόθεμα';
   }
   function hideToast(){
     if(!toast) return;
@@ -771,7 +961,23 @@
     if(undoBtn) undoBtn.hidden=true;
     undoState=null;
   }
+  function beep(ok){
+    try{
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if(!Ctx) return;
+      if(!beep.ctx) beep.ctx = new Ctx();
+      const osc = beep.ctx.createOscillator();
+      const gain = beep.ctx.createGain();
+      osc.frequency.value = ok ? 880 : 220;
+      osc.type = ok ? 'sine' : 'square';
+      gain.gain.value = 0.05;
+      osc.connect(gain); gain.connect(beep.ctx.destination);
+      osc.start();
+      osc.stop(beep.ctx.currentTime + (ok ? 0.07 : 0.16));
+    }catch(err){}
+  }
   function showToast(message,isError,undo){
+    beep(!isError);
     if(!toast) return;
     if(toastText) toastText.textContent=message || (isError?'Δεν ενημερώθηκε το απόθεμα':'Το απόθεμα ενημερώθηκε');
     toast.classList.toggle('err',!!isError);
@@ -846,7 +1052,8 @@
     }
     input.addEventListener('focus', ()=>input.blur());
     form.querySelectorAll('[data-add]').forEach(btn=>btn.addEventListener('click', ()=>{
-      setQty(currentQty()+Number(btn.dataset.add));
+      if(btn.dataset.add==='pack') setQty(Number(btn.dataset.pack)||1);
+      else setQty(currentQty()+Number(btn.dataset.add));
     }));
     form.querySelectorAll('button[data-mode]').forEach(btn=>{
       btn.addEventListener('click', ()=>{submitMode=btn.dataset.mode || 'take';});
@@ -877,6 +1084,11 @@
   let pinWorkerId='';
   let pinDigits='';
   let sessionName='';
+  let sessionWorkerId='';
+  let cardWorkerId='';
+  let cardUid='';
+  let sessionCard=false;
+  let queueToken='';
   let sessionTimer=null;
   let sessionTouchAt=0;
   function showBanner(name){
@@ -892,8 +1104,14 @@
   function endSession(){
     const had=!!sessionName;
     showBanner('');
+    sessionWorkerId='';
+    cardWorkerId='';
+    cardUid='';
+    sessionCard=false;
+    queueToken='';
     clearTimeout(sessionTimer);
     sessionTouchAt=0;
+    if(typeof clearPickTags==='function') clearPickTags();
     if(!had) return;
     fetch('/consumables/take/session/end',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}}).catch(()=>{});
   }
@@ -905,7 +1123,7 @@
     sessionTouchAt=now;
     fetch('/consumables/take/session/touch',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}})
       .then(res=>res.json())
-      .then(data=>{ if(!data || !data.ok) showBanner(''); else armSessionTimer(); })
+      .then(data=>{ if(!data || !data.ok) showBanner(''); else { noteSessionData(data); armSessionTimer(); } })
       .catch(()=>{});
   }
   function loadSession(){
@@ -914,10 +1132,17 @@
       .then(data=>{
         if(data && data.ok && data.name){
           showBanner(data.name);
+          noteSessionData(data);
           armSessionTimer();
         }
       })
       .catch(()=>{});
+  }
+  function noteSessionData(data){
+    if(!data) return;
+    if(data.worker_id) sessionWorkerId=String(data.worker_id);
+    if(typeof data.card==='boolean') sessionCard=data.card;
+    if(data.queue_token) queueToken=data.queue_token;
   }
   function renderPinDots(){
     if(pinDots) pinDots.textContent=pinDigits ? '•'.repeat(pinDigits.length) : '';
@@ -956,6 +1181,27 @@
     clearTimeout(whoTimer);
     whoTimer=setTimeout(closeWho, WHO_TIMEOUT_MS);
   }
+  function clearPickTags(){
+    document.querySelectorAll('#cards .pickTag').forEach(tag=>{ tag.hidden=true; });
+  }
+  function promoteFavorites(workerId){
+    const blob=document.getElementById('favoritesData');
+    if(!blob) return;
+    let map={};
+    try{ map=JSON.parse(blob.textContent||'{}'); }catch(err){ return; }
+    const ids=map[String(workerId)]||[];
+    const cards=document.getElementById('cards');
+    clearPickTags();
+    if(!cards || !ids.length) return;
+    ids.slice().reverse().forEach(id=>{
+      const card=cards.querySelector('.item[data-id="'+id+'"]');
+      if(card){
+        cards.prepend(card);
+        const tag=card.querySelector('.pickTag');
+        if(tag) tag.hidden=false;
+      }
+    });
+  }
   function chooseWorker(btn){
     if(!btn) return;
     pinWorkerId=btn.dataset.worker || '';
@@ -970,6 +1216,7 @@
     const fd=new FormData();
     fd.set('worker_id', pinWorkerId);
     fd.set('pin', digits);
+    if(cardUid && cardWorkerId && String(cardWorkerId)===String(pinWorkerId)) fd.set('card_uid', cardUid);
     pinDigits='';
     renderPinDots();
     try{
@@ -980,18 +1227,171 @@
         return;
       }
       showBanner(data.name || '');
+      sessionWorkerId=pinWorkerId;
+      noteSessionData(data);
+      cardUid='';
       armSessionTimer();
       sessionTouchAt=Date.now();
       if(whoOverlay) whoOverlay.hidden=true;
       showPickStep();
+      document.dispatchEvent(new CustomEvent('kiosk:session-start', {detail:{worker_id: sessionWorkerId, name: sessionName}}));
       if(pendingTake) confirmWho();
     }catch(err){
       if(pinMessage) pinMessage.textContent='Λάθος PIN';
     }
   }
+  async function enqueueMove(url, fields, meta){
+    const db = await new Promise((resolve, reject) => {
+      const open = indexedDB.open('wh-kiosk-queue', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('moves', {keyPath:'client_key'});
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
+    });
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('moves', 'readwrite');
+      tx.objectStore('moves').put({client_key: fields.client_key, url: url, fields: fields, worker_id: meta && meta.worker_id || '', worker_name: meta && meta.worker_name || '', queued_at: Date.now()});
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }
+  async function queuedMoves(){
+    const db = await new Promise((resolve, reject) => {
+      const open = indexedDB.open('wh-kiosk-queue', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('moves', {keyPath:'client_key'});
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
+    });
+    const rows = await new Promise((resolve) => {
+      const tx = db.transaction('moves', 'readonly');
+      const req = tx.objectStore('moves').getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+    db.close();
+    return rows;
+  }
+  async function dropQueued(key){
+    const db = await new Promise((resolve, reject) => {
+      const open = indexedDB.open('wh-kiosk-queue', 1);
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
+    });
+    await new Promise((resolve) => {
+      const tx = db.transaction('moves', 'readwrite');
+      tx.objectStore('moves').delete(key);
+      tx.oncomplete = () => resolve();
+    });
+    db.close();
+  }
+  async function refreshOfflineBanner(){
+    const banner = document.getElementById('offlineBanner');
+    if(!banner) return;
+    let n = 0;
+    try { n = (await queuedMoves()).length; } catch (err) { n = 0; }
+    const count = document.getElementById('offlineCount');
+    if(count) count.textContent = String(n);
+    banner.hidden = navigator.onLine && n === 0;
+  }
+  let pageVersion='';
+  try{ pageVersion=JSON.parse((document.getElementById('pageVersion')||{}).textContent||'""')||''; }catch(err){ pageVersion=''; }
+  async function reportPageStatus(){
+    // Kiosk health for the admin page: offline queue length and the page build.
+    if(!navigator.onLine) return;
+    let n = 0;
+    try { n = (await queuedMoves()).length; } catch (err) { n = 0; }
+    try{
+      await fetch('/consumables/take/page-status',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest','Accept':'application/json'},body:JSON.stringify({queue_len:n,online:navigator.onLine,page_version:String(pageVersion)})});
+    }catch(err){}
+  }
+  async function flushQueue(){
+    if(!navigator.onLine) { await refreshOfflineBanner(); return; }
+    let rows = [];
+    try { rows = await queuedMoves(); } catch (err) { return; }
+    for(const row of rows){
+      const fd = new FormData();
+      Object.keys(row.fields || {}).forEach(key => fd.set(key, row.fields[key]));
+      try {
+        const res = await fetch(row.url, {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        const data = await res.json().catch(() => null);
+        if(res.ok && data && data.ok){
+          updateCard(data);
+          await dropQueued(row.client_key);
+        } else if([400,403,404,409,422].includes(res.status) && data){
+          // The server refused it for good (forged or bound to another login,
+          // card missing, item gone). Retrying would never succeed.
+          await dropQueued(row.client_key);
+          showToast('Απορρίφθηκε κίνηση εκτός σύνδεσης: '+greekError(data.message), true, null);
+        } else {
+          break;
+        }
+      } catch (err) { break; }
+    }
+    await refreshOfflineBanner();
+  }
+  const lotOverlay=document.getElementById('lotOverlay');
+  const lotForm=document.getElementById('lotForm');
+  const lotCodeInput=document.getElementById('lotCode');
+  const lotExpiryInput=document.getElementById('lotExpiry');
+  const lotMessage=document.getElementById('lotMessage');
+  let lotAction=null;
+  function athensToday(){
+    try{
+      return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Athens',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+    }catch(err){ return new Date().toISOString().slice(0,10); }
+  }
+  function closeLotStep(){
+    lotAction=null;
+    if(lotOverlay) lotOverlay.hidden=true;
+  }
+  function openLotStep(action, item){
+    if(!lotOverlay){ action.lot={}; pendingTake=action; confirmWho(); return; }
+    lotAction=action;
+    const name=item.querySelector('h3');
+    document.getElementById('lotItem').textContent=(name ? name.textContent : '')+' · +'+action.amount;
+    lotCodeInput.value='';
+    lotExpiryInput.value='';
+    lotExpiryInput.min=athensToday();
+    lotMessage.textContent='';
+    lotOverlay.hidden=false;
+  }
+  if(lotForm){
+    lotForm.addEventListener('submit', (event)=>{
+      event.preventDefault();
+      if(!lotAction) return;
+      const code=(lotCodeInput.value||'').trim();
+      const expiry=lotExpiryInput.value||'';
+      if(!code || !expiry){ lotMessage.textContent='Γράψε παρτίδα και λήξη ή πάτα «Χωρίς παρτίδα»'; return; }
+      if(expiry < athensToday()){ lotMessage.textContent='Η λήξη έχει ήδη περάσει'; return; }
+      const action=lotAction;
+      action.lot={code:code, expiry:expiry};
+      closeLotStep();
+      pendingTake=action;
+      confirmWho();
+    });
+    document.getElementById('lotSkip').addEventListener('click', ()=>{
+      if(!lotAction) return;
+      const action=lotAction;
+      action.lot={};
+      closeLotStep();
+      pendingTake=action;
+      confirmWho();
+    });
+    document.getElementById('lotCancel').addEventListener('click', closeLotStep);
+  }
   async function confirmWho(){
     const action=pendingTake;
     clearTimeout(whoTimer);
+    const limit = Number(document.body.dataset.highValue || '0');
+    const unitCost = action && action.form ? Number(action.form.closest('.item').dataset.unitCost || '0') : 0;
+    const cardOk = !!(sessionName && sessionCard);
+    if(action && action.mode !== 'add' && limit > 0 && unitCost * action.amount >= limit && sessionName && !cardOk){
+      if(whoOverlay) whoOverlay.hidden=true;
+      pendingTake=null;
+      showPickStep();
+      showToast('Χρειάζεται κάρτα', true, null);
+      return;
+    }
     if(whoOverlay) whoOverlay.hidden=true;
     pendingTake=null;
     showPickStep();
@@ -1002,18 +1402,31 @@
       return;
     }
     const form=action.form;
+    const lotItem=form.closest('.item');
+    if(action.mode==='add' && lotItem && lotItem.dataset.lots==='1' && !action.lot){
+      openLotStep(action, lotItem);
+      return;
+    }
     form.classList.add('updating');
+    const fd=new FormData(form);
+    let url=form.dataset.takeAction;
+    fd.delete('delta');
+    fd.delete('qty_display');
+    fd.delete('worker_id');
+    fd.set('qty', String(action.amount));
+    fd.set('client_key', crypto.randomUUID());
+    if(action.mode==='add') url=form.dataset.addAction;
+    if(action.lot && action.lot.code){
+      fd.set('lot_code', action.lot.code);
+      fd.set('expiry', action.lot.expiry);
+    }
+    const queuedWorker={worker_id: sessionWorkerId, worker_name: sessionName};
+    const tokenAtQueue=queueToken;
     try{
-      const fd=new FormData(form);
-      let url=form.dataset.takeAction;
-      fd.delete('delta');
-      fd.delete('qty_display');
-      fd.delete('worker_id');
-      fd.set('qty', String(action.amount));
-      if(action.mode==='add') url=form.dataset.addAction;
       const res=await fetch(url,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
       const data=await res.json().catch(()=>({ok:false,message:'Invalid response'}));
       if(!res.ok || !data.ok) throw new Error(greekError(data.message));
+      if(data.queue_token) queueToken=data.queue_token;
       if(!data.worker_name){
         showBanner('');
         showToast('Η συνεδρία έληξε', true, null);
@@ -1028,8 +1441,19 @@
         qty: String(data.qty)
       });
       armSessionTimer();
+      if(typeof promoteFavorites==='function') promoteFavorites(data.worker_id);
+      document.dispatchEvent(new CustomEvent('kiosk:moved', {detail:{mode: action.mode, item_id: form.closest('.item') ? form.closest('.item').dataset.id : '', qty: data.qty}}));
     }catch(err){
-      showToast(err.message || 'Δεν ενημερώθηκε το απόθεμα', true, null);
+      if(!navigator.onLine || (err && err.name === 'TypeError')){
+        const fields = {};
+        fd.forEach((value, key) => { fields[key] = String(value); });
+        if(tokenAtQueue) fields.queue_token = tokenAtQueue;
+        try { await enqueueMove(url, fields, queuedWorker); } catch (storeErr) {}
+        await refreshOfflineBanner();
+        showToast('Αποθηκεύτηκε στη συσκευή', false, null);
+      } else {
+        showToast(err.message || 'Δεν ενημερώθηκε το απόθεμα', true, null);
+      }
     }finally{
       form.classList.remove('updating');
     }
@@ -1067,19 +1491,33 @@
   function handleScan(code){
     const want=code.trim().toLowerCase();
     if(!want) return;
-    const workerBtn=[...document.querySelectorAll('.whoBtn[data-card]')].find(btn => (btn.dataset.card||'').toLowerCase()===want);
-    const item=[...document.querySelectorAll('.item[data-barcode]')].find(el => (el.dataset.barcode||'').toLowerCase()===want);
-    if(workerBtn){
-      chooseWorker(workerBtn);
+    if(lotOverlay && !lotOverlay.hidden){
+      lotCodeInput.value=code.trim();
+      lotExpiryInput.focus();
       return;
     }
+    const item=[...document.querySelectorAll('.item[data-barcode]')].find(el => (el.dataset.barcode||'').toLowerCase()===want);
     if(item){
       if(isKiosk) openKioskCategory(item.dataset.category||'');
       item.classList.add('scanHit');
       item.scrollIntoView({block:'center'});
       setTimeout(()=>item.classList.remove('scanHit'), 1600);
+      return;
     }
-    if(!workerBtn && !item) showToast('Άγνωστος κωδικός', true, null);
+    // Card codes are not in the page: the server says whose card this is.
+    const fd=new FormData();
+    fd.set('card_uid', code.trim());
+    fetch('/consumables/take/card',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}})
+      .then(res=>res.json().catch(()=>({ok:false})))
+      .then(data=>{
+        const workerBtn=data && data.ok ? document.querySelector('.whoBtn[data-worker="'+data.worker_id+'"]') : null;
+        if(!workerBtn){ showToast('Άγνωστος κωδικός', true, null); return; }
+        cardWorkerId=String(data.worker_id);
+        cardUid=code.trim();
+        if(sessionName && String(sessionWorkerId)===cardWorkerId && sessionCard){ showToast('Κάρτα εντάξει', false, null); return; }
+        chooseWorker(workerBtn);
+      })
+      .catch(()=>showToast('Άγνωστος κωδικός', true, null));
   }
   document.addEventListener('keydown', (event)=>{
     if(!isKiosk) return;
@@ -1147,10 +1585,44 @@
     }catch(err){}
   }
   setInterval(refreshStock, STOCK_REFRESH_MS);
+  // Small bridge for optional add-ons (kiosk next-gen). Uses the normal take
+  // flow: «Ποιος είσαι;», PIN, lots and the offline queue all still apply.
+  window.KioskBridge = {
+    isKiosk: isKiosk,
+    session: function(){ return {worker_id: sessionWorkerId, name: sessionName}; },
+    toast: function(message, isError){ showToast(message, !!isError, null); },
+    noteActivity: function(){ if(typeof noteActivity==='function') noteActivity(); },
+    focusItem: function(id, qty){
+      const item=document.querySelector('.item[data-id="'+id+'"]');
+      if(!item) return null;
+      if(isKiosk) openKioskCategory(item.dataset.category||'');
+      const input=item.querySelector('.qty');
+      const amount=Math.max(1, Math.round(Number(qty)||1));
+      if(input){ input.value=String(amount); const minus=item.querySelector('[data-add="-1"]'); if(minus) minus.disabled=amount<=1; }
+      item.classList.add('scanHit');
+      item.scrollIntoView({block:'center'});
+      setTimeout(()=>item.classList.remove('scanHit'), 1600);
+      return item;
+    },
+    move: function(id, qty, mode){
+      const item=this.focusItem(id, qty);
+      if(!item) return false;
+      const form=item.querySelector('form.takeform');
+      const button=item.querySelector('button[data-mode="'+(mode==='add'?'add':'take')+'"]');
+      if(!form || !button || button.disabled) return false;
+      form.requestSubmit(button);
+      return true;
+    }
+  };
   document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState==='visible') refreshStock();
   });
 })();
 </script>
+{% if nextgen %}
+<script type="application/json" id="nextgenConfig">{{ nextgen | tojson }}</script>
+<link rel="stylesheet" href="/static/kiosk-nextgen.css" />
+<script src="/static/kiosk-nextgen.js" defer></script>
+{% endif %}
 </body>
 </html>

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Πρόχειρες παραλαβές</title>
+  <link rel="stylesheet" href="/static/datetime.css" />
+  <style>
+    body{margin:0;background:#0b1020;color:#e7e9ee;font-family:system-ui,Arial,sans-serif}
+    main{max-width:1080px;margin:0 auto;padding:20px}a{color:#a9c7ff}h1{margin:0 0 10px;font-size:28px}
+    .hint{color:#a7b0c7;font-size:14px;line-height:1.4}.err{color:#fecdd3;font-weight:800}
+    .panel{padding:16px;margin:16px 0;border:1px solid #243055;border-radius:14px;background:#0e1530}
+    h2{margin:0 0 12px;font-size:21px}.fields{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+    label{display:grid;gap:5px;font-size:14px;font-weight:800}input,select,button{font:inherit;color:inherit;background:#0b1020;border:1px solid #243055;border-radius:9px;padding:9px 10px}
+    input[type=file]{max-width:300px}button{cursor:pointer;font-weight:800;background:#162044}.ok{background:#14532d}
+    table{width:100%;border-collapse:collapse;margin:12px 0}th,td{text-align:left;padding:8px;border-bottom:1px solid #243055;font-size:14px}
+    .manualTable input{box-sizing:border-box;width:100%}.manualTable .short{width:100px}.manualTable .code{width:140px}.tableWrap{overflow:auto}
+    .badge{padding:4px 7px;border:1px solid #243055;border-radius:999px;font-size:12px;font-weight:800}.warn{color:#fcd34d}.total{color:#a7b0c7}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+<main>
+  <p><a href="/dashboard">← Πίνακας</a> · <a href="/consumables">Αναλώσιμα</a></p>
+  <h1>Πρόχειρες παραλαβές</h1>
+  <p class="hint">Η αποθήκη αλλάζει μόνο στην έγκριση. Ταιριάζεις τους κωδικούς του προμηθευτή με τα δικά σου είδη, βλέπεις τιμές, και μετά εγκρίνεις.</p>
+  {% if err %}<p class="err" role="alert">{{ err }}</p>{% endif %}
+  <section class="panel">
+    <h2>Από XML τιμολογίου</h2>
+    <form method="post" action="/admin/consumables/receipts/xml" enctype="multipart/form-data" class="fields">
+      <label>Προμηθευτής<select name="supplier_id" required><option value="">Διάλεξε…</option>{% for supplier in suppliers %}<option value="{{ supplier.id }}">{{ supplier.name }}</option>{% endfor %}</select></label>
+      <label>XML<input type="file" name="file" accept=".xml,text/xml,application/xml" required /></label>
+      <button type="submit">Δημιουργία πρόχειρου</button>
+    </form>
+    <p class="hint">UBL/Peppol ή myDATA XML, έως 2 MB. Το αρχείο διαβάζεται και οι γραμμές μπαίνουν σε πρόχειρο· δεν καταχωρείται απόθεμα.</p>
+  </section>
+  <section class="panel">
+    <h2>Χειροκίνητη καταχώριση</h2>
+    <form method="post" action="/admin/consumables/receipts/new" id="manualForm">
+      <div class="fields">
+        <label>Προμηθευτής<select name="supplier_id" required><option value="">Διάλεξε…</option>{% for supplier in suppliers %}<option value="{{ supplier.id }}">{{ supplier.name }}</option>{% endfor %}</select></label>
+        <label>Αριθμός τιμολογίου<input name="invoice_number" maxlength="80" /></label>
+        <label>Ημερομηνία<input name="invoice_date" type="date" /></label>
+        <label>ΜΑΡΚ<input name="mark" maxlength="80" /></label>
+      </div>
+      <div class="tableWrap">
+        <table class="manualTable">
+          <thead><tr><th class="code">Κωδικός προμ.</th><th>Περιγραφή</th><th class="short">Ποσότητα</th><th class="short">€/μονάδα</th></tr></thead>
+          <tbody id="manualLines">
+            {% for _ in blank_rows %}
+            <tr><td><input name="line_code" maxlength="80" aria-label="Κωδικός προμηθευτή" /></td><td><input name="line_description" maxlength="200" aria-label="Περιγραφή" /></td><td><input name="line_qty" inputmode="decimal" aria-label="Ποσότητα" /></td><td><input name="line_price" inputmode="decimal" aria-label="Τιμή ανά μονάδα" /></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="fields"><button type="button" id="addLine">+ Γραμμή</button><button class="ok" type="submit">Δημιουργία πρόχειρου</button></div>
+      <p class="hint">Ποσότητες σε μονάδες αποθήκης (όχι συσκευασίες). Η τιμή είναι ανά μονάδα· στην έγκριση μπορείς προαιρετικά να ενημερώσεις το κόστος συσκευασίας.</p>
+    </form>
+  </section>
+  <section class="panel">
+    <h2>Πρόσφατα πρόχειρα</h2>
+    <table>
+      <thead><tr><th>Αρ.</th><th>Προμηθευτής</th><th>Τιμολόγιο</th><th>Ημερομηνία</th><th>Γραμμές</th><th>Κατάσταση</th></tr></thead>
+      <tbody>
+      {% for draft in drafts %}
+        {% set count = counts.get(draft.id, (0,0)) %}
+        <tr><td><a href="/consumables/receipts/{{ draft.id }}">#{{ draft.id }}</a></td><td>{{ supplier_names.get(draft.supplier_id, '—') }}</td><td>{{ draft.invoice_number or 'χωρίς αριθμό' }}</td><td>{{ draft.invoice_date or '—' }}</td><td>{{ count[0] }}{% if count[1] %} <span class="warn">· {{ count[1] }} αταίριαστες</span>{% endif %}</td><td><span class="badge">{{ draft.status }}</span></td></tr>
+      {% else %}<tr><td colspan="6" class="hint">Δεν υπάρχουν πρόχειρα ακόμα.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </section>
+</main>
+<script>
+(function(){
+  var body=document.getElementById('manualLines');
+  document.getElementById('addLine').addEventListener('click', function(){
+    if(body.rows.length>=60) return;
+    var row=body.rows[0].cloneNode(true);
+    row.querySelectorAll('input').forEach(function(input){input.value='';});
+    body.appendChild(row);
+    row.querySelector('input').focus();
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <title>Συνέχεια</title>
+  <style>
+    body{margin:0;background:#0b1020;color:#e7e9ee;font-family:system-ui,Arial,sans-serif}
+    form{max-width:360px;margin:48px auto;display:grid;gap:10px}
+    button{font:inherit;padding:12px;border-radius:10px;border:1px solid #243055;background:#0e1530;color:inherit}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+  <form id="replayForm" method="post" action="{{ action }}">
+    <h1>PIN εντάξει</h1>
+    <p>Αποθηκεύεται η αλλαγή σου…</p>
+    {% for name, value in fields %}<input type="hidden" name="{{ name }}" value="{{ value }}" />
+    {% endfor %}
+    <button type="submit">Συνέχεια</button>
+  </form>
+  <script>document.getElementById('replayForm').submit();</script>
+</body>
+</html>

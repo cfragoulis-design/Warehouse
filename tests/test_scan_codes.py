@@ -72,7 +72,9 @@ def test_barcode_and_card_are_unique_and_exposed_to_the_kiosk() -> None:
 
         html = consumables_take_page(_take_request(), db, warehouse).body.decode()
         assert 'data-barcode="5901234123457"' in html
-        assert 'data-card="04A1B2C3"' in html
+        # Card codes stay on the server; a scan is looked up by POST.
+        assert "04A1B2C3" not in html
+        assert "/consumables/take/card" in html
         assert "SCAN_GAP_MS = 40" in html
         assert "σάρωσε τώρα" not in html
     finally:

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Πρόβλεψη κατανάλωσης &amp; Telegram</title>
+  <style>
+    :root{--bg:#0b1020;--panel:#111936;--line:#243055;--text:#e7e9ee;--muted:#a7b0c7}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial,sans-serif}
+    a{color:#a9c7ff;text-decoration:none}
+    .top{position:sticky;top:0;z-index:2;background:rgba(11,16,32,.96);border-bottom:1px solid var(--line);padding:12px 16px}
+    .nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .pill{border:1px solid var(--line);border-radius:999px;padding:8px 12px;font-weight:700}
+    .pill.primary{background:rgba(47,124,246,.18);border-color:rgba(47,124,246,.45)}
+    .wrap{max-width:1040px;margin:0 auto;padding:16px}
+    .intro,.note{color:var(--muted);margin:0 0 14px}
+    td .note{margin:2px 0 0;font-size:12px}
+    .card{border:1px solid var(--line);background:var(--panel);border-radius:16px;padding:14px;margin-bottom:16px}
+    h2{margin:0 0 8px;font-size:20px}
+    h3{margin:12px 0 6px;font-size:17px}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+    th{color:var(--muted);font-size:12px;font-weight:700}
+    .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:800;border:1px solid var(--line)}
+    .tag.now{background:rgba(239,68,68,.14);color:#fecaca;border-color:rgba(239,68,68,.45)}
+    .tag.soon{background:rgba(245,158,11,.16);color:#fde68a;border-color:rgba(245,158,11,.45)}
+    .tag.ok{background:rgba(53,194,125,.12);color:#c8f7dd;border-color:rgba(53,194,125,.45)}
+    .tag.muted{color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+    .stat{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:#0e1530}
+    .stat b{display:block;font-size:18px;margin-top:2px}
+    .stat small{color:var(--muted)}
+    pre.message{white-space:pre-wrap;background:#0e1530;border:1px solid var(--line);border-radius:12px;padding:12px;font:15px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+    button{font:inherit;color:inherit;background:#162044;border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:800}
+    .empty{padding:16px;border:1px dashed var(--line);border-radius:12px;color:var(--muted)}
+    .done td{opacity:.55}
+    details summary{cursor:pointer;color:var(--muted);font-weight:700;margin-top:8px}
+  </style>
+  <style>
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+    input[type=text],input[type=number]{font:inherit;color:inherit;background:#0e1530;border:1px solid var(--line);border-radius:10px;padding:6px 8px}
+    input.small{width:64px;text-align:right}
+    button.primary{background:rgba(47,124,246,.25);border-color:rgba(47,124,246,.6)}
+    .saved{border:1px solid rgba(53,194,125,.45);background:rgba(53,194,125,.1);color:#c8f7dd;border-radius:12px;padding:10px 12px;margin-bottom:14px;font-weight:800}
+    .warn{border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.1);color:#fde68a;border-radius:12px;padding:10px 12px;margin-bottom:14px}
+    .scroll{overflow-x:auto}
+    .conf-high{color:#c8f7dd}.conf-medium{color:#fde68a}.conf-low,.conf-category,.conf-minimum{color:#fecaca}
+    code{background:#0e1530;border:1px solid var(--line);border-radius:6px;padding:1px 5px}
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body class="order-sheet">
+  <div class="top">
+    <strong>Πρόβλεψη κατανάλωσης &amp; Telegram</strong>
+    <div class="nav">
+      <a class="pill" href="/dashboard">Dashboard</a>
+      <a class="pill" href="/admin/consumables/insights">Έξυπνη εικόνα</a>
+      <a class="pill" href="/admin/consumables/nextgen">Νέες λειτουργίες</a>
+      <a class="pill primary" href="/admin/consumables/nextgen/forecast">Πρόβλεψη &amp; Telegram</a>
+    </div>
+  </div>
+  <main class="wrap">
+    {% if saved %}<div class="saved">Αποθηκεύτηκε.</div>{% endif %}
+    {% if not forecast_on %}<div class="warn">Η «Πρόβλεψη κατανάλωσης» είναι κλειστή: η αυτόματη παραγγελία και η πρωινή αναφορά χρησιμοποιούν ακόμα τον απλό μέσο όρο 8 εβδομάδων. Εδώ βλέπεις τι θα έδειχνε αν την ανάψεις (Νέες λειτουργίες → Λειτουργίες).</div>{% endif %}
+    <p class="intro">Ρυθμός από τις λήψεις των τελευταίων 6 μηνών (οι πρόσφατες μετράνε περισσότερο, οι μαζικές διορθώσεις αποθέματος αγνοούνται), επί τις γιορτές και την τουριστική περίοδο. Προτεινόμενη ποσότητα = κατανάλωση για χρόνο παράδοσης + κύκλο παραγγελίας + απόθεμα ασφαλείας, μείον απόθεμα και ό,τι είναι ήδη σε παραγγελία. {% if season_now %}Σήμερα ισχύει: {{ season_now }}.{% endif %}</p>
+
+    <section class="card" id="items">
+      <h2>Πότε τελειώνει κάθε είδος</h2>
+      <p class="note">Βεβαιότητα: υψηλή = πολλές μέρες λήψεων σε 2+ μήνες · μέτρια = 5+ μέρες · χαμηλή = λίγες · «από την κατηγορία/το ελάχιστο» = χωρίς δικό του ιστορικό. Παράδοση/ασφάλεια ανά είδος: κενό = του προμηθευτή ή η προεπιλογή.</p>
+      <form method="post" action="/admin/consumables/nextgen/forecast/items">
+      <div class="scroll"><table>
+        <thead><tr><th>Είδος</th><th class="num">Απόθεμα</th><th class="num">Ανά εβδ.</th><th>Βεβαιότητα</th><th>Τελειώνει</th><th>Παράγγειλε έως</th><th class="num">Πρόταση</th><th class="num">Παράδ. (μέρες)</th><th class="num">Ασφάλ. (μέρες)</th></tr></thead>
+        <tbody>
+        {% for f in forecasts %}
+          <tr>
+            <td>{{ f.name }}<p class="note">{{ f.supplier_name or 'χωρίς προμηθευτή' }} · {{ f.method_label }}{% if f.distinct_days %} · {{ f.distinct_days }} μέρες λήψεων{% endif %}</p></td>
+            <td class="num">{{ f.on_hand_display }} {{ f.unit }}{% if f.on_order %}<p class="note">+{{ f.on_order|round(1) }} σε παραγγ.</p>{% endif %}</td>
+            <td class="num">{{ f.weekly_display }}</td>
+            <td><span class="conf-{{ f.confidence or 'none' }}">{{ f.confidence_label }}</span></td>
+            <td>{% if f.days_left is not none %}<span class="tag {{ f.level }}">{{ f.days_phrase }}</span><p class="note">{{ f.runout_label }}</p>{% else %}<span class="tag muted">—</span>{% endif %}</td>
+            <td>{{ f.order_by_label or '—' }}</td>
+            <td class="num">{% if f.recommended_packs %}<b>{{ f.recommended_packs }} συσκ.</b><p class="note">{{ f.recommended_display }} {{ f.unit }}</p>{% else %}—{% endif %}</td>
+            <td class="num"><input class="small" type="number" min="0" max="120" name="lead_{{ f.id }}" value="{{ f.item_lead }}" placeholder="{{ f.lead_time_days }}" /></td>
+            <td class="num"><input class="small" type="number" min="0" max="120" name="safety_{{ f.id }}" value="{{ f.item_safety }}" placeholder="{{ f.safety_days }}" /></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="9"><div class="empty">Δεν υπάρχουν ενεργά είδη.</div></td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      <div class="row"><button type="submit" class="primary">Αποθήκευση ανά είδος</button></div>
+      </form>
+    </section>
+
+    <section class="card" id="suppliers">
+      <h2>Χρόνος παράδοσης ανά προμηθευτή</h2>
+      <form method="post" action="/admin/consumables/nextgen/forecast/suppliers">
+        <table>
+          <thead><tr><th>Προμηθευτής</th><th class="num">Παράδοση (μέρες)</th><th class="num">Ασφάλεια (μέρες)</th></tr></thead>
+          <tbody>
+          {% for s in suppliers %}
+            <tr><td>{{ s.name }}</td>
+              <td class="num"><input class="small" type="number" min="0" max="120" name="lead_{{ s.id }}" value="{{ s.lead_time_days }}" placeholder="{{ defaults.lead_time_days }}" /></td>
+              <td class="num"><input class="small" type="number" min="0" max="120" name="safety_{{ s.id }}" value="{{ s.safety_days }}" placeholder="{{ defaults.safety_days }}" /></td></tr>
+          {% else %}
+            <tr><td colspan="3"><div class="empty">Κανένας ενεργός προμηθευτής.</div></td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        <div class="row"><button type="submit" class="primary">Αποθήκευση προμηθευτών</button></div>
+      </form>
+    </section>
+
+    <section class="card" id="settings">
+      <h2>Προεπιλογές &amp; εποχικότητα</h2>
+      <form method="post" action="/admin/consumables/nextgen/forecast/settings">
+        <div class="grid">
+          <label class="stat"><small>Χρόνος παράδοσης (μέρες)</small><b><input class="small" type="number" min="0" max="120" name="lead_time_days" value="{{ defaults.lead_time_days }}" /></b></label>
+          <label class="stat"><small>Απόθεμα ασφαλείας (μέρες)</small><b><input class="small" type="number" min="0" max="120" name="safety_days" value="{{ defaults.safety_days }}" /></b></label>
+          <label class="stat"><small>Κάθε πόσες μέρες παραγγέλνουμε</small><b><input class="small" type="number" min="0" max="120" name="review_days" value="{{ defaults.review_days }}" /></b></label>
+        </div>
+        <h3>Πολλαπλασιαστές (1,00 = κανονικά)</h3>
+        <table><tbody>
+          {% for key, title in season_titles.items() %}
+          <tr><td>{{ title }}{% if key == 'easter' %}<p class="note">{% for y in easter_years %}Πάσχα {{ y.year }}: {{ y.easter }}{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}</td>
+            <td class="num"><input class="small" type="text" name="season_{{ key }}" value="{{ '%.2f'|format(seasons[key])|replace('.', ',') }}" /></td></tr>
+          {% endfor %}
+          <tr><td>Τουριστική περίοδος από / έως (ΜΜ-ΗΗ)</td><td class="num"><input class="small" type="text" name="season_summer_start" value="{{ seasons.summer_start }}" /> <input class="small" type="text" name="season_summer_end" value="{{ seasons.summer_end }}" /></td></tr>
+        </tbody></table>
+        <div class="row"><button type="submit" class="primary">Αποθήκευση ρυθμίσεων</button></div>
+      </form>
+    </section>
+
+    <section class="card" id="backtest">
+      <h2>Πόσο πέτυχε στο παρελθόν (backtest)</h2>
+      {% if backtest and backtest.summary.smart.wape is not none %}
+      <p class="note">Κάθε εβδομάδα στο παρελθόν: πρόβλεψη για τις επόμενες {{ backtest.horizon_days }} μέρες, σύγκριση με το τι πάρθηκε πραγματικά. {{ backtest.items }} είδη με 4+ μέρες λήψεων, {{ backtest.origins }} δοκιμές, δεδομένα έως {{ backtest.data_end }}. Σφάλμα (WAPE) = πόσο πέφτει έξω ως ποσοστό της πραγματικής κατανάλωσης — μικρότερο είναι καλύτερο.</p>
+      <table>
+        <thead><tr><th>Μέθοδος</th><th class="num">Σφάλμα</th><th class="num">Μεροληψία</th></tr></thead>
+        <tbody>
+          {% for key, title in [('smart','Αυτή η πρόβλεψη'),('smart_no_season','Χωρίς γιορτές/εποχή'),('existing_8w','Σημερινή (μέσος όρος 8 εβδ.)'),('naive_28d','Απλή: όσο τις τελευταίες 28 μέρες')] %}
+          <tr><td>{{ title }}</td><td class="num">{{ (backtest.summary[key].wape * 100)|round|int }}%</td><td class="num">{{ '+' if backtest.summary[key].bias > 0 else '' }}{{ (backtest.summary[key].bias * 100)|round|int }}%</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <details><summary>Ανά είδος</summary>
+        <table><thead><tr><th>Είδος</th><th class="num">Πραγματικά</th><th class="num">Αυτή</th><th class="num">8 εβδ.</th><th class="num">28 μέρες</th></tr></thead><tbody>
+        {% for r in backtest.per_item if r.actual > 0 %}<tr><td>{{ r.name }}</td><td class="num">{{ r.actual }}</td>
+          {% for key in ['wape_smart','wape_existing_8w','wape_naive_28d'] %}<td class="num">{% if r[key] is not none %}{{ (r[key] * 100)|round|int }}%{% else %}—{% endif %}</td>{% endfor %}</tr>{% endfor %}
+        </tbody></table>
+      </details>
+      <p class="note">Με αραιές καταγραφές (λίγες μέρες λήψεων τον μήνα) καμία μέθοδος δεν πέφτει μέσα. Η πρόβλεψη βελτιώνεται όσο γράφονται όλες οι λήψεις στο κιόσκι.</p>
+      {% else %}
+      <div class="empty">Δεν υπάρχει αρκετό ιστορικό για έλεγχο ακόμα.</div>
+      {% endif %}
+    </section>
+
+    <section class="card" id="telegram">
+      <h2>Ερωτήσεις στο Telegram</h2>
+      <div class="grid">
+        <div class="stat"><small>Λειτουργία</small><b><span class="tag {{ 'ok' if ask.on else 'muted' }}">{{ 'ΑΝΟΙΧΤΗ' if ask.on else 'ΚΛΕΙΣΤΗ' }}</span></b></div>
+        <div class="stat"><small>Bot / συνομιλίες ειδοποιήσεων</small><b>{{ 'ρυθμισμένο' if ask.token_set else 'χωρίς token' }} · {{ ask.chats }}</b></div>
+        <div class="stat"><small>Μυστικό webhook</small><b>{{ 'ρυθμισμένο' if ask.secret_set else 'δεν έχει ρυθμιστεί' }}</b></div>
+        <div class="stat"><small>Τελευταίες 7 μέρες</small><b>{{ ask.week_answered }} απαντήσεις</b><small>{{ ask.week_denied }} αγνοήθηκαν (άγνωστη συνομιλία ή όριο)</small></div>
+      </div>
+      <p class="note">Απαντάει μόνο στις συνομιλίες του <code>TELEGRAM_CHAT_ID</code>, μόνο ανάγνωση (δεν αλλάζει απόθεμα, δεν στέλνει παραγγελίες), έως 20 ερωτήσεις / 10 λεπτά. Χωρίς AI: δωρεάν. Η βοήθεια από AI {% if ask.llm_on and ask.llm_key %}είναι ανοιχτή{% else %}είναι κλειστή{% endif %}.</p>
+      <details><summary>Πώς ενεργοποιείται</summary>
+        <ol class="note">
+          <li>Μεταβλητή <code>TELEGRAM_WEBHOOK_SECRET</code> (24+ γράμματα/αριθμοί) στον διακομιστή.</li>
+          <li>Μία φορά: <code>setWebhook</code> του bot στη διεύθυνση <code>…{{ ask.path }}</code> με το ίδιο <code>secret_token</code> (οδηγίες στο runbook).</li>
+          <li>Άναψε «Ερωτήσεις στο Telegram» στις Νέες λειτουργίες.</li>
+        </ol>
+      </details>
+    </section>
+  </main>
+</body>
+</html>

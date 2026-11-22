@@ -397,6 +397,13 @@ def init_db() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE consumable_movements ADD COLUMN IF NOT EXISTS pin_verified BOOLEAN NOT NULL DEFAULT FALSE"
             )
+            conn.exec_driver_sql(
+                "ALTER TABLE consumable_movements ADD COLUMN IF NOT EXISTS client_key UUID"
+            )
+            conn.exec_driver_sql(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_consumable_movements_client_key "
+                "ON consumable_movements (client_key) WHERE client_key IS NOT NULL"
+            )
     except Exception as exc:
         _handle_startup_ddl_failure("workers", exc)
 
@@ -412,4 +419,20 @@ def init_db() -> None:
             )
     except Exception as exc:
         _handle_startup_ddl_failure("consumables.image", exc)
+
+    # One Telegram note per supplier per day. Idempotent; the guarded migration grants privileges.
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS consumable_alert_log (
+                    id SERIAL PRIMARY KEY,
+                    supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+                    alert_date DATE NOT NULL,
+                    UNIQUE (supplier_id, alert_date)
+                );
+                """
+            )
+    except Exception as exc:
+        _handle_startup_ddl_failure("consumable_alert_log", exc)
 

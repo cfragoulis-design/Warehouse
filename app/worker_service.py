@@ -25,11 +25,14 @@ try:
     from app.auth import hash_pin, require_role
     from app.db import get_db
     from app.kiosk_session import (
+        OfflineAttribution,
+        issue_offline_attribution_token,
+        read_offline_attribution_token,
+        read_worker_session_claims,
         WORKER_SESSION_COOKIE,
         WORKER_SESSION_MAX_AGE_SECONDS,
         issue_worker_session_token,
         read_kiosk_device_uid,
-        read_worker_session_token,
         KIOSK_DEVICE_COOKIE,
     )
     from app.models import User, Worker
@@ -38,11 +41,14 @@ except ImportError:  # pragma: no cover - flat module layout
     from auth import hash_pin, require_role
     from db import get_db
     from kiosk_session import (
+        OfflineAttribution,
+        issue_offline_attribution_token,
+        read_offline_attribution_token,
+        read_worker_session_claims,
         WORKER_SESSION_COOKIE,
         WORKER_SESSION_MAX_AGE_SECONDS,
         issue_worker_session_token,
         read_kiosk_device_uid,
-        read_worker_session_token,
         KIOSK_DEVICE_COOKIE,
     )
     from models import User, Worker
@@ -199,22 +205,43 @@ def request_device_uid(request: Request) -> int:
     return int(uid or 0)
 
 
-def resolve_session_worker(request: Request, db: Session, user: User | None) -> Worker | None:
-    """Worker for this request, or None. The form's worker id is never read."""
+def resolve_session_claims(request: Request, db: Session, user: User | None) -> tuple[Worker, bool] | None:
+    """``(worker, card_verified)`` from the signed session cookie, or None.
+
+    The form's worker id is never read.
+    """
     user_id = getattr(user, "id", None)
     if not user_id:
         return None
-    worker_id = read_worker_session_token(
+    claims = read_worker_session_claims(
         _request_cookies(request).get(WORKER_SESSION_COOKIE),
         user_id=int(user_id),
         device_uid=request_device_uid(request),
     )
-    if worker_id is None:
+    if claims is None:
         return None
-    worker = db.get(Worker, worker_id)
+    worker = db.get(Worker, claims[0])
     if worker is None or not worker.is_active or not worker.pin_hash:
         return None
-    return worker
+    return worker, claims[1]
+
+
+def resolve_session_worker(request: Request, db: Session, user: User | None) -> Worker | None:
+    """Worker for this request, or None. The form's worker id is never read."""
+    claims = resolve_session_claims(request, db, user)
+    return None if claims is None else claims[0]
+
+
+def offline_attribution_token(request: Request, user: User, worker: Worker, card: bool = False) -> str:
+    return issue_offline_attribution_token(int(worker.id), int(user.id), request_device_uid(request), card)
+
+
+def resolve_offline_attribution(request: Request, user: User | None, token: str):
+    """Check a queued take's signed attribution (see kiosk_session)."""
+    user_id = getattr(user, "id", None)
+    if not user_id:
+        return OfflineAttribution("invalid")
+    return read_offline_attribution_token(token, user_id=int(user_id), device_uid=request_device_uid(request))
 
 
 def _cookie_secure(request: Request) -> bool:
@@ -245,8 +272,8 @@ def apply_worker_cookie(response, request: Request, token: str | None):
     return response
 
 
-def issue_session_cookie(response, request: Request, user: User, worker: Worker):
-    token = issue_worker_session_token(int(worker.id), int(user.id), request_device_uid(request))
+def issue_session_cookie(response, request: Request, user: User, worker: Worker, card: bool = False):
+    token = issue_worker_session_token(int(worker.id), int(user.id), request_device_uid(request), card)
     return apply_worker_cookie(response, request, token)
 
 

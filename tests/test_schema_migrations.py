@@ -34,6 +34,17 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20261120_003",
         "20261120_004",
         "20261121_012",
+        "20261121_013",
+        "20261121_014",
+        "20261121_015",
+        "20261121_016",
+        "20261121_017",
+        "20261121_018",
+        "20261121_019",
+        "20261121_020",
+        "20261121_021",
+        "20261122_022",
+        "20261122_023",
     ]
     by_version = {migration.version: migration for migration in catalog}
     profiles_migration = by_version["20260906_001"]
@@ -275,6 +286,55 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
     assert "GRANT SELECT ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_OPERATIONS_PROD_READER" in pins_sql
     assert "DROP TABLE" not in pins_sql
     assert "DELETE FROM" not in pins_sql
+    categories = by_version["20261121_013"]
+    categories_sql = categories.sql.upper()
+    assert "CREATE TABLE IF NOT EXISTS CONSUMABLE_CATEGORY_IMAGES" in categories_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE CONSUMABLE_CATEGORY_IMAGES TO WAREHOUSE_PRODUCTION_APP" in categories_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE CONSUMABLE_CATEGORY_IMAGES_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in categories_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLE_CATEGORY_IMAGES TO WAREHOUSE_OPERATIONS_PROD_READER" in categories_sql
+    assert "DROP TABLE" not in categories_sql
+    keys = by_version["20261121_014"]
+    keys_sql = keys.sql.upper()
+    assert "ADD COLUMN IF NOT EXISTS CLIENT_KEY UUID" in keys_sql
+    assert "UX_CONSUMABLE_MOVEMENTS_CLIENT_KEY" in keys_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_PRODUCTION_APP" in keys_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE CONSUMABLE_MOVEMENTS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in keys_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_OPERATIONS_PROD_READER" in keys_sql
+    assert "DROP TABLE" not in keys_sql
+    alerts = by_version["20261121_015"]
+    alerts_sql = alerts.sql.upper()
+    assert "CREATE TABLE IF NOT EXISTS CONSUMABLE_ALERT_LOG" in alerts_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE CONSUMABLE_ALERT_LOG TO WAREHOUSE_PRODUCTION_APP" in alerts_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE CONSUMABLE_ALERT_LOG_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in alerts_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLE_ALERT_LOG TO WAREHOUSE_OPERATIONS_PROD_READER" in alerts_sql
+    assert "DROP TABLE" not in alerts_sql
+    drafts = by_version["20261121_016"]
+    drafts_sql = drafts.sql.upper()
+    assert "CREATE TABLE IF NOT EXISTS CONSUMABLE_RECEIPT_DRAFTS" in drafts_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE CONSUMABLE_RECEIPT_DRAFTS TO WAREHOUSE_PRODUCTION_APP" in drafts_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE CONSUMABLE_RECEIPT_DRAFTS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in drafts_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLE_RECEIPT_LINES TO WAREHOUSE_OPERATIONS_PROD_READER" in drafts_sql
+    assert "DROP TABLE" not in drafts_sql
+    beats = by_version["20261121_017"]
+    beats_sql = beats.sql.upper()
+    assert "CREATE TABLE IF NOT EXISTS KIOSK_HEARTBEATS" in beats_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE KIOSK_HEARTBEATS TO WAREHOUSE_PRODUCTION_APP" in beats_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE KIOSK_HEARTBEATS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in beats_sql
+    assert "GRANT SELECT ON TABLE KIOSK_SILENCE_ALERTS TO WAREHOUSE_OPERATIONS_PROD_READER" in beats_sql
+    assert "DROP TABLE" not in beats_sql
+    reasons = by_version["20261121_018"]
+    reasons_sql = reasons.sql.upper()
+    assert "ADD COLUMN IF NOT EXISTS REASON VARCHAR(40)" in reasons_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_PRODUCTION_APP" in reasons_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE CONSUMABLE_MOVEMENTS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in reasons_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLE_MOVEMENTS TO WAREHOUSE_OPERATIONS_PROD_READER" in reasons_sql
+    lots = by_version["20261121_019"]
+    lots_sql = lots.sql.upper()
+    assert "CREATE TABLE IF NOT EXISTS CONSUMABLE_LOTS" in lots_sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE CONSUMABLE_LOTS TO WAREHOUSE_PRODUCTION_APP" in lots_sql
+    assert "GRANT USAGE, SELECT ON SEQUENCE CONSUMABLE_LOTS_ID_SEQ TO WAREHOUSE_PRODUCTION_APP" in lots_sql
+    assert "GRANT SELECT ON TABLE CONSUMABLE_LOTS TO WAREHOUSE_OPERATIONS_PROD_READER" in lots_sql
+    assert "DROP TABLE" not in lots_sql
 
 
 def test_runtime_role_identifier_is_explicit_and_bounded() -> None:

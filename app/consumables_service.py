@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import hmac
+from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 from collections import defaultdict
+import uuid
 
-from fastapi import APIRouter, Request, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Request, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import RedirectResponse, JSONResponse, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -12,8 +18,8 @@ try:
     from app.db import acquire_transaction_lock, get_db
     from app.auth import is_warehouse_only, require_role, require_user, verify_pin
     from app.kiosk_session import fold_search, kiosk_ui_enabled
-    from app.consumable_images import initials, jpeg_thumbnail
-    from app.consumption_forecast import days_phrase, forecast_flags
+    from app.consumable_images import initials, jpeg_thumbnail, card_webp
+    from app.consumption_forecast import days_phrase, forecast_flags, runout_label
     from app.order_sheet import build_order_sheet
     from app.worker_service import (
         LOCKED_PIN_MESSAGE,
@@ -23,9 +29,11 @@ try:
         apply_worker_cookie,
         clear_pin_failures,
         issue_session_cookie,
+        offline_attribution_token,
         pin_retry_after,
         record_pin_failure,
-        resolve_session_worker,
+        resolve_offline_attribution,
+        resolve_session_claims,
         resolve_worker_id,
         worker_choices,
         workers_for_admin,
@@ -34,6 +42,7 @@ try:
         User,
         Supplier,
         Consumable,
+        ConsumableCategoryImage,
         ConsumableStock,
         PurchaseOrder,
         PurchaseOrderItem,
@@ -45,8 +54,8 @@ except ImportError:
     from db import acquire_transaction_lock, get_db
     from auth import is_warehouse_only, require_role, require_user, verify_pin
     from kiosk_session import fold_search, kiosk_ui_enabled
-    from consumable_images import initials, jpeg_thumbnail
-    from consumption_forecast import days_phrase, forecast_flags
+    from consumable_images import initials, jpeg_thumbnail, card_webp
+    from consumption_forecast import days_phrase, forecast_flags, runout_label
     from order_sheet import build_order_sheet
     from worker_service import (
         LOCKED_PIN_MESSAGE,
@@ -56,14 +65,16 @@ except ImportError:
         apply_worker_cookie,
         clear_pin_failures,
         issue_session_cookie,
+        offline_attribution_token,
         pin_retry_after,
         record_pin_failure,
-        resolve_session_worker,
+        resolve_offline_attribution,
+        resolve_session_claims,
         resolve_worker_id,
         worker_choices,
         workers_for_admin,
     )
-    from models import User, Supplier, Consumable, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement, Worker
+    from models import User, Supplier, Consumable, ConsumableCategoryImage, ConsumableStock, PurchaseOrder, PurchaseOrderItem, ConsumableMovement, Worker
     from templating import WarehouseJinja2Templates
 
 router = APIRouter()
@@ -93,6 +104,20 @@ def require_consumables_stock_user(user: User = Depends(require_user)) -> User:
     if (getattr(user, "role", "") or "").lower() not in {"admin", "workshop", "warehouse"}:
         raise HTTPException(status_code=303, headers={"Location": "/dashboard"})
     return user
+
+MAX_MOVEMENT_QTY = Decimal("100000")
+
+
+def _movement_qty(raw) -> Decimal:
+    """A typed take/add quantity: finite, positive, sane. Else 0 (rejected)."""
+    try:
+        value = Decimal(str(raw).strip().replace(",", "."))
+    except Exception:
+        return Decimal("0")
+    if not value.is_finite() or value <= 0 or value > MAX_MOVEMENT_QTY:
+        return Decimal("0")
+    return value
+
 
 def _d(x) -> Decimal:
     if x is None:
@@ -220,6 +245,8 @@ def _log_consumable_movement(
     note: str | None = None,
     worker_id: int | None = None,
     pin_verified: bool = False,
+    client_key: uuid.UUID | None = None,
+    reason: str | None = None,
 ) -> None:
     db.add(
         ConsumableMovement(
@@ -231,11 +258,57 @@ def _log_consumable_movement(
             created_by_user_id=getattr(user, "id", None),
             worker_id=worker_id,
             pin_verified=bool(pin_verified and worker_id),
+            client_key=client_key,
+            reason=(reason or "").strip() or None,
             note=(note or "").strip() or None,
         )
     )
 
 
+def _parse_client_key(raw: str) -> uuid.UUID | None:
+    if not isinstance(raw, str):
+        return None
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        return uuid.UUID(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid client key") from exc
+
+
+def _movement_for_key(db: Session, key: uuid.UUID | None) -> ConsumableMovement | None:
+    if key is None:
+        return None
+    return db.query(ConsumableMovement).filter(ConsumableMovement.client_key == key).one_or_none()
+
+
+def _replay_payload(db: Session, movement: ConsumableMovement) -> dict:
+    consumable = db.get(Consumable, movement.consumable_id)
+    data = _consumable_ui_state(db, consumable, _d(movement.stock_after))
+    data["movement_type"] = movement.movement_type
+    data["qty"] = _fmt_qty(movement.qty)
+    data["replayed"] = True
+    data["client_key"] = str(movement.client_key) if movement.client_key else ""
+    if movement.worker_id:
+        worker = db.get(Worker, movement.worker_id)
+        data["worker_id"] = movement.worker_id
+        data["worker_name"] = worker.display_name if worker else ""
+    return data
+
+
+def _commit_or_replay(db: Session, key: uuid.UUID | None):
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if key is None:
+            raise
+        prior = _movement_for_key(db, key)
+        if prior is None:
+            raise
+        return JSONResponse(_replay_payload(db, prior))
+    return None
 def _admin_context_maps(db: Session):
     stock_rows = db.query(ConsumableStock.consumable_id, ConsumableStock.qty).filter(
         ConsumableStock.location_code == WORKSHOP_CODE
@@ -391,6 +464,7 @@ def _attach_forecast(db: Session, rows: list[dict]) -> None:
         row["days_phrase"] = "" if info is None else days_phrase(info["days_left"])
         row["runs_out_before_order"] = bool(info and info["runs_out_before_order"])
         row["weekly_qty"] = "" if info is None else info["weekly_qty"]
+        row["runout_label"] = "" if info is None else runout_label(info.get("runout_date"))
 
 
 @router.get("/consumables")
@@ -432,6 +506,15 @@ def consumables_order_sheet(
     rows = [_admin_row(item, stock_map, on_order_map, suppliers) for item in consumables if item.is_active]
     flags = forecast_flags(db, [row["id"] for row in rows])
     sheets = build_order_sheet(rows, flags)
+    emails = {supplier.name: (supplier.email or "") for supplier in suppliers.values()}
+    from urllib.parse import quote
+    for sheet in sheets:
+        address = emails.get(sheet["supplier_name"], "")
+        sheet["mailto"] = "mailto:%s?subject=%s&body=%s" % (
+            address,
+            quote("Παραγγελία αναλωσίμων"),
+            quote(sheet["message"]),
+        )
     return templates.TemplateResponse(
         "consumables_orders.html",
         {"request": request, "user": user, "sheets": sheets},
@@ -597,12 +680,31 @@ def consumable_image(
     blob = item.image_bytes if item is not None else None
     if not blob:
         raise HTTPException(status_code=404, detail="No image")
+    webp = card_webp(blob)
+    media = "image/webp" if webp[:4] == b"RIFF" else (item.image_content_type or "image/jpeg")
     return Response(
-        content=blob,
-        media_type=item.image_content_type or "image/jpeg",
+        content=webp,
+        media_type=media,
         headers={"Cache-Control": "private, max-age=3600"},
     )
 
+
+
+def _page_version() -> str:
+    try:
+        from app.kiosk_insights import server_version
+    except ImportError:  # pragma: no cover
+        from kiosk_insights import server_version
+    return server_version()
+
+
+def _worker_favorites(db: Session) -> dict[str, list[int]]:
+    """Per-worker quick-picks: recent takes, weighted to this hour and weekday."""
+    try:
+        from app.kiosk_insights import worker_quick_picks
+    except ImportError:  # pragma: no cover
+        from kiosk_insights import worker_quick_picks
+    return worker_quick_picks(db)
 
 
 def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
@@ -629,6 +731,8 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
         pack = _d(c.pack_size) if c.pack_size is not None else Decimal("1")
         category = _category_label(c.category)
         unit = c.unit or "τεμ"
+        cost_pack = _d(getattr(c, "cost_per_pack", None))
+        unit_cost = (cost_pack / pack) if pack > 0 else Decimal("0")
         rows.append({
             "id": c.id,
             "name": c.name,
@@ -641,6 +745,7 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
             "desired_qty": _d(c.desired_qty),
             "on_hand": on_hand,
             "on_hand_display": _fmt_qty(on_hand),
+            "unit_cost": f"{unit_cost.quantize(Decimal('0.01')):.2f}",
             "is_low": is_low,
             "notes": c.notes or "",
             "barcode": c.barcode or "",
@@ -648,6 +753,13 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
         })
     _attach_images(rows, _image_ids(db))
     _attach_forecast(db, rows)
+    try:
+        from app.lots import fifo_hint, tracks_lots
+    except ImportError:
+        from lots import fifo_hint, tracks_lots
+    for row in rows:
+        row["tracks_lots"] = tracks_lots(row.get("category"))
+        row["fifo_hint"] = fifo_hint(db, row["id"]) if row["tracks_lots"] else ""
     return rows, low_count
 
 
@@ -685,6 +797,60 @@ def _take_categories(rows: list[dict]) -> list[dict]:
     return named
 
 
+def _category_image_ids(db: Session) -> dict[str, int]:
+    rows = (
+        db.query(ConsumableCategoryImage.category_name, ConsumableCategoryImage.id)
+        .filter(ConsumableCategoryImage.image_bytes.isnot(None))
+        .all()
+    )
+    return {name: image_id for name, image_id in rows}
+
+
+def _apply_category_images(categories: list[dict], images: dict[str, int]) -> None:
+    for category in categories:
+        category["category_image_id"] = images.get(category["name"])
+
+
+@router.post("/consumables/category-image")
+def category_image_upload(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_editor),
+    category: str = Form(...),
+    file: UploadFile = File(...),
+):
+    del user
+    name = (category or "").strip()
+    if not name or name == OTHER_CATEGORY_LABEL:
+        raise HTTPException(status_code=400, detail="Η κατηγορία δεν δέχεται φωτογραφία")
+    raw = file.file.read()
+    try:
+        blob = jpeg_thumbnail(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Η εικόνα δεν διαβάστηκε") from exc
+    row = db.query(ConsumableCategoryImage).filter_by(category_name=name).one_or_none()
+    if row is None:
+        row = ConsumableCategoryImage(category_name=name)
+        db.add(row)
+    row.image_bytes = blob
+    row.image_content_type = "image/jpeg"
+    db.commit()
+    return JSONResponse({"ok": True, "id": row.id, "category": name})
+
+
+@router.get("/consumables/category-image/{image_id}")
+def category_image(
+    image_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+):
+    del user
+    row = db.get(ConsumableCategoryImage, image_id)
+    blob = row.image_bytes if row is not None else None
+    if not blob:
+        raise HTTPException(status_code=404, detail="No image")
+    return Response(content=blob, media_type=row.image_content_type or "image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+
 @router.get("/consumables/take")
 def consumables_take_page(request: Request, db: Session = Depends(get_db), user: User = Depends(require_consumables_stock_user)):
     rows, low_count = _workshop_consumable_rows(db)
@@ -698,8 +864,32 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
         .limit(12)
         .all()
     )
+    try:
+        from app.accountability import threshold_value
+    except ImportError:
+        from accountability import threshold_value
+    high_value = threshold_value(db)
 
-    return templates.TemplateResponse(
+    categories = _take_categories(rows)
+    _apply_category_images(categories, _category_image_ids(db))
+    count_items = []
+    if kiosk_ui_enabled(request, user):
+        from datetime import datetime, timezone
+        from decimal import Decimal as _Dec
+        try:
+            from app.mini_count import count_is_due, pick_count_items
+        except ImportError:
+            from mini_count import count_is_due, pick_count_items
+        if count_is_due(db, datetime.now(timezone.utc)):
+            variances = {}
+            for cid, qty in db.query(ConsumableMovement.consumable_id, ConsumableMovement.qty).filter(ConsumableMovement.reason.isnot(None)):
+                variances[int(cid)] = variances.get(int(cid), _Dec("0")) + abs(_d(qty))
+            count_items = pick_count_items(
+                [{"id": row["id"], "name": row["name"], "on_hand_display": row["on_hand_display"], "stock_value": row["on_hand"], "pack_size": row["pack_size"], "unit": row["unit"]} for row in rows],
+                variances,
+            )
+    nextgen = _nextgen_config(db) if kiosk_ui_enabled(request, user) else {}
+    response = templates.TemplateResponse(
         "consumables_take.html",
         {
             "request": request,
@@ -709,15 +899,36 @@ def consumables_take_page(request: Request, db: Session = Depends(get_db), user:
             "recent": recent,
             "kiosk": kiosk_ui_enabled(request, user),
             "kiosk_cat": request.query_params.get("cat") if kiosk_ui_enabled(request, user) else None,
-            "categories": _take_categories(rows),
+            "categories": categories,
+            "count_items": count_items,
             "workers": worker_choices(active_workers(db)),
+            "high_value": high_value,
             "runout_items": [
-                {"id": row["id"], "name": row["name"], "days_left": row["days_left"]}
+                {"id": row["id"], "name": row["name"], "days_left": row["days_left"], "runout": row.get("runout_label", "")}
                 for row in rows
                 if row.get("days_left") is not None
             ],
+            "favorites": _worker_favorites(db),
+            "page_version": _page_version(),
+            "nextgen": nextgen,
         },
     )
+    if nextgen.get("vision") or nextgen.get("voice_take"):
+        response.headers["X-Kiosk-Media"] = "1"
+    return response
+
+
+def _nextgen_config(db: Session) -> dict:
+    """Kiosk next-gen switches for the take page; {} (nothing rendered) when all are off."""
+    try:
+        from app.kiosk_nextgen import kiosk_page_config
+    except ImportError:  # pragma: no cover
+        from kiosk_nextgen import kiosk_page_config
+    try:
+        return kiosk_page_config(db)
+    except Exception:
+        db.rollback()
+        return {}
 
 
 @router.get("/consumables/take/stock")
@@ -749,10 +960,14 @@ def consumables_take_stock(
     )
 
 
-def _session_payload(worker: Worker | None) -> dict:
+def _session_payload(worker: Worker | None, request: Request | None = None, user: User | None = None, card: bool = False) -> dict:
     if worker is None:
         return {"ok": False}
-    return {"ok": True, "name": worker.display_name}
+    payload = {"ok": True, "name": worker.display_name, "worker_id": worker.id, "card": bool(card)}
+    if request is not None and user is not None:
+        # Kept by the kiosk with any take it has to queue offline.
+        payload["queue_token"] = offline_attribution_token(request, user, worker, card)
+    return payload
 
 
 @router.get("/consumables/take/session")
@@ -761,8 +976,35 @@ def worker_session_status(
     db: Session = Depends(get_db),
     user: User = Depends(require_consumables_stock_user),
 ):
-    worker = resolve_session_worker(request, db, user)
-    return JSONResponse(_session_payload(worker), headers={"Cache-Control": "no-store"})
+    claims = resolve_session_claims(request, db, user)
+    worker, card = claims if claims is not None else (None, False)
+    return JSONResponse(_session_payload(worker, request, user, card), headers={"Cache-Control": "no-store"})
+
+
+def _card_matches(worker: Worker, card_uid: str) -> bool:
+    expected = (worker.card_uid or "").strip().casefold()
+    supplied = (card_uid or "").strip().casefold()
+    return bool(expected and supplied) and hmac.compare_digest(expected.encode("utf-8"), supplied.encode("utf-8"))
+
+
+@router.post("/consumables/take/card")
+def worker_card_lookup(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+    card_uid: str = Form(""),
+):
+    """A scanned card picks its worker. Card codes are never sent to the page."""
+    del user
+    code = (card_uid or "").strip()
+    if not code or len(code) > 64:
+        return JSONResponse({"ok": False}, status_code=404)
+    for worker in active_workers(db):
+        if _card_matches(worker, code):
+            return JSONResponse(
+                {"ok": True, "worker_id": worker.id, "name": worker.display_name, "has_pin": bool(worker.pin_hash)},
+                headers={"Cache-Control": "no-store"},
+            )
+    return JSONResponse({"ok": False}, status_code=404)
 
 
 @router.post("/consumables/take/session")
@@ -772,6 +1014,7 @@ def worker_session_start(
     user: User = Depends(require_consumables_stock_user),
     worker_id: str = Form(""),
     pin: str = Form(""),
+    card_uid: str = Form(""),
 ):
     # The PIN is checked and discarded. It is not written to a log or a response.
     chosen = resolve_worker_id(db, worker_id)
@@ -795,8 +1038,19 @@ def worker_session_start(
             )
         return JSONResponse({"ok": False, "message": WRONG_PIN_MESSAGE}, status_code=401)
     clear_pin_failures(worker.id)
-    response = JSONResponse({"ok": True, "name": worker.display_name})
-    return issue_session_cookie(response, request, user, worker)
+    card = False
+    if isinstance(card_uid, str) and card_uid.strip():
+        if not _card_matches(worker, card_uid):
+            return JSONResponse({"ok": False, "message": CARD_MISMATCH_MESSAGE}, status_code=403)
+        card = True
+    payload = _session_payload(worker, request, user, card)
+    try:
+        from app.kiosk_nextgen import note_session_start
+    except ImportError:  # pragma: no cover
+        from kiosk_nextgen import note_session_start
+    note_session_start(db, worker.id)
+    response = JSONResponse(payload)
+    return issue_session_cookie(response, request, user, worker, card)
 
 
 @router.post("/consumables/take/session/touch")
@@ -805,11 +1059,13 @@ def worker_session_touch(
     db: Session = Depends(get_db),
     user: User = Depends(require_consumables_stock_user),
 ):
-    worker = resolve_session_worker(request, db, user)
-    response = JSONResponse(_session_payload(worker), headers={"Cache-Control": "no-store"})
-    if worker is None:
+    claims = resolve_session_claims(request, db, user)
+    if claims is None:
+        response = JSONResponse(_session_payload(None), headers={"Cache-Control": "no-store"})
         return apply_worker_cookie(response, request, None)
-    return issue_session_cookie(response, request, user, worker)
+    worker, card = claims
+    response = JSONResponse(_session_payload(worker, request, user, card), headers={"Cache-Control": "no-store"})
+    return issue_session_cookie(response, request, user, worker, card)
 
 
 @router.post("/consumables/take/session/end")
@@ -822,12 +1078,147 @@ def worker_session_end(
     return apply_worker_cookie(response, request, None)
 
 
-def _movement_worker(request: Request, db: Session, user: User) -> tuple[int | None, bool, Worker | None]:
-    """Attribute a movement only from the signed session, never from the form."""
-    worker = resolve_session_worker(request, db, user)
-    if worker is None:
-        return None, False, None
-    return int(worker.id), True, worker
+CARD_MISMATCH_MESSAGE = "Η κάρτα δεν ανήκει σε αυτόν τον εργαζόμενο"
+CARD_REQUIRED_MESSAGE = "Χρειάζεται κάρτα"
+OFFLINE_EXPIRED_NOTE = "εκτός σύνδεσης · χωρίς επιβεβαίωση εργαζομένου (έληξε)"
+
+
+@dataclass
+class _Attribution:
+    worker_id: int | None = None
+    pin_verified: bool = False
+    session_worker: Worker | None = None  # only for a live session (cookie)
+    card: bool = False
+    note_suffix: str = ""
+    offline: bool = False
+
+
+def _movement_worker(request: Request, db: Session, user: User, queue_token: str = "") -> _Attribution:
+    """Attribute a movement only from signed proof, never from the form.
+
+    A live take uses the worker session cookie. A take replayed from the
+    offline queue carries the signed attribution token issued at PIN time and
+    is credited to that worker. A token with a bad signature, or bound to
+    another login/device, is rejected (403); an expired one still records the
+    stock movement, but unattributed and marked as such.
+    """
+    token = queue_token.strip() if isinstance(queue_token, str) else ""
+    if token:
+        result = resolve_offline_attribution(request, user, token)
+        if result.status == "invalid":
+            raise HTTPException(status_code=403, detail="Invalid offline attribution")
+        if result.status == "expired":
+            return _Attribution(note_suffix=OFFLINE_EXPIRED_NOTE, offline=True)
+        worker = db.get(Worker, result.worker_id)
+        if worker is None or not worker.is_active:
+            return _Attribution(note_suffix=OFFLINE_EXPIRED_NOTE, offline=True)
+        return _Attribution(int(worker.id), True, None, result.card, "εκτός σύνδεσης", True)
+    claims = resolve_session_claims(request, db, user)
+    if claims is None:
+        return _Attribution()
+    worker, card = claims
+    return _Attribution(int(worker.id), True, worker, card)
+
+
+def _audit_offline_replay(db: Session, request: Request, user: User, c: Consumable, movement_type: str, qty: str, key, outcome: str, *, commit: bool) -> None:
+    """Durable trace of a queued kiosk movement the server could not credit.
+
+    The kiosk drops a refused item from its local queue (retrying would never
+    succeed), so the evidence lives here for the admin to review.
+    """
+    try:
+        from app.audit import correlation_id_for_request, record_audit_event
+    except ImportError:
+        from audit import correlation_id_for_request, record_audit_event
+    record_audit_event(
+        db,
+        actor=user,
+        action=f"consumable.offline_replay.{outcome}",
+        entity_type="consumable",
+        entity_id=c.id,
+        before=None,
+        after={"movement_type": movement_type, "qty": str(qty)[:32], "client_key": str(key or "")[:64], "item": c.name},
+        reason=OFFLINE_OUTCOME_REASONS.get(outcome),
+        correlation_id=correlation_id_for_request(request),
+    )
+    if commit:
+        db.commit()
+
+
+OFFLINE_OUTCOME_REASONS = {
+    "rejected_signature": "Κίνηση εκτός σύνδεσης με μη έγκυρη υπογραφή εργαζομένου",
+    "rejected_card": "Ακριβό είδος εκτός σύνδεσης χωρίς επιβεβαίωση κάρτας",
+    "rejected_stock": "Κίνηση εκτός σύνδεσης χωρίς διαθέσιμο απόθεμα",
+    "unverified": "Κίνηση εκτός σύνδεσης χωρίς επιβεβαίωση εργαζομένου",
+}
+
+
+def _resolve_mover(request: Request, db: Session, user: User, c: Consumable, movement_type: str, qty: str, key, queue_token: str) -> _Attribution:
+    try:
+        return _movement_worker(request, db, user, queue_token)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            db.rollback()
+            _audit_offline_replay(db, request, user, c, movement_type, qty, key, "rejected_signature", commit=True)
+        raise
+
+
+def _unit_cost(c: Consumable) -> Decimal:
+    pack = _d(c.pack_size) if c.pack_size is not None and _d(c.pack_size) > 0 else Decimal("1")
+    return _d(getattr(c, "cost_per_pack", None)) / pack
+
+
+def requires_card(db: Session, c: Consumable, amount: Decimal) -> bool:
+    """Same rule as the take screen: unit cost × quantity at or above the bar."""
+    try:
+        from app.accountability import threshold_value
+    except ImportError:
+        from accountability import threshold_value
+    limit = threshold_value(db)
+    return limit > 0 and _unit_cost(c) * amount >= limit
+
+
+def _json_error(request: Request, status: int, message: str, code: str | None = None):
+    if _wants_json(request):
+        body = {"ok": False, "message": message}
+        if code:
+            body["code"] = code
+        return JSONResponse(body, status_code=status)
+    raise HTTPException(status_code=status, detail=message)
+
+
+def _finish_movement(request: Request, db: Session, user: User, c: Consumable, stock_after: Decimal, amount: Decimal, movement_type: str, who: _Attribution, ok_url: str):
+    if _wants_json(request):
+        data = _consumable_ui_state(db, c, stock_after)
+        data['movement_type'] = movement_type
+        data['qty'] = _fmt_qty(amount)
+        if who.offline:
+            data['offline_replay'] = True
+            if who.worker_id is not None:
+                worker = db.get(Worker, who.worker_id)
+                data['worker_id'] = who.worker_id
+                data['worker_name'] = worker.display_name if worker is not None else ""
+            return JSONResponse(data)
+        if who.session_worker is not None:
+            data['worker_id'] = who.session_worker.id
+            data['worker_name'] = who.session_worker.display_name
+            data['queue_token'] = offline_attribution_token(request, user, who.session_worker, who.card)
+        response = JSONResponse(data)
+        if who.session_worker is not None:
+            issue_session_cookie(response, request, user, who.session_worker, who.card)
+        return response
+    response = RedirectResponse(ok_url, status_code=303)
+    if who.session_worker is not None:
+        issue_session_cookie(response, request, user, who.session_worker, who.card)
+    return response
+
+
+def _schedule_alerts(background_tasks: BackgroundTasks | None) -> None:
+    try:
+        from app.alert_dispatch import schedule_consumable_alerts
+    except ImportError:
+        from alert_dispatch import schedule_consumable_alerts
+    schedule_consumable_alerts(background_tasks)
 
 
 @router.post("/consumables/{cid}/take")
@@ -839,14 +1230,22 @@ def consumable_take_submit(
     qty: str = Form(...),
     note: str = Form(""),
     worker_id: str = Form(""),
+    client_key: str = Form(""),
+    queue_token: str = Form(""),
+    background_tasks: BackgroundTasks = None,
 ):
     c = db.get(Consumable, cid)
     if not c or not c.is_active:
         raise HTTPException(404)
 
-    del worker_id  # attribution comes from the signed session cookie
-    chosen_id, pin_verified, session_worker = _movement_worker(request, db, user)
-    amount = _d(qty)
+    key = _parse_client_key(client_key)
+    prior = _movement_for_key(db, key)
+    if prior is not None:
+        return JSONResponse(_replay_payload(db, prior))
+
+    del worker_id  # attribution comes from signed proof only
+    who = _resolve_mover(request, db, user, c, "OUT", qty, key, queue_token)
+    amount = _movement_qty(qty)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
 
@@ -855,11 +1254,22 @@ def consumable_take_submit(
     if amount > before:
         amount = before
     if amount <= 0:
+        if who.offline:
+            db.rollback()
+            _audit_offline_replay(db, request, user, c, "OUT", qty, key, "rejected_stock", commit=True)
         if _wants_json(request):
             return JSONResponse({'ok': False, 'message': 'No available stock'}, status_code=409)
         return RedirectResponse("/consumables/take?empty=1", status_code=303)
+    if requires_card(db, c, amount) and not who.card:
+        db.rollback()
+        if who.offline:
+            _audit_offline_replay(db, request, user, c, "OUT", qty, key, "rejected_card", commit=True)
+        return _json_error(request, 403, CARD_REQUIRED_MESSAGE, "card_required")
+    if who.offline and who.worker_id is None:
+        _audit_offline_replay(db, request, user, c, "OUT", qty, key, "unverified", commit=False)
 
     st.qty = before - amount
+    base_note = note or "Λήψη από το ταμπλό αποθήκης"
     _log_consumable_movement(
         db,
         consumable_id=cid,
@@ -867,26 +1277,48 @@ def consumable_take_submit(
         qty=amount,
         stock_after=_d(st.qty),
         user=user,
-        note=note or "Λήψη από το ταμπλό αποθήκης",
-        worker_id=chosen_id,
-        pin_verified=pin_verified,
+        note=f"{base_note} · {who.note_suffix}" if who.note_suffix else base_note,
+        worker_id=who.worker_id,
+        pin_verified=who.pin_verified,
+        client_key=key,
     )
-    db.commit()
-    if _wants_json(request):
-        data = _consumable_ui_state(db, c, _d(st.qty))
-        data['movement_type'] = 'OUT'
-        data['qty'] = _fmt_qty(amount)
-        if session_worker is not None:
-            data['worker_id'] = session_worker.id
-            data['worker_name'] = session_worker.display_name
-        response = JSONResponse(data)
-        if session_worker is not None:
-            issue_session_cookie(response, request, user, session_worker)
-        return response
-    response = RedirectResponse("/consumables/take?ok=1", status_code=303)
-    if session_worker is not None:
-        issue_session_cookie(response, request, user, session_worker)
-    return response
+    try:
+        from app.lots import consume_fifo, tracks_lots
+    except ImportError:
+        from lots import consume_fifo, tracks_lots
+    if tracks_lots(c.category):
+        consume_fifo(db, c.id, amount)
+    replay = _commit_or_replay(db, key)
+    if replay is not None:
+        return replay
+    _schedule_alerts(background_tasks)
+    return _finish_movement(request, db, user, c, _d(st.qty), amount, "OUT", who, "/consumables/take?ok=1")
+
+
+def parse_lot_entry(c: Consumable, lot_code: str, expiry: str, *, today: date | None = None) -> tuple[str, date] | None:
+    """Validate an optional lot + expiry typed on receive. Both or neither."""
+    code = (lot_code or "").strip() if isinstance(lot_code, str) else ""
+    raw = (expiry or "").strip() if isinstance(expiry, str) else ""
+    if not code and not raw:
+        return None
+    try:
+        from app.lots import tracks_lots
+    except ImportError:
+        from lots import tracks_lots
+    if not tracks_lots(c.category):
+        raise ValueError("Το είδος δεν παρακολουθείται με παρτίδες")
+    if not code or not raw:
+        raise ValueError("Χρειάζονται και παρτίδα και λήξη")
+    if len(code) > 80:
+        raise ValueError("Η παρτίδα είναι πολύ μεγάλη")
+    try:
+        when = date.fromisoformat(raw[:10])
+    except ValueError as exc:
+        raise ValueError("Μη έγκυρη ημερομηνία λήξης") from exc
+    current = today or datetime.now(ZoneInfo("Europe/Athens")).date()
+    if when < current:
+        raise ValueError("Η λήξη έχει ήδη περάσει")
+    return code, when
 
 
 @router.post("/consumables/{cid}/add")
@@ -898,23 +1330,42 @@ def consumable_add_submit(
     qty: str = Form(...),
     note: str = Form(""),
     worker_id: str = Form(""),
+    client_key: str = Form(""),
+    lot_code: str = Form(""),
+    expiry: str = Form(""),
+    queue_token: str = Form(""),
+    background_tasks: BackgroundTasks = None,
 ):
     c = db.get(Consumable, cid)
     if not c or not c.is_active:
         raise HTTPException(404)
 
-    del worker_id  # attribution comes from the signed session cookie
-    chosen_id, pin_verified, session_worker = _movement_worker(request, db, user)
-    amount = _d(qty)
+    key = _parse_client_key(client_key)
+    prior = _movement_for_key(db, key)
+    if prior is not None:
+        return JSONResponse(_replay_payload(db, prior))
+
+    del worker_id  # attribution comes from signed proof only
+    who = _resolve_mover(request, db, user, c, "IN", qty, key, queue_token)
+    amount = _movement_qty(qty)
     if amount <= 0:
         if _wants_json(request):
             return JSONResponse({'ok': False, 'message': 'Quantity must be greater than zero'}, status_code=400)
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
+    try:
+        lot = parse_lot_entry(c, lot_code, expiry)
+    except ValueError as exc:
+        return _json_error(request, 400, str(exc), "lot_invalid")
 
     st = _stock_for_update(db, cid)
     before = _d(st.qty)
     st.qty = before + amount
+    if who.offline and who.worker_id is None:
+        _audit_offline_replay(db, request, user, c, "IN", qty, key, "unverified", commit=False)
 
+    base_note = note or "Προσθήκη από το ταμπλό αποθήκης"
+    if lot is not None:
+        base_note = f"{base_note} · παρτίδα {lot[0]} λήξη {lot[1].isoformat()}"
     _log_consumable_movement(
         db,
         consumable_id=cid,
@@ -922,27 +1373,22 @@ def consumable_add_submit(
         qty=amount,
         stock_after=_d(st.qty),
         user=user,
-        note=note or "Προσθήκη από το ταμπλό αποθήκης",
-        worker_id=chosen_id,
-        pin_verified=pin_verified,
+        note=f"{base_note} · {who.note_suffix}" if who.note_suffix else base_note,
+        worker_id=who.worker_id,
+        pin_verified=who.pin_verified,
+        client_key=key,
     )
-    db.commit()
-
-    if _wants_json(request):
-        data = _consumable_ui_state(db, c, _d(st.qty))
-        data['movement_type'] = 'IN'
-        data['qty'] = _fmt_qty(amount)
-        if session_worker is not None:
-            data['worker_id'] = session_worker.id
-            data['worker_name'] = session_worker.display_name
-        response = JSONResponse(data)
-        if session_worker is not None:
-            issue_session_cookie(response, request, user, session_worker)
-        return response
-    response = RedirectResponse("/consumables/take?added=1", status_code=303)
-    if session_worker is not None:
-        issue_session_cookie(response, request, user, session_worker)
-    return response
+    if lot is not None:
+        try:
+            from app.lots import receive_lot
+        except ImportError:
+            from lots import receive_lot
+        receive_lot(db, c.id, lot[0], lot[1], amount)
+    replay = _commit_or_replay(db, key)
+    if replay is not None:
+        return replay
+    _schedule_alerts(background_tasks)
+    return _finish_movement(request, db, user, c, _d(st.qty), amount, "IN", who, "/consumables/take?added=1")
 
 
 @router.get("/consumables/movements")
@@ -1230,15 +1676,19 @@ def po_view(po_id: int, request: Request, db: Session = Depends(get_db), user: U
     supplier = db.get(Supplier, po.supplier_id)
 
     items = (
-        db.query(PurchaseOrderItem, Consumable.name)
+        db.query(PurchaseOrderItem, Consumable.name, Consumable.category)
         .join(Consumable, Consumable.id == PurchaseOrderItem.consumable_id)
         .filter(PurchaseOrderItem.purchase_order_id == po_id)
         .order_by(Consumable.name.asc())
         .all()
     )
+    try:
+        from app.lots import tracks_lots
+    except ImportError:
+        from lots import tracks_lots
 
     rows = []
-    for it, cname in items:
+    for it, cname, category in items:
         ordered = _d(it.qty_ordered)
         received = _d(it.qty_received)
         remaining = ordered - received
@@ -1258,12 +1708,27 @@ def po_view(po_id: int, request: Request, db: Session = Depends(get_db), user: U
             "remaining": remaining,
             "ordered_packs": ordered_packs,
             "remaining_packs": remaining_packs,
+            "lots": tracks_lots(category),
         })
 
     return templates.TemplateResponse(
         "purchase_order_view.html",
-        {"request": request, "user": user, "po": po, "supplier": supplier, "rows": rows},
+        {
+            "request": request,
+            "user": user,
+            "po": po,
+            "supplier": supplier,
+            "rows": rows,
+            "err": (request.query_params.get("err") or "")[:200],
+            "today": datetime.now(ZoneInfo("Europe/Athens")).date().isoformat(),
+        },
     )
+
+
+def _po_error(po_id: int, message: str) -> RedirectResponse:
+    from urllib.parse import quote
+
+    return RedirectResponse(f"/purchase-orders/{po_id}?err={quote(message)}", status_code=303)
 
 
 @router.post("/purchase-orders/{po_id}/receive")
@@ -1283,14 +1748,27 @@ async def po_receive(
     if not items:
         return RedirectResponse(f"/purchase-orders/{po_id}", status_code=303)
 
+    # Validate every row (quantity and optional lot) before touching stock.
+    planned: list[tuple[PurchaseOrderItem, Decimal, tuple[str, date] | None]] = []
+    for it in items:
+        raw = str(form.get(f"recv_{it.id}", "")).strip()
+        if not raw or raw.replace(",", ".").strip("0.") == "":
+            planned.append((it, Decimal("0"), None))
+            continue
+        add = _movement_qty(raw)
+        if add <= 0:
+            return _po_error(po_id, "Μη έγκυρη ποσότητα παραλαβής")
+        consumable = db.get(Consumable, it.consumable_id)
+        try:
+            lot = parse_lot_entry(consumable, str(form.get(f"lot_{it.id}", "")), str(form.get(f"expiry_{it.id}", "")))
+        except ValueError as exc:
+            return _po_error(po_id, f"{consumable.name}: {exc}")
+        planned.append((it, add, lot))
+
     any_received = False
     all_fully_received = True
 
-    for it in items:
-        key = f"recv_{it.id}"
-        raw = str(form.get(key, "")).strip()
-        add = _d(raw) if raw else Decimal("0")
-
+    for it, add, lot in planned:
         ordered = _d(it.qty_ordered)
         received = _d(it.qty_received)
         remaining = ordered - received
@@ -1311,6 +1789,9 @@ async def po_receive(
         # Update WORKSHOP stock
         st = _stock_for_update(db, it.consumable_id)
         st.qty = _d(st.qty) + add
+        note = f"Received from PO #{po.id}"
+        if lot is not None:
+            note = f"{note} · παρτίδα {lot[0]} λήξη {lot[1].isoformat()}"
         _log_consumable_movement(
             db,
             consumable_id=it.consumable_id,
@@ -1318,8 +1799,14 @@ async def po_receive(
             qty=add,
             stock_after=_d(st.qty),
             user=user,
-            note=f"Received from PO #{po.id}",
+            note=note,
         )
+        if lot is not None:
+            try:
+                from app.lots import receive_lot
+            except ImportError:
+                from lots import receive_lot
+            receive_lot(db, it.consumable_id, lot[0], lot[1], add)
 
         if _d(it.qty_received) < ordered:
             all_fully_received = False
