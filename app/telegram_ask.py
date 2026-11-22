@@ -517,6 +517,19 @@ def _content_text(text: str, parsed: Parsed) -> str:
     return " ".join(keep) or (text or "").strip()
 
 
+def _last_take(db: Session, item_id: int) -> str:
+    moment = (
+        db.query(func.max(ConsumableMovement.created_at))
+        .filter(ConsumableMovement.consumable_id == item_id, ConsumableMovement.movement_type == "OUT")
+        .scalar()
+    )
+    if moment is None:
+        return ""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(ATHENS).strftime("%d/%m/%Y")
+
+
 def answer_stock(db: Session, parsed: Parsed, text: str, now: datetime) -> str:
     items = db.query(Consumable).filter(Consumable.is_active.is_(True)).all()
     if not parsed.words:
@@ -542,6 +555,10 @@ def answer_stock(db: Session, parsed: Parsed, text: str, now: datetime) -> str:
         days = _days_text(flags.get(int(item.id)))
         if days:
             extra.append(days)
+        elif len(matched) <= 3:
+            last = _last_take(db, int(item.id))
+            if last:
+                extra.append(f"τελευταία λήψη {last}")
         if extra:
             line += " — " + ", ".join(extra)
         lines.append(line)

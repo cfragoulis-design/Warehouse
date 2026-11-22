@@ -49,7 +49,7 @@ except ImportError:  # pragma: no cover - flat module layout
 ATHENS = ZoneInfo("Europe/Athens")
 UNDO_NOTE = "Αναίρεση"
 HISTORY_DAYS = 180
-HALF_LIFE_DAYS = 45.0
+HALF_LIFE_DAYS = 21.0  # backtest on the restored data: 14→74%, 21→74%, 30→76%, 45→78% WAPE; shorter = less bias
 MIN_SPAN_DAYS = 28
 MAX_PROJECTION_DAYS = 365
 

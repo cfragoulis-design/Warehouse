@@ -148,7 +148,7 @@
       </table>
       <details><summary>Ανά είδος</summary>
         <table><thead><tr><th>Είδος</th><th class="num">Πραγματικά</th><th class="num">Αυτή</th><th class="num">8 εβδ.</th><th class="num">28 μέρες</th></tr></thead><tbody>
-        {% for r in backtest.per_item %}<tr><td>{{ r.name }}</td><td class="num">{{ r.actual }}</td>
+        {% for r in backtest.per_item if r.actual > 0 %}<tr><td>{{ r.name }}</td><td class="num">{{ r.actual }}</td>
           {% for key in ['wape_smart','wape_existing_8w','wape_naive_28d'] %}<td class="num">{% if r[key] is not none %}{{ (r[key] * 100)|round|int }}%{% else %}—{% endif %}</td>{% endfor %}</tr>{% endfor %}
         </tbody></table>
       </details>
