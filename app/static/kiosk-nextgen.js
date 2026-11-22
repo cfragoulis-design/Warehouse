@@ -26,7 +26,7 @@
 
   function el(tag, cls){ const n = document.createElement(tag); if(cls) n.className = cls; return n; }
   function esc(v){ return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  function refreshDock(){ dock.hidden = camBtn.hidden && micBtn.hidden && preview.hidden; }
+  function refreshDock(){ dock.hidden = camBtn.hidden && micBtn.hidden && preview.hidden; document.body.classList.toggle('ngHasDock', !dock.hidden); }
   function closePanel(){ panel.hidden = true; panel.innerHTML = ''; }
   function say(url){ try { const a = new Audio(url); a.play().catch(()=>{}); } catch (err) {} }
   function candidateCard(c, best, actions){
@@ -53,7 +53,7 @@
     refreshDock();
     if(changed || !detectHardware.sent){
       detectHardware.sent = true;
-      fetch('/consumables/take/nextgen/hardware', {method:'POST', headers:Object.assign({'Content-Type':'application/json'}, AJAX), body: JSON.stringify({camera: hw.camera, mic: hw.mic, speech: !!(SR && !speechFailed()) || !!cfg.server_stt})}).catch(()=>{});
+      fetch('/consumables/take/nextgen/hardware', {method:'POST', headers:Object.assign({'Content-Type':'application/json'}, AJAX), body: JSON.stringify({camera: hw.camera, mic: hw.mic, speech: !!(SR && !speechFailed()) || !!cfg.server_stt})}).then(r => r.text()).catch(()=>{});
     }
   }
   if(navigator.mediaDevices && navigator.mediaDevices.addEventListener){
@@ -154,7 +154,7 @@
   function learn(id){
     if(!lastFrame) return;
     const fd = new FormData(); fd.append('consumable_id', String(id)); fd.append('frame', lastFrame, 'frame.jpg');
-    fetch('/consumables/take/nextgen/vision/learn', {method:'POST', body:fd, headers:AJAX}).catch(()=>{});
+    fetch('/consumables/take/nextgen/vision/learn', {method:'POST', body:fd, headers:AJAX}).then(r => r.text()).catch(()=>{});
     lastFrame = null;
   }
   function showVision(data){

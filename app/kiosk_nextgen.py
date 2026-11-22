@@ -169,7 +169,7 @@ _last_check: datetime | None = None
 CHECK_EVERY = timedelta(minutes=5)
 
 
-def run_daily_jobs(db: Session, *, now: datetime | None = None, send=None) -> dict:
+def run_daily_jobs(db: Session, *, now: datetime | None = None, send=None, reorder_send=None) -> dict:
     """Morning report (once per Athens day after its time) and reorder drafts.
 
     Safe to call often: each job claims its day/supplier first.
@@ -177,6 +177,17 @@ def run_daily_jobs(db: Session, *, now: datetime | None = None, send=None) -> di
     moment = now or datetime.now(timezone.utc)
     local = moment.astimezone(ATHENS)
     result: dict = {"report": None, "reorder": None}
+    if flag_on(db, SMART_VOICE):
+        # The free read-aloud endpoint sometimes answers empty: fill missing greetings quietly.
+        try:
+            from app.kiosk_voice import prewarm_greetings
+        except ImportError:  # pragma: no cover
+            from kiosk_voice import prewarm_greetings
+        try:
+            result["voices"] = prewarm_greetings(db, now=moment, attempts=1)
+        except Exception:
+            logger.exception("greeting prewarm failed")
+            db.rollback()
     try:
         from app.alert_dispatch import telegram_alerts_enabled
     except ImportError:  # pragma: no cover
@@ -196,7 +207,7 @@ def run_daily_jobs(db: Session, *, now: datetime | None = None, send=None) -> di
             from app.auto_reorder import offer_reorder_drafts
         except ImportError:  # pragma: no cover
             from auto_reorder import offer_reorder_drafts
-        result["reorder"] = offer_reorder_drafts(db, now=moment, send=send)
+        result["reorder"] = offer_reorder_drafts(db, now=moment, send=reorder_send)
     return result
 
 

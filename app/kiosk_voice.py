@@ -13,6 +13,7 @@ import hashlib
 import logging
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -51,11 +52,30 @@ def latin_to_greek(word: str) -> str:
     return text[:1].upper() + text[1:]
 
 
+_GREEK_VOWEL_GROUP = re.compile(r"(αι|ει|οι|ου|αυ|ευ|υι|[αεηιουωάέήίόύώϊϋΐΰ])")
+
+
+def vocative(name: str) -> str:
+    """Greek vocative for a greeting: Βασιλάκης -> Βασιλάκη, Νίκος -> Νίκο,
+    Αλέξανδρος -> Αλέξανδρε, Λουκάς -> Λουκά. Other endings stay as they are."""
+    parts = name.split("-")
+    out = []
+    for part in parts:
+        low = part.lower()
+        if low.endswith(("ης", "ής", "ας", "άς")):
+            part = part[:-1]
+        elif low.endswith(("ος", "ός")):
+            syllables = len(_GREEK_VOWEL_GROUP.findall(re.sub(r"γι(?=[αεηοωυάέήόώύ])", "γ", low)))
+            part = part[:-2] + (part[-2] if syllables <= 2 else "ε")
+        out.append(part)
+    return "-".join(out)
+
+
 def default_spoken_name(display_name: str) -> str:
     """First name only (\"Volodymyr K.\" -> \"Βολοντιμιρ\", \"Μαρία-Μάρθα Λ.\" -> \"Μαρία-Μάρθα\")."""
     parts = [part for part in (display_name or "").split() if not re.fullmatch(r"\w\.?", part)]
     first = parts[0] if parts else (display_name or "").strip()
-    return latin_to_greek(first) if re.search(r"[A-Za-z]", first) else first
+    return latin_to_greek(first) if re.search(r"[A-Za-z]", first) else vocative(first)
 
 
 def spoken_name(db: Session, worker: Worker) -> str:
@@ -129,7 +149,7 @@ def set_synthesizer(func) -> None:
     _synth = func or _edge_tts_synthesize
 
 
-def get_clip(db: Session, text: str, *, generate: bool = True, voice: str = VOICE) -> bytes | None:
+def get_clip(db: Session, text: str, *, generate: bool = True, voice: str = VOICE, attempts: int = 1) -> bytes | None:
     text = (text or "").strip()[:MAX_TEXT]
     if not text:
         return None
@@ -139,11 +159,17 @@ def get_clip(db: Session, text: str, *, generate: bool = True, voice: str = VOIC
         return bytes(row.audio)
     if not generate:
         return None
-    try:
-        audio = _synth(text, voice)
-    except Exception as exc:
-        logger.warning("voice clip not generated: %s", exc)
-        return None
+    audio = b""
+    for attempt in range(max(1, attempts)):
+        if attempt:
+            time.sleep(1.5 * attempt)  # the free read-aloud endpoint sometimes answers empty
+        try:
+            audio = _synth(text, voice)
+        except Exception as exc:
+            logger.warning("voice clip not generated (try %s): %s", attempt + 1, exc)
+            continue
+        if audio:
+            break
     if not audio:
         return None
     db.add(KioskVoiceClip(clip_key=key, voice=voice, spoken_text=text, audio=audio, content_type="audio/mpeg", created_at=datetime.now(timezone.utc)))
@@ -154,7 +180,7 @@ def get_clip(db: Session, text: str, *, generate: bool = True, voice: str = VOIC
     return audio
 
 
-def prewarm_greetings(db: Session, *, now: datetime | None = None) -> int:
+def prewarm_greetings(db: Session, *, now: datetime | None = None, attempts: int = 4) -> int:
     """Generate both greetings for every active worker with a PIN. Returns clips ready."""
     ready = 0
     workers = db.query(Worker).filter(Worker.is_active.is_(True)).filter(Worker.pin_hash.isnot(None)).all()
@@ -164,11 +190,11 @@ def prewarm_greetings(db: Session, *, now: datetime | None = None) -> int:
         name = spoken_name(db, worker)
         for hour in (9, 18):
             moment = (now or datetime.now(timezone.utc)).astimezone(ATHENS).replace(hour=hour)
-            if get_clip(db, greeting_text(name, now=moment)) is not None:
+            if get_clip(db, greeting_text(name, now=moment), attempts=attempts) is not None:
                 ready += 1
     return ready
 
 
 def confirm_text(name: str, qty_text: str, mode: str = "take") -> str:
     verb = "Έβαλες" if mode == "add" else "Πήρες"
-    return f"{verb} {qty_text} {name}. Πάτα «Ναι» για να καταχωρηθεί."[:MAX_TEXT]
+    return f"{verb} {qty_text} {name}; Πάτα το κουμπί για να καταχωρηθεί."[:MAX_TEXT]

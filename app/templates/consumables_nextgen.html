@@ -96,8 +96,8 @@
           <small>{% if hardware %}αναγνώριση ομιλίας: {{ 'ναι' if hardware.speech else 'όχι' }}{% endif %}</small>
         </div>
         <div class="stat"><small>Φωτογραφίες ειδών για την κάμερα</small>
-          <b>{{ vision.with_photo }} / {{ vision.items }}</b>
-          <small>{{ vision.learned_frames }} φωτογραφίες από το κιόσκι (μαθαίνει από κάθε επιλογή)</small>
+          <b>{{ vision['with_photo'] }} / {{ vision['items'] }}</b>
+          <small>{{ vision['learned_frames'] }} φωτογραφίες από το κιόσκι (μαθαίνει από κάθε επιλογή)</small>
         </div>
       </div>
     </section>

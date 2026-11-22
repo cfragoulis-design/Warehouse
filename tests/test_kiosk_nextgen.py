@@ -122,6 +122,7 @@ def test_admin_page_switches_features_and_is_admin_only(harness) -> None:
     login(admin, "admin", "2468")
     page = admin.get("/admin/consumables/nextgen")
     assert page.status_code == 200 and "Νέες λειτουργίες κιοσκιού" in page.text and "ΚΛΕΙΣΤΟ" in page.text
+    assert "built-in method" not in page.text and "0 / 1" in page.text  # seeded item has no photo
     res = admin.post("/admin/consumables/nextgen/flags", data={"nextgen_morning_report": "on", "report_time": "06:45"})
     assert res.status_code == 303
     db = harness.db()
@@ -353,7 +354,9 @@ def test_server_speech_to_text_is_off_without_a_key_and_posts_multipart_with_one
 # --- 4. greeting + smart camera reminder ------------------------------------------------
 
 def test_spoken_names_default_to_a_greek_first_name() -> None:
-    assert kiosk_voice.default_spoken_name("Βασιλάκης Φούκης") == "Βασιλάκης"
+    assert kiosk_voice.default_spoken_name("Βασιλάκης Φούκης") == "Βασιλάκη"
+    assert [kiosk_voice.vocative(n) for n in ("Νίκος", "Αλέξανδρος", "Κωνσταντίνος", "Λουκάς", "Μαρία", "Γιώργος")] == [
+        "Νίκο", "Αλέξανδρε", "Κωνσταντίνε", "Λουκά", "Μαρία", "Γιώργο"]
     assert kiosk_voice.default_spoken_name("Μαρία-Μάρθα Λ.") == "Μαρία-Μάρθα"
     assert kiosk_voice.default_spoken_name("Armando S.") == "Αρμαντο"
     morning = datetime(2026, 11, 23, 7, 0, tzinfo=timezone.utc)  # 09:00 Athens
@@ -372,7 +375,7 @@ def test_greeting_after_pin_is_generated_once_and_cached(harness) -> None:
     assert _pin(client, ids["worker"]).json()["ok"] is True
     first = client.get("/consumables/take/nextgen/voice/greeting")
     assert first.status_code == 200 and first.headers["content-type"] == "audio/mpeg"
-    assert "Νίκος" in first.content.decode()
+    assert "Νίκο!" in first.content.decode()
     client.get("/consumables/take/nextgen/voice/greeting")
     assert len(calls) == 1 and calls[0][1] == "el-GR-AthinaNeural"
     db = harness.db()
@@ -646,3 +649,29 @@ def test_migration_022_is_additive_idempotent_and_registered() -> None:
             assert "IF NOT EXISTS" in stripped
     versions = [m.version for m in migration_catalog()]
     assert versions[-1] == "20261122_022" and versions[-2] == "20261121_021"
+
+
+def test_daily_jobs_fill_missing_greetings_even_with_telegram_off(harness) -> None:
+    harness.seed()
+    db = harness.db()
+    ng.set_flag(db, ng.SMART_VOICE, True)
+    alert_dispatch.set_telegram_alerts(db, False)
+    result = ng.run_daily_jobs(db, now=datetime(2026, 11, 23, 8, 0, tzinfo=timezone.utc), send=lambda t: True)
+    assert result["voices"] == 4  # two workers with a PIN x (morning, evening)
+    assert db.query(KioskVoiceClip).count() == 4
+    texts = sorted(row.spoken_text for row in db.query(KioskVoiceClip).all())
+    assert texts == ["Καλημέρα, Μαρία!", "Καλημέρα, Νίκο!", "Καλησπέρα, Μαρία!", "Καλησπέρα, Νίκο!"]
+    db.close()
+
+
+def test_daily_jobs_offer_reorder_only_in_working_hours(harness) -> None:
+    _low_stock_with_supplier(harness)
+    db = harness.db()
+    ng.set_flag(db, ng.AUTO_REORDER, True)
+    offers = []
+    night = datetime(2026, 11, 23, 2, 0, tzinfo=timezone.utc)  # 04:00 Athens
+    assert ng.run_daily_jobs(db, now=night, reorder_send=lambda t, m: offers.append(t) or True)["reorder"] is None
+    day = datetime(2026, 11, 23, 9, 0, tzinfo=timezone.utc)
+    assert ng.run_daily_jobs(db, now=day, reorder_send=lambda t, m: offers.append(t) or True)["reorder"] == ["SIVVAS"]
+    assert len(offers) == 1
+    db.close()
