@@ -12,7 +12,7 @@
 * Read-only: it only SELECTs. It never changes stock and never sends an order.
 * Webhook ``POST /telegram/ask/webhook`` (feature ``nextgen_telegram_ask``):
   secret header ``X-Telegram-Bot-Api-Secret-Token`` = ``TELEGRAM_WEBHOOK_SECRET``;
-  only chats listed in ``TELEGRAM_CHAT_ID`` (comma-separated) get an answer; every
+  only chats listed in ``TELEGRAM_CONSUMABLES_CHAT_ID`` (else ``TELEGRAM_CHAT_ID``; comma-separated) get an answer; every
   update_id is answered once; 20 questions / 10 minutes per chat. The answer goes
   back inside the webhook response (``sendMessage``), so no extra outbound call.
 * Optional AI fallback for questions it does not understand: only when the
@@ -730,7 +730,11 @@ def answer(db: Session, text: str, *, now: datetime | None = None) -> tuple[str,
 
 
 def allowed_chat_ids() -> set[str]:
-    return {part.strip() for part in os.getenv("TELEGRAM_CHAT_ID", "").split(",") if part.strip()}
+    try:
+        from app.digest_service import consumables_chat_ids
+    except ImportError:  # pragma: no cover
+        from digest_service import consumables_chat_ids
+    return set(consumables_chat_ids())
 
 
 def webhook_secret() -> str:

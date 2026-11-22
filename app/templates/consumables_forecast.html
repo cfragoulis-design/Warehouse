@@ -166,7 +166,7 @@
         <div class="stat"><small>Μυστικό webhook</small><b>{{ 'ρυθμισμένο' if ask.secret_set else 'δεν έχει ρυθμιστεί' }}</b></div>
         <div class="stat"><small>Τελευταίες 7 μέρες</small><b>{{ ask.week_answered }} απαντήσεις</b><small>{{ ask.week_denied }} αγνοήθηκαν (άγνωστη συνομιλία ή όριο)</small></div>
       </div>
-      <p class="note">Απαντάει μόνο στις συνομιλίες του <code>TELEGRAM_CHAT_ID</code>, μόνο ανάγνωση (δεν αλλάζει απόθεμα, δεν στέλνει παραγγελίες), έως 20 ερωτήσεις / 10 λεπτά. Χωρίς AI: δωρεάν. Η βοήθεια από AI {% if ask.llm_on and ask.llm_key %}είναι ανοιχτή{% else %}είναι κλειστή{% endif %}.</p>
+      <p class="note">Απαντάει μόνο στις συνομιλίες του <code>TELEGRAM_CONSUMABLES_CHAT_ID</code> (αλλιώς <code>TELEGRAM_CHAT_ID</code>), μόνο ανάγνωση (δεν αλλάζει απόθεμα, δεν στέλνει παραγγελίες), έως 20 ερωτήσεις / 10 λεπτά. Χωρίς AI: δωρεάν. Η βοήθεια από AI {% if ask.llm_on and ask.llm_key %}είναι ανοιχτή{% else %}είναι κλειστή{% endif %}.</p>
       <details><summary>Πώς ενεργοποιείται</summary>
         <ol class="note">
           <li>Μεταβλητή <code>TELEGRAM_WEBHOOK_SECRET</code> (24+ γράμματα/αριθμοί) στον διακομιστή.</li>

@@ -79,7 +79,7 @@ def test_take_response_is_sent_before_a_slow_telegram(harness, monkeypatch) -> N
 
     import app.digest_service as digest
 
-    monkeypatch.setattr(digest, "_telegram_send_safe", slow_send)
+    monkeypatch.setattr(digest, "telegram_send_consumables", slow_send)
     client, res = _kiosk(harness, ids=ids)
     assert res.json()["ok"] is True
     cookie = "; ".join(f"{name}={value}" for name, value in client.cookies.items())
@@ -133,6 +133,7 @@ def test_endpoint_itself_never_calls_telegram(harness, monkeypatch) -> None:
 
     import app.digest_service as digest
 
+    monkeypatch.setattr(digest, "telegram_send_consumables", boom)
     monkeypatch.setattr(digest, "_telegram_send_safe", boom)
 
     class _Req:

@@ -2,7 +2,8 @@
 
 The order text itself is never sent. The admin page only offers copy and a
 mailto link. Telegram uses the existing digest sender and stays quiet when
-TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is unset.
+TELEGRAM_BOT_TOKEN or the consumables chat
+(TELEGRAM_CONSUMABLES_CHAT_ID, else TELEGRAM_CHAT_ID) is unset.
 
 A script reads the current list with the same header as the weekly report:
 
@@ -26,14 +27,14 @@ try:
     from app.consumables_report import token_status
     from app.consumption_forecast import forecast_flags
     from app.db import get_db
-    from app.digest_service import _telegram_send_safe
+    from app import digest_service as _digest
     from app.models import ConsumableAlertLog, User
 except ImportError:
     from auth import get_current_user
     from consumables_report import token_status
     from consumption_forecast import forecast_flags
     from db import get_db
-    from digest_service import _telegram_send_safe
+    import digest_service as _digest
     from models import ConsumableAlertLog, User
 
 router = APIRouter()
@@ -96,7 +97,7 @@ def dispatch_supplier_alerts(db: Session, rows: list[dict], *, today: date | Non
     The day is claimed before sending, so two parallel runs never both send.
     A failed send releases the claim, so a later run may try again.
     """
-    sender = _telegram_send_safe if send is None else send
+    sender = _digest.telegram_send_consumables if send is None else send
     day = today or athens_today()
     flags = forecast_flags(db, [int(row["id"]) for row in rows])
     sent: list[int] = []

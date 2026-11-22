@@ -26,9 +26,33 @@ except ImportError:
 
 router = APIRouter()
 
+def consumables_chat_ids() -> list[str]:
+    """Chats for consumables/kiosk traffic: TELEGRAM_CONSUMABLES_CHAT_ID, else TELEGRAM_CHAT_ID.
+
+    Comma-separated values are allowed (all of them may ask questions); messages go to the first.
+    """
+    raw = os.getenv("TELEGRAM_CONSUMABLES_CHAT_ID", "").strip() or os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def consumables_chat_id() -> str:
+    ids = consumables_chat_ids()
+    return ids[0] if ids else ""
+
+
+def telegram_send_consumables(text: str) -> bool:
+    """Consumables/kiosk messages (alerts, morning report, reorder, kiosk health)."""
+    return _telegram_post(consumables_chat_id(), text)
+
+
 def _telegram_send_safe(text: str) -> bool:
+    """Stock digest and other existing notifications: TELEGRAM_CHAT_ID, unchanged."""
+    return _telegram_post(os.getenv("TELEGRAM_CHAT_ID", "").strip(), text)
+
+
+def _telegram_post(chat_id: str, text: str) -> bool:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    chat_id = (chat_id or "").strip()
     if not token or not chat_id:
         # Not configured -> do nothing, but don't crash the app/cron
         return False
