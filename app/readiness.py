@@ -56,6 +56,10 @@ _REQUIRED_SCHEMA: dict[str, frozenset[str]] = {
     "consumable_visual_refs": frozenset({"id", "consumable_id", "source", "features"}),
     "kiosk_worker_voice": frozenset({"worker_id", "spoken_name", "greet"}),
     "kiosk_voice_clips": frozenset({"clip_key", "voice", "audio"}),
+    # Kiosk English + self-service PIN change (migration 20261123_024): every
+    # take page and PIN login reads these columns.
+    "workers": frozenset({"id", "display_name", "pin_hash", "preferred_lang", "pin_must_change"}),
+    "consumables": frozenset({"id", "name", "name_en"}),
     "products": frozenset(
         {
             "id",

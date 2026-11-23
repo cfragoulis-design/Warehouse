@@ -7,6 +7,8 @@ and never prints the digits.
     python -m app.worker_pins --file pins.txt
 
 Each line of the file is ``<one_employee_ref or id> <4 digits>``.
+By default the worker must choose their own PIN at the next kiosk login
+(``--no-force-change`` keeps the given PIN).
 """
 
 from __future__ import annotations
@@ -27,6 +29,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("ref", nargs="?", help="one_employee_ref or worker id")
     parser.add_argument("pin", nargs="?", help="4 digits")
     parser.add_argument("--file", help="file of ref and PIN lines")
+    parser.add_argument(
+        "--no-force-change",
+        action="store_true",
+        help="do not ask the worker to choose their own PIN at the next kiosk login",
+    )
     args = parser.parse_args(argv)
     if args.file:
         with open(args.file, encoding="utf-8") as handle:
@@ -45,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         names: list[str] = []
         for key, pin in rows:
-            worker = assign_worker_pin(db, key, pin)
+            worker = assign_worker_pin(db, key, pin, must_change=not args.no_force_change)
             names.append(worker.display_name)
         db.commit()
     except ValueError as exc:

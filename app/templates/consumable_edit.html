@@ -68,6 +68,11 @@
             <input name="name" required value="{{ consumable.name }}" />
           </div>
           <div>
+            <label>English name (kiosk, optional)</label>
+            <input name="name_en" value="{{ consumable.name_en or '' }}" placeholder="shown when the kiosk is in English" />
+            <input type="hidden" name="name_en_sent" value="1" />
+          </div>
+          <div>
             <label>Category</label>
             <input name="category" value="{{ consumable.category or '' }}" />
           </div>

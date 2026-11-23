@@ -117,6 +117,10 @@
     .pinName{margin:0;font-size:28px;text-align:center}
     .pinDots{min-height:52px;text-align:center;font-size:42px;letter-spacing:.35em;font-weight:900}
     .pinMessage{min-height:28px;margin:0;text-align:center;color:#fecdd3;font-size:20px;font-weight:800}
+    .pinStage{margin:0;text-align:center;color:var(--muted);font-size:22px;font-weight:800}
+    .pinChange{width:100%;min-height:60px;margin-top:10px;border-radius:18px;border:1px solid var(--line);background:transparent;color:var(--text);font-size:20px;font-weight:800}
+    .pinChange[hidden]{display:none !important}
+    .langToggle{min-width:72px;min-height:48px;padding:0 14px;border-radius:14px;border:1px solid var(--line);background:#111936;color:var(--text);font-size:20px;font-weight:900;letter-spacing:.04em}
     .pinPad{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
     .pinPad[hidden]{display:none !important}
     .pinKey{min-height:84px;border-radius:18px;border:1px solid var(--line);background:#111936;color:var(--text);font-size:32px;font-weight:900}
@@ -200,6 +204,7 @@
         {% if not kiosk %}<div class="sub">Σύνδεση: {{ user.username }} • Εργαστήριο</div>{% endif %}
       </div>
       <span id="app-datetime" class="app-datetime"></span>
+      {% if kiosk %}<button type="button" id="langToggle" class="langToggle" aria-pressed="false" aria-label="English">EN</button>{% endif %}
     </div>
     <div id="workerBanner" class="workerBanner" hidden>
       <span id="workerBannerName" class="workerBannerName">Είσαι:</span>
@@ -317,7 +322,7 @@
     {% else %}
     <section class="cards" id="cards">
       {% for r in rows %}
-      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}" data-unit-cost="{{ r.unit_cost }}"{% if r.days_left is not none %} data-days="{{ r.days_left }}"{% endif %}{% if r.barcode %} data-barcode="{{ r.barcode }}"{% endif %}{% if r.tracks_lots %} data-lots="1"{% endif %}>
+      <article class="item{% if r.is_low %} low{% endif %}" data-id="{{ r.id }}" data-name="{{ r.search_text }}" data-category="{{ r.category }}" data-low="{{ 1 if r.is_low else 0 }}" data-available="{{ 1 if r.on_hand > 0 else 0 }}" data-unit-cost="{{ r.unit_cost }}"{% if r.days_left is not none %} data-days="{{ r.days_left }}"{% endif %}{% if r.barcode %} data-barcode="{{ r.barcode }}"{% endif %}{% if r.tracks_lots %} data-lots="1"{% endif %}{% if r.name_en %} data-name-en="{{ r.name_en }}"{% endif %}>
         <div class="itemHead">
           {% if r.has_image %}
           <img class="thumb" src="/consumables/{{ r.id }}/image" alt="" loading="lazy" decoding="async" />
@@ -405,13 +410,14 @@
         <h2 id="whoTitle">Ποιος είσαι;</h2>
         <div class="whoGrid">
           {% for w in workers %}
-          <button type="button" class="whoBtn" data-worker="{{ w.id }}" data-has-pin="{{ 1 if w.has_pin else 0 }}">{{ w.display_name }}<small>{{ w.location }}</small></button>
+          <button type="button" class="whoBtn" data-worker="{{ w.id }}" data-has-pin="{{ 1 if w.has_pin else 0 }}" data-lang="{{ w.lang or 'el' }}">{{ w.display_name }}<small>{{ w.location }}</small></button>
           {% endfor %}
         </div>
         <button type="button" class="whoCancel" id="whoCancel">Άκυρο</button>
       </div>
       <div id="whoPin" hidden>
         <h2 id="pinName" class="pinName"></h2>
+        <p id="pinStage" class="pinStage">Βάλε το PIN σου</p>
         <div id="pinDots" class="pinDots" aria-hidden="true"></div>
         <p id="pinMessage" class="pinMessage"></p>
         <div class="pinPad" id="pinPad">
@@ -428,6 +434,7 @@
           <button type="button" class="pinKey" data-digit="0">0</button>
           <button type="button" class="pinKey" data-digit="back">⌫</button>
         </div>
+        <button type="button" class="pinChange" id="pinChange">Αλλαγή PIN</button>
         <button type="button" class="whoCancel" id="pinBack">Πίσω</button>
       </div>
     </div>
@@ -1113,6 +1120,7 @@
     sessionTouchAt=0;
     if(typeof clearPickTags==='function') clearPickTags();
     if(!had) return;
+    document.dispatchEvent(new CustomEvent('kiosk:session-end'));
     fetch('/consumables/take/session/end',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}}).catch(()=>{});
   }
   function noteSessionTouch(){
@@ -1134,6 +1142,8 @@
           showBanner(data.name);
           noteSessionData(data);
           armSessionTimer();
+          if(data.lang) window.kioskSessionLang=data.lang;
+          if(window.KioskI18n && data.lang) window.KioskI18n.session(data.lang);
         }
       })
       .catch(()=>{});
@@ -1147,20 +1157,49 @@
   function renderPinDots(){
     if(pinDots) pinDots.textContent=pinDigits ? '•'.repeat(pinDigits.length) : '';
   }
+  // PIN pad stages: 'login' (normal), then for a PIN change 'current' -> 'new' -> 'confirm'.
+  const pinStageEl=document.getElementById('pinStage');
+  const pinChangeBtn=document.getElementById('pinChange');
+  const PIN_STAGE_TEXT={login:'Βάλε το PIN σου', current:'Βάλε το τωρινό PIN σου', 'new':'Διάλεξε νέο PIN (4 ψηφία)', confirm:'Ξαναβάλε το νέο PIN'};
+  let pinStage='login';
+  let pinCurrent='';
+  let pinNew='';
+  function setPinStage(stage, message){
+    pinStage=stage;
+    if(stage==='login' || stage==='current'){ pinCurrent=stage==='login' ? '' : pinCurrent; pinNew=''; }
+    if(stage==='new') pinNew='';
+    pinDigits='';
+    renderPinDots();
+    if(pinStageEl) pinStageEl.textContent=PIN_STAGE_TEXT[stage] || '';
+    if(pinChangeBtn) pinChangeBtn.hidden=stage!=='login' || !!(pinPad && pinPad.hidden);
+    if(pinMessage) pinMessage.textContent=message || '';
+  }
+  function pinTrivial(pin){
+    if(!/^\d{4}$/.test(pin)) return true;
+    const d=pin.split('').map(Number);
+    const steps=new Set([0,1,2].map(i => (d[i+1]-d[i]+10)%10));
+    if(new Set(d).size===1) return true;
+    if(steps.size===1 && (steps.has(1) || steps.has(9))) return true;
+    if(pin[0]===pin[2] && pin[1]===pin[3]) return true;
+    if(pin[0]===pin[1] && pin[2]===pin[3]) return true;
+    return false;
+  }
   function showPinStep(name, hasPin){
     if(whoPick) whoPick.hidden=true;
     if(whoPin) whoPin.hidden=false;
     if(pinName) pinName.textContent=name;
-    pinDigits='';
-    renderPinDots();
-    if(pinMessage) pinMessage.textContent=hasPin ? '' : NO_PIN_MESSAGE;
     if(pinPad) pinPad.hidden=!hasPin;
+    setPinStage('login', hasPin ? '' : NO_PIN_MESSAGE);
+    if(pinStageEl) pinStageEl.hidden=!hasPin;
   }
   function showPickStep(){
     if(whoPin) whoPin.hidden=true;
     if(whoPick) whoPick.hidden=false;
     pinWorkerId='';
     pinDigits='';
+    pinStage='login';
+    pinCurrent='';
+    pinNew='';
     if(pinMessage) pinMessage.textContent='';
   }
   function closeWho(){
@@ -1168,6 +1207,7 @@
     clearTimeout(whoTimer);
     showPickStep();
     if(whoOverlay) whoOverlay.hidden=true;
+    if(window.KioskI18n && !sessionName) window.KioskI18n.cancelPreview();
   }
   function openWho(action){
     pendingTake=action;
@@ -1206,6 +1246,7 @@
     if(!btn) return;
     pinWorkerId=btn.dataset.worker || '';
     const name=(btn.childNodes[0] && btn.childNodes[0].textContent || '').trim();
+    if(window.KioskI18n && btn.dataset.lang) window.KioskI18n.preview(btn.dataset.lang);
     if(whoOverlay) whoOverlay.hidden=false;
     clearTimeout(whoTimer);
     whoTimer=setTimeout(closeWho, WHO_TIMEOUT_MS);
@@ -1222,23 +1263,61 @@
     try{
       const res=await fetch('/consumables/take/session',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
       const data=await res.json().catch(()=>({ok:false,message:'Λάθος PIN'}));
+      if(res.ok && data && data.must_change){
+        // Right PIN, but an admin asked for a new one: go straight to choosing it.
+        if(window.KioskI18n && data.lang) window.KioskI18n.preview(data.lang);
+        pinCurrent=digits;
+        setPinStage('new', data.message || '');
+        pinCurrent=digits;
+        return;
+      }
       if(!res.ok || !data.ok){
         if(pinMessage) pinMessage.textContent=data.message || 'Λάθος PIN';
         return;
       }
-      showBanner(data.name || '');
-      sessionWorkerId=pinWorkerId;
-      noteSessionData(data);
-      cardUid='';
-      armSessionTimer();
-      sessionTouchAt=Date.now();
-      if(whoOverlay) whoOverlay.hidden=true;
-      showPickStep();
-      document.dispatchEvent(new CustomEvent('kiosk:session-start', {detail:{worker_id: sessionWorkerId, name: sessionName}}));
-      if(pendingTake) confirmWho();
+      sessionStarted(data);
     }catch(err){
       if(pinMessage) pinMessage.textContent='Λάθος PIN';
     }
+  }
+  async function submitPinChange(){
+    const fd=new FormData();
+    fd.set('worker_id', pinWorkerId);
+    fd.set('pin', pinCurrent);
+    fd.set('new_pin', pinNew);
+    fd.set('new_pin_confirm', pinDigits);
+    if(cardUid && cardWorkerId && String(cardWorkerId)===String(pinWorkerId)) fd.set('card_uid', cardUid);
+    pinDigits='';
+    renderPinDots();
+    try{
+      const res=await fetch('/consumables/take/pin/change',{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+      const data=await res.json().catch(()=>({ok:false,message:'Δεν άλλαξε το PIN'}));
+      if(!res.ok || !data.ok){
+        const code=data && data.code;
+        if(code==='wrong_current' || code==='locked'){ setPinStage('current', data.message || 'Λάθος PIN'); return; }
+        if(code==='no_pin' || code==='card'){ setPinStage('login', data.message || ''); return; }
+        setPinStage('new', data.message || 'Δεν άλλαξε το PIN');
+        return;
+      }
+      pinCurrent='';
+      pinNew='';
+      sessionStarted(data);
+      showToast(data.message || 'Το PIN άλλαξε', false, null);
+    }catch(err){
+      setPinStage('new', 'Δεν άλλαξε το PIN');
+    }
+  }
+  function sessionStarted(data){
+    showBanner(data.name || '');
+    sessionWorkerId=pinWorkerId;
+    noteSessionData(data);
+    cardUid='';
+    armSessionTimer();
+    sessionTouchAt=Date.now();
+    if(whoOverlay) whoOverlay.hidden=true;
+    showPickStep();
+    document.dispatchEvent(new CustomEvent('kiosk:session-start', {detail:{worker_id: sessionWorkerId, name: sessionName, lang: data.lang || 'el'}}));
+    if(pendingTake) confirmWho();
   }
   async function enqueueMove(url, fields, meta){
     const db = await new Promise((resolve, reject) => {
@@ -1469,11 +1548,35 @@
       else if(pinDigits.length<4) pinDigits+=digit;
       renderPinDots();
       if(pinMessage) pinMessage.textContent='';
-      if(pinDigits.length===4) submitPin();
+      if(pinDigits.length!==4) return;
+      if(pinStage==='login'){ submitPin(); return; }
+      if(pinStage==='current'){ pinCurrent=pinDigits; setPinStage('new'); return; }
+      if(pinStage==='new'){
+        if(pinTrivial(pinDigits)){ setPinStage('new', 'Πολύ εύκολο PIN. Διάλεξε άλλο.'); return; }
+        if(pinDigits===pinCurrent){ setPinStage('new', 'Το νέο PIN είναι ίδιο με το παλιό'); return; }
+        pinNew=pinDigits;
+        const keep=pinNew;
+        setPinStage('confirm');
+        pinNew=keep;
+        return;
+      }
+      if(pinStage==='confirm'){
+        if(pinDigits!==pinNew){ setPinStage('new', 'Τα δύο νέα PIN δεν είναι ίδια'); return; }
+        submitPinChange();
+      }
     });
   });
+  if(pinChangeBtn) pinChangeBtn.addEventListener('click', ()=>{
+    clearTimeout(whoTimer);
+    whoTimer=setTimeout(closeWho, WHO_TIMEOUT_MS);
+    setPinStage('current');
+  });
   const pinBack=document.getElementById('pinBack');
-  if(pinBack) pinBack.addEventListener('click', showPickStep);
+  if(pinBack) pinBack.addEventListener('click', ()=>{
+    if(pinStage!=='login'){ setPinStage('login'); return; }
+    showPickStep();
+    if(window.KioskI18n && !sessionName) window.KioskI18n.cancelPreview();
+  });
   if(whoCancel) whoCancel.addEventListener('click', closeWho);
   const workerEnd=document.getElementById('workerEnd');
   if(workerEnd) workerEnd.addEventListener('click', endSession);
@@ -1624,5 +1727,6 @@
 <link rel="stylesheet" href="/static/kiosk-nextgen.css" />
 <script src="/static/kiosk-nextgen.js" defer></script>
 {% endif %}
+{% if kiosk %}<script src="/static/kiosk-i18n.js?v={{ page_version }}" defer></script>{% endif %}
 </body>
 </html>

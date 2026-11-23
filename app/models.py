@@ -600,6 +600,8 @@ class Consumable(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Optional English name shown on the kiosk when English is active (falls back to ``name``).
+    name_en: Mapped[str | None] = mapped_column(String(200), nullable=True)
     category: Mapped[str | None] = mapped_column(String(120), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
@@ -672,6 +674,10 @@ class Worker(Base):
     card_uid: Mapped[str | None] = mapped_column(String(64), nullable=True)
     location: Mapped[str | None] = mapped_column(String(80), nullable=True)
     pin_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Kiosk language after this worker's PIN login: 'el' (default) or 'en'.
+    preferred_lang: Mapped[str] = mapped_column(String(2), nullable=False, default="el", server_default="el")
+    # Set when an admin gives a new PIN: the worker must pick their own at the next kiosk login.
+    pin_must_change: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     created_at: Mapped[datetime] = mapped_column(
