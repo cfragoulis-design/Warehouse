@@ -128,6 +128,7 @@ WAREHOUSE_ALLOWED_PATHS = (
     "/consumables/take/session",
     "/consumables/take/session/touch",
     "/consumables/take/session/end",
+    "/consumables/take/pin/change",
     "/consumables/take/card",
     "/consumables/take/page-status",
     "/consumables/movements",

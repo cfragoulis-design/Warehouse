@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 try:
-    from app.auth import hash_pin, require_role
+    from app.auth import hash_pin, require_role, verify_pin
     from app.db import get_db
     from app.kiosk_session import (
         OfflineAttribution,
@@ -38,7 +38,7 @@ try:
     from app.models import User, Worker
     from app.templating import WarehouseJinja2Templates
 except ImportError:  # pragma: no cover - flat module layout
-    from auth import hash_pin, require_role
+    from auth import hash_pin, require_role, verify_pin
     from db import get_db
     from kiosk_session import (
         OfflineAttribution,
@@ -83,9 +83,24 @@ LOCATION_LABELS = {
     "Central Shop": "Κεντρικό",
 }
 
+KIOSK_LANGUAGES = ("el", "en")
+
+
+def normalize_lang(value: object) -> str:
+    """'en' or 'el' (anything else, including None, is Greek)."""
+    text = str(value or "").strip().lower()
+    return text if text in KIOSK_LANGUAGES else "el"
+
+
 NO_PIN_MESSAGE = "Δεν έχεις PIN — ζήτα από τον υπεύθυνο"
 WRONG_PIN_MESSAGE = "Λάθος PIN"
 LOCKED_PIN_MESSAGE = "Πολλές λάθος προσπάθειες. Περίμενε 5 λεπτά."
+MUST_CHANGE_PIN_MESSAGE = "Διάλεξε νέο δικό σου PIN"
+PIN_MISMATCH_MESSAGE = "Τα δύο νέα PIN δεν είναι ίδια"
+PIN_TRIVIAL_MESSAGE = "Πολύ εύκολο PIN. Διάλεξε άλλο."
+PIN_SAME_MESSAGE = "Το νέο PIN είναι ίδιο με το παλιό"
+PIN_FORMAT_MESSAGE = "Το PIN θέλει 4 ψηφία"
+PIN_CHANGED_MESSAGE = "Το PIN άλλαξε"
 
 _PIN_DIGITS = re.compile(r"\d{4}\Z")
 _PIN_MAX_FAILURES = 5
@@ -153,6 +168,7 @@ def worker_choices(workers: list[Worker]) -> list[dict]:
             "location": LOCATION_LABELS.get(worker.location or "", worker.location or ""),
             "card_uid": worker.card_uid or "",
             "has_pin": bool(worker.pin_hash),
+            "lang": normalize_lang(getattr(worker, "preferred_lang", None)),
         }
         for worker in workers
     ]
@@ -288,8 +304,30 @@ def lookup_worker_key(db: Session, key: str) -> Worker | None:
     return db.execute(select(Worker).where(Worker.one_employee_ref == text)).scalar_one_or_none()
 
 
-def assign_worker_pin(db: Session, key: str, pin: str) -> Worker:
-    """Store a 4-digit PIN as a hash. The digits are not logged."""
+def pin_is_trivial(pin: str) -> bool:
+    """Easy-to-guess 4-digit PINs a worker may not choose: one digit repeated
+    (0000, 1111), straight runs up or down (1234, 4321, 7890, 0987), two digits
+    alternating (1212) or paired (1122)."""
+    digits = (pin or "").strip()
+    if not _PIN_DIGITS.fullmatch(digits):
+        return True
+    values = [int(ch) for ch in digits]
+    steps = {(values[i + 1] - values[i]) % 10 for i in range(3)}
+    if len(set(values)) == 1 or steps == {1} or steps == {9}:
+        return True
+    if digits[0] == digits[2] and digits[1] == digits[3]:
+        return True
+    if digits[0] == digits[1] and digits[2] == digits[3]:
+        return True
+    return False
+
+
+def assign_worker_pin(db: Session, key: str, pin: str, *, must_change: bool | None = None) -> Worker:
+    """Store a 4-digit PIN as a hash. The digits are not logged.
+
+    ``must_change=True`` makes the worker choose their own PIN at the next kiosk
+    login; ``None`` leaves the flag as it is.
+    """
     digits = (pin or "").strip()
     if not _PIN_DIGITS.fullmatch(digits):
         raise ValueError("PIN must be 4 digits")
@@ -297,7 +335,27 @@ def assign_worker_pin(db: Session, key: str, pin: str) -> Worker:
     if worker is None:
         raise ValueError("Unknown worker")
     worker.pin_hash = hash_pin(digits)
+    if must_change is not None:
+        worker.pin_must_change = bool(must_change)
     return worker
+
+
+def new_pin_problem(worker: Worker, new_pin: str, confirm_pin: str) -> tuple[str, str] | None:
+    """``(code, message)`` when the worker's chosen PIN is not acceptable, else None.
+
+    Never compares against other workers' PINs: login is name + PIN, so "taken"
+    would reveal a colleague's PIN.
+    """
+    digits = (new_pin or "").strip()
+    if not _PIN_DIGITS.fullmatch(digits):
+        return "format", PIN_FORMAT_MESSAGE
+    if digits != (confirm_pin or "").strip():
+        return "mismatch", PIN_MISMATCH_MESSAGE
+    if pin_is_trivial(digits):
+        return "trivial", PIN_TRIVIAL_MESSAGE
+    if worker.pin_hash and verify_pin(digits, worker.pin_hash):
+        return "same", PIN_SAME_MESSAGE
+    return None
 
 
 def parse_pin_assignments(text: str) -> list[tuple[str, str]]:
@@ -381,6 +439,42 @@ def worker_toggle(wid: int, db: Session = Depends(get_db), user=Depends(require_
     return RedirectResponse("/workers", status_code=303)
 
 
+@router.post("/workers/{wid}/lang")
+def worker_set_lang(
+    wid: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("admin")),
+    preferred_lang: str = Form("el"),
+):
+    """Kiosk language after this worker's PIN login (Greek or English)."""
+    del user
+    worker = db.get(Worker, wid)
+    if worker is None:
+        raise HTTPException(404)
+    if (preferred_lang or "").strip().lower() not in KIOSK_LANGUAGES:
+        raise HTTPException(status_code=400, detail="Language must be el or en")
+    worker.preferred_lang = normalize_lang(preferred_lang)
+    db.commit()
+    return RedirectResponse("/workers", status_code=303)
+
+
+@router.post("/workers/{wid}/pin-must-change")
+def worker_pin_must_change(
+    wid: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("admin")),
+    must_change: str = Form(""),
+):
+    """Ask (or stop asking) a worker to choose a new PIN at the next kiosk login."""
+    del user
+    worker = db.get(Worker, wid)
+    if worker is None:
+        raise HTTPException(404)
+    worker.pin_must_change = must_change == "1" and bool(worker.pin_hash)
+    db.commit()
+    return RedirectResponse("/workers", status_code=303)
+
+
 @router.post("/workers/{wid}/card")
 def worker_card(
     wid: int,
@@ -437,6 +531,7 @@ def worker_set_pin(
     user=Depends(require_role("admin")),
     pin: str = Form(""),
     clear: str = Form(""),
+    must_change: str = Form(""),  # the admin form checkbox is ticked by default
 ):
     del user
     worker = db.get(Worker, wid)
@@ -444,11 +539,12 @@ def worker_set_pin(
         raise HTTPException(404)
     if clear == "1":
         worker.pin_hash = None
+        worker.pin_must_change = False
         clear_pin_failures(worker.id)
         db.commit()
         return RedirectResponse("/workers", status_code=303)
     try:
-        assign_worker_pin(db, str(worker.id), pin)
+        assign_worker_pin(db, str(worker.id), pin, must_change=must_change == "1")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="PIN must be 4 digits") from exc
     clear_pin_failures(worker.id)
@@ -461,12 +557,13 @@ def worker_set_pins_bulk(
     db: Session = Depends(get_db),
     user=Depends(require_role("admin")),
     pins: str = Form(""),
+    must_change: str = Form(""),  # the admin form checkbox is ticked by default
 ):
     del user
     try:
         rows = parse_pin_assignments(pins)
         for key, pin in rows:
-            assign_worker_pin(db, key, pin)
+            assign_worker_pin(db, key, pin, must_change=must_change == "1")
     except ValueError as exc:
         detail = str(exc)
         if detail not in {"No PINs to set", "PIN must be 4 digits"} and not detail.startswith("line "):

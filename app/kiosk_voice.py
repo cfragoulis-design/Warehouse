@@ -28,6 +28,9 @@ except ImportError:  # pragma: no cover - flat module layout
 logger = logging.getLogger(__name__)
 ATHENS = ZoneInfo("Europe/Athens")
 VOICE = "el-GR-AthinaNeural"
+# English phrases (worker set to English on the kiosk): a native English neural voice,
+# because the Greek voice reads English text with Greek phonetics.
+VOICE_EN = "en-GB-SoniaNeural"
 SYNTH_TIMEOUT_S = 12.0
 MAX_TEXT = 200
 
@@ -85,6 +88,16 @@ def spoken_name(db: Session, worker: Worker) -> str:
     return default_spoken_name(worker.display_name)
 
 
+def english_spoken_name(display_name: str) -> str:
+    """First name as written, for the English voice (\"Volodymyr K.\" -> \"Volodymyr\")."""
+    parts = [part for part in (display_name or "").split() if not re.fullmatch(r"\w\.?", part)]
+    return (parts[0] if parts else (display_name or "").strip())[:40]
+
+
+def worker_lang(worker: Worker) -> str:
+    return "en" if (getattr(worker, "preferred_lang", None) or "").strip().lower() == "en" else "el"
+
+
 def greets(db: Session, worker_id: int) -> bool:
     row = db.get(KioskWorkerVoice, worker_id)
     return True if row is None else bool(row.greet)
@@ -107,6 +120,25 @@ def greeting_text(name: str, *, now: datetime | None = None) -> str:
     hello = "Καλημέρα" if 4 <= local.hour < 13 else "Καλησπέρα"
     name = (name or "").strip()
     return f"{hello}, {name}!" if name else f"{hello}!"
+
+
+def greeting_text_en(name: str, *, now: datetime | None = None) -> str:
+    local = (now or datetime.now(timezone.utc)).astimezone(ATHENS)
+    if 4 <= local.hour < 12:
+        hello = "Good morning"
+    elif local.hour < 18:
+        hello = "Good afternoon"
+    else:
+        hello = "Good evening"
+    name = (name or "").strip()
+    return f"{hello}, {name}!" if name else f"{hello}!"
+
+
+def worker_greeting(db: Session, worker: Worker, *, now: datetime | None = None) -> tuple[str, str]:
+    """``(text, voice)`` of the greeting in the worker's kiosk language."""
+    if worker_lang(worker) == "en":
+        return greeting_text_en(english_spoken_name(worker.display_name), now=now), VOICE_EN
+    return greeting_text(spoken_name(db, worker), now=now), VOICE
 
 
 def clip_key(text: str, voice: str = VOICE) -> str:
@@ -187,10 +219,11 @@ def prewarm_greetings(db: Session, *, now: datetime | None = None, attempts: int
     for worker in workers:
         if not greets(db, worker.id):
             continue
-        name = spoken_name(db, worker)
-        for hour in (9, 18):
+        hours = (9, 15, 19) if worker_lang(worker) == "en" else (9, 18)
+        for hour in hours:
             moment = (now or datetime.now(timezone.utc)).astimezone(ATHENS).replace(hour=hour)
-            if get_clip(db, greeting_text(name, now=moment), attempts=attempts) is not None:
+            text, voice = worker_greeting(db, worker, now=moment)
+            if get_clip(db, text, voice=voice, attempts=attempts) is not None:
                 ready += 1
     return ready
 
@@ -198,3 +231,8 @@ def prewarm_greetings(db: Session, *, now: datetime | None = None, attempts: int
 def confirm_text(name: str, qty_text: str, mode: str = "take") -> str:
     verb = "Έβαλες" if mode == "add" else "Πήρες"
     return f"{verb} {qty_text} {name}; Πάτα το κουμπί για να καταχωρηθεί."[:MAX_TEXT]
+
+
+def confirm_text_en(name: str, qty_text: str, mode: str = "take") -> str:
+    verb = "You put back" if mode == "add" else "You took"
+    return f"{verb} {qty_text} {name}? Press the button to record it."[:MAX_TEXT]

@@ -276,7 +276,7 @@
     panel.innerHTML = '<h2>🎤 «'+esc(text || line.heard)+'»</h2><p class="ngSub">'+(line.confident ? 'Σωστά; Πάτα για να καταχωρηθεί.' : 'Ποιο από αυτά;')+'</p><div class="ngList">'+cands+'</div>'
       + '<div class="ngFoot"><button type="button" class="ngAct" data-close>Άκυρο</button>'+(voiceLines.length > 1 ? '<button type="button" class="ngAct" data-skip>Παράλειψη</button>' : '')+'<button type="button" class="ngAct" data-again>Ξανά</button></div>';
     panel.hidden = false;
-    if(line.confident) say('/consumables/take/nextgen/voice/confirm?item='+encodeURIComponent(line.candidates[0].id)+'&qty='+encodeURIComponent(line.candidates[0].qty)+'&mode='+voiceMode);
+    if(line.confident) say('/consumables/take/nextgen/voice/confirm?item='+encodeURIComponent(line.candidates[0].id)+'&qty='+encodeURIComponent(line.candidates[0].qty)+'&mode='+voiceMode+'&lang='+(window.KioskI18n ? window.KioskI18n.lang() : 'el'));
   }
 
   // ------------------------------------------------------------------ events

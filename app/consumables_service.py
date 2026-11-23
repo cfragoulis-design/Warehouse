@@ -16,15 +16,18 @@ from sqlalchemy import func
 
 try:
     from app.db import acquire_transaction_lock, get_db
-    from app.auth import is_warehouse_only, require_role, require_user, verify_pin
+    from app.auth import hash_pin, is_warehouse_only, require_role, require_user, verify_pin
     from app.kiosk_session import fold_search, kiosk_ui_enabled
     from app.consumable_images import initials, jpeg_thumbnail, card_webp
     from app.consumption_forecast import days_phrase, forecast_flags, runout_label
     from app.order_sheet import build_order_sheet
     from app.worker_service import (
         LOCKED_PIN_MESSAGE,
+        MUST_CHANGE_PIN_MESSAGE,
         NO_PIN_MESSAGE,
+        PIN_CHANGED_MESSAGE,
         WRONG_PIN_MESSAGE,
+        new_pin_problem,
         active_workers,
         apply_worker_cookie,
         clear_pin_failures,
@@ -34,6 +37,7 @@ try:
         record_pin_failure,
         resolve_offline_attribution,
         resolve_session_claims,
+        normalize_lang,
         resolve_worker_id,
         worker_choices,
         workers_for_admin,
@@ -52,15 +56,18 @@ try:
     from app.templating import WarehouseJinja2Templates
 except ImportError:
     from db import acquire_transaction_lock, get_db
-    from auth import is_warehouse_only, require_role, require_user, verify_pin
+    from auth import hash_pin, is_warehouse_only, require_role, require_user, verify_pin
     from kiosk_session import fold_search, kiosk_ui_enabled
     from consumable_images import initials, jpeg_thumbnail, card_webp
     from consumption_forecast import days_phrase, forecast_flags, runout_label
     from order_sheet import build_order_sheet
     from worker_service import (
         LOCKED_PIN_MESSAGE,
+        MUST_CHANGE_PIN_MESSAGE,
         NO_PIN_MESSAGE,
+        PIN_CHANGED_MESSAGE,
         WRONG_PIN_MESSAGE,
+        new_pin_problem,
         active_workers,
         apply_worker_cookie,
         clear_pin_failures,
@@ -70,6 +77,7 @@ except ImportError:
         record_pin_failure,
         resolve_offline_attribution,
         resolve_session_claims,
+        normalize_lang,
         resolve_worker_id,
         worker_choices,
         workers_for_admin,
@@ -736,6 +744,7 @@ def _workshop_consumable_rows(db: Session) -> tuple[list[dict], int]:
         rows.append({
             "id": c.id,
             "name": c.name,
+            "name_en": (getattr(c, "name_en", None) or "").strip(),
             "category": category,
             "unit": unit,
             "pack_size": pack,
@@ -963,7 +972,13 @@ def consumables_take_stock(
 def _session_payload(worker: Worker | None, request: Request | None = None, user: User | None = None, card: bool = False) -> dict:
     if worker is None:
         return {"ok": False}
-    payload = {"ok": True, "name": worker.display_name, "worker_id": worker.id, "card": bool(card)}
+    payload = {
+        "ok": True,
+        "name": worker.display_name,
+        "worker_id": worker.id,
+        "card": bool(card),
+        "lang": normalize_lang(getattr(worker, "preferred_lang", None)),
+    }
     if request is not None and user is not None:
         # Kept by the kiosk with any take it has to queue offline.
         payload["queue_token"] = offline_attribution_token(request, user, worker, card)
@@ -1043,7 +1058,19 @@ def worker_session_start(
         if not _card_matches(worker, card_uid):
             return JSONResponse({"ok": False, "message": CARD_MISMATCH_MESSAGE}, status_code=403)
         card = True
+    if bool(getattr(worker, "pin_must_change", False)):
+        # Correct PIN, but an admin asked for a new one: no session until the worker picks it.
+        return JSONResponse(
+            {"ok": False, "must_change": True, "message": MUST_CHANGE_PIN_MESSAGE, "lang": normalize_lang(getattr(worker, "preferred_lang", None))},
+            headers={"Cache-Control": "no-store"},
+        )
+    return _start_worker_session(request, db, user, worker, card)
+
+
+def _start_worker_session(request: Request, db: Session, user: User, worker: Worker, card: bool, extra: dict | None = None):
     payload = _session_payload(worker, request, user, card)
+    if extra:
+        payload.update(extra)
     try:
         from app.kiosk_nextgen import note_session_start
     except ImportError:  # pragma: no cover
@@ -1051,6 +1078,51 @@ def worker_session_start(
     note_session_start(db, worker.id)
     response = JSONResponse(payload)
     return issue_session_cookie(response, request, user, worker, card)
+
+
+@router.post("/consumables/take/pin/change")
+def worker_pin_change(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_consumables_stock_user),
+    worker_id: str = Form(""),
+    pin: str = Form(""),
+    new_pin: str = Form(""),
+    new_pin_confirm: str = Form(""),
+    card_uid: str = Form(""),
+):
+    """A worker changes their own kiosk PIN: name + current PIN, then the new PIN twice.
+
+    A wrong current PIN counts toward the same 5 tries / 5 minutes lockout as the login.
+    No PIN digits are logged or echoed. On success the worker is logged in.
+    """
+    chosen = resolve_worker_id(db, worker_id)
+    if chosen is None:
+        return JSONResponse({"ok": False, "message": "Unknown worker"}, status_code=400)
+    worker = db.get(Worker, chosen)
+    if worker is None or not worker.pin_hash:
+        return JSONResponse({"ok": False, "code": "no_pin", "message": NO_PIN_MESSAGE}, status_code=403)
+    locked = pin_retry_after(worker.id)
+    if locked:
+        return JSONResponse({"ok": False, "code": "locked", "message": LOCKED_PIN_MESSAGE, "retry_after": locked}, status_code=429)
+    if not verify_pin(pin, worker.pin_hash):
+        locked = record_pin_failure(worker.id)
+        if locked:
+            return JSONResponse({"ok": False, "code": "locked", "message": LOCKED_PIN_MESSAGE, "retry_after": locked}, status_code=429)
+        return JSONResponse({"ok": False, "code": "wrong_current", "message": WRONG_PIN_MESSAGE}, status_code=401)
+    clear_pin_failures(worker.id)
+    card = False
+    if isinstance(card_uid, str) and card_uid.strip():
+        if not _card_matches(worker, card_uid):
+            return JSONResponse({"ok": False, "code": "card", "message": CARD_MISMATCH_MESSAGE}, status_code=403)
+        card = True
+    problem = new_pin_problem(worker, new_pin, new_pin_confirm)
+    if problem is not None:
+        return JSONResponse({"ok": False, "code": problem[0], "message": problem[1]}, status_code=400)
+    worker.pin_hash = hash_pin(new_pin.strip())
+    worker.pin_must_change = False
+    db.commit()
+    return _start_worker_session(request, db, user, worker, card, {"pin_changed": True, "message": PIN_CHANGED_MESSAGE})
 
 
 @router.post("/consumables/take/session/touch")
@@ -1447,6 +1519,8 @@ def consumable_edit_save(
     cost_per_pack: str = Form("0"),
     supplier_id: str = Form(""),
     notes: str = Form(""),
+    name_en: str = Form(""),
+    name_en_sent: str = Form(""),
 ):
     c = db.get(Consumable, cid)
     if not c:
@@ -1466,6 +1540,9 @@ def consumable_edit_save(
     c.cost_per_pack = _d(cost_per_pack)
     c.supplier_id = sid
     c.notes = notes.strip() or None
+    if name_en_sent == "1":
+        # Only the full edit form sends the English name; quick list edits leave it as it is.
+        c.name_en = (name_en if isinstance(name_en, str) else "").strip()[:200] or None
     db.commit()
     if _wants_json(request):
         return JSONResponse(_admin_row_payload(db, c))
