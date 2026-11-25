@@ -1,5 +1,8 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE"
+  },
   "deploy": {
     "preDeployCommand": "python -B scripts/warehouse_predeploy.py",
     "healthcheckPath": "/ready",
