@@ -184,3 +184,18 @@ def test_greek_euro_speech() -> None:
     assert "δέκα ευρώ και εξήντα δύο λεπτά" in spoken
     assert "τρία κιλά" in spoken
     assert "€" not in spoken
+
+
+def test_price_wins_when_item_name_matches_a_worker(harness) -> None:
+    now = datetime.now(timezone.utc)
+    _price_catalog(harness, now=now)
+    db = harness.db()
+    from app.models import Worker
+    db.add(Worker(display_name="Σκλαβούνος Χρήστος", is_active=True, sort_order=1))
+    db.commit()
+    assert ta.parse("τι πήρε ο Σκλαβούνος αυτή τη βδομάδα;", db, today=date(2026, 11, 25)).intent == "worker"
+    intent, reply = ta.answer(db, "πόσο κοστίζουν τα ξυλάκια σκλαβούνος", now=now)
+    assert intent == "price"
+    assert "Ξυλάκια Σκλαβούνος (με φίρμα)" in reply
+    assert "δεν έχει καταχωρηθεί τιμή" in reply
+    db.close()

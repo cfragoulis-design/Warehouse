@@ -6,6 +6,7 @@
   "deploy": {
     "preDeployCommand": "python -B scripts/warehouse_predeploy.py",
     "healthcheckPath": "/ready",
-    "healthcheckTimeout": 120
+    "healthcheckTimeout": 120,
+    "startCommand": "sh -c \"uvicorn app.app:app --host 0.0.0.0 --port $PORT\""
   }
 }

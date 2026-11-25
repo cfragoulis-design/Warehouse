@@ -399,15 +399,16 @@ def parse(text: str, db: Session, *, today: date) -> Parsed:
                         matched = True
             if not matched:
                 content.append(SYNONYMS.get(tok, tok))
+    if flags["help"] and not content:
+        return Parsed("help")
+    # Price must beat a worker-name hit inside the product (e.g. «ξυλάκια Σκλαβούνος»).
+    if flags["price"]:
+        return Parsed("price", content, period)
     if worker_hits:
         active = [w for w in worker_hits.values() if w.is_active]
         chosen = active or list(worker_hits.values())
         label = ", ".join(w.display_name for w in chosen)
         return Parsed("worker", content, period, [w.id for w in chosen], label)
-    if flags["help"] and not content:
-        return Parsed("help")
-    if flags["price"]:
-        return Parsed("price", content, period)
     if flags["order"]:
         return Parsed("reorder", content, period)
     if flags["runout"] or (flags["when"] and content) or (any(_has(t, FEW_PHRASE, exact=True) for t in toks) and not content):
