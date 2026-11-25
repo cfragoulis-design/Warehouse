@@ -50,11 +50,13 @@ from sqlalchemy.orm import Session
 try:
     from app import kiosk_nextgen as ng
     from app import piper_voice
+    from app import telegram_voice
     from app.db import get_db
     from app.models import Consumable, ConsumableMovement, Supplier, TelegramAskLog, Worker
 except ImportError:  # pragma: no cover - flat module layout
     import kiosk_nextgen as ng
     import piper_voice
+    import telegram_voice
     from db import get_db
     from models import Consumable, ConsumableMovement, Supplier, TelegramAskLog, Worker
 
@@ -953,7 +955,7 @@ def _send_telegram_voice(chat_id, audio: bytes, reply_to=None) -> None:
 
 
 def _speak_reply(chat_id, reply: str, reply_to=None) -> None:
-    audio = piper_voice.synthesize_ogg(reply)
+    audio = telegram_voice.synthesize_reply_ogg(reply)
     if audio:
         _send_telegram_voice(chat_id, audio, reply_to=reply_to)
 
@@ -1028,5 +1030,11 @@ def status(db: Session) -> dict:
         "path": WEBHOOK_PATH,
     }
 
+
+
+
+@router.on_event("startup")
+def _schedule_telegram_voice_probe() -> None:
+    telegram_voice.schedule_live_probe()
 
 __all__ = ["skeleton", "tokens", "parse", "parse_period", "match_items", "answer", "router", "status", "HELP_TEXT", "WEBHOOK_PATH", "strip_voice_trigger"]

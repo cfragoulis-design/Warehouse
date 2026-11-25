@@ -199,3 +199,38 @@ def test_price_wins_when_item_name_matches_a_worker(harness) -> None:
     assert "Ξυλάκια Σκλαβούνος (με φίρμα)" in reply
     assert "δεν έχει καταχωρηθεί τιμή" in reply
     db.close()
+
+
+def test_voice_prefers_edge_athina_and_falls_back_to_piper(monkeypatch) -> None:
+    from app import telegram_voice
+
+    edge_calls: list[str] = []
+    piper_calls: list[str] = []
+
+    monkeypatch.setattr(telegram_voice, "synthesize_edge_ogg", lambda text, timeout=None: edge_calls.append(text) or b"OggS" + b"e" * 80)
+    monkeypatch.setattr(telegram_voice.piper_voice, "synthesize_ogg", lambda text, timeout=30: piper_calls.append(text) or b"OggS" + b"p" * 80)
+
+    audio = telegram_voice.synthesize_reply_ogg("10,62 €")
+    assert audio.startswith(b"OggS") and audio[4:5] == b"e"
+    assert len(edge_calls) == 1 and piper_calls == []
+
+    monkeypatch.setattr(telegram_voice, "synthesize_edge_ogg", lambda text, timeout=None: edge_calls.append("fail:"+text) or None)
+    audio = telegram_voice.synthesize_reply_ogg("10,62 €")
+    assert audio.startswith(b"OggS") and audio[4:5] == b"p"
+    assert piper_calls == ["10,62 €"]
+
+    monkeypatch.setattr(telegram_voice.piper_voice, "synthesize_ogg", lambda text, timeout=30: None)
+    assert telegram_voice.synthesize_reply_ogg("10,62 €") is None
+
+
+def test_edge_timeout_or_error_uses_piper(monkeypatch) -> None:
+    from app import telegram_voice
+
+    def boom(text, timeout=8.0):
+        raise TimeoutError("edge down")
+
+    # _edge_mp3 itself swallows errors; simulate that by making synthesize_edge_ogg return None
+    monkeypatch.setattr(telegram_voice, "synthesize_edge_ogg", lambda text, timeout=None: None)
+    monkeypatch.setattr(telegram_voice.piper_voice, "synthesize_ogg", lambda text, timeout=30: b"OggS" + b"p" * 80)
+    audio = telegram_voice.synthesize_reply_ogg("τιμή burger")
+    assert audio.endswith(b"p" * 80)

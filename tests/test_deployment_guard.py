@@ -161,8 +161,10 @@ def test_railway_config_keeps_previous_release_until_healthcheck() -> None:
     payload = json.loads((PROJECT_ROOT / "railway.json").read_text(encoding="utf-8"))
 
     assert payload["$schema"] == "https://railway.com/railway.schema.json"
+    assert payload.get("build", {}).get("builder") == "DOCKERFILE"
     assert payload["deploy"] == {
         "preDeployCommand": "python -B scripts/warehouse_predeploy.py",
         "healthcheckPath": "/ready",
         "healthcheckTimeout": 120,
+        "startCommand": 'sh -c "uvicorn app.app:app --host 0.0.0.0 --port $PORT"',
     }
