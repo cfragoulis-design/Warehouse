@@ -10,11 +10,18 @@
 * Products are matched by word stems / typos (difflib) and sizes (S, M, L, XL,
   «μίντιουμ», 750, 1250 …); workers by their display name.
 * Read-only: it only SELECTs. It never changes stock and never sends an order.
+* Price questions («πόσο αγοράζουμε το Χ», «τιμή Χ», «πόσο κοστίζει/κάνει/πληρώνουμε
+  το Χ») take priority over the stock meaning of «πόσο».
+* A leading «πες μου» or «Αθηνά» (accents / Greeklish folded the same way) is
+  stripped before parsing; the text answer is still sent, and a Piper OGG/Opus
+  voice message follows (same Greek Piper model as the kiosk-apothiki reminder).
+  Without that trigger, behaviour is text-only.
 * Webhook ``POST /telegram/ask/webhook`` (feature ``nextgen_telegram_ask``):
   secret header ``X-Telegram-Bot-Api-Secret-Token`` = ``TELEGRAM_WEBHOOK_SECRET``;
   only chats listed in ``TELEGRAM_CONSUMABLES_CHAT_ID`` (else ``TELEGRAM_CHAT_ID``; comma-separated) get an answer; every
-  update_id is answered once; 20 questions / 10 minutes per chat. The answer goes
-  back inside the webhook response (``sendMessage``), so no extra outbound call.
+  update_id is answered once; 20 questions / 10 minutes per chat. The text answer
+  goes back inside the webhook response (``sendMessage``). Voice, when requested,
+  is a single extra ``sendVoice`` call — never to a chat that is not already allowed.
 * Optional AI fallback for questions it does not understand: only when the
   ``nextgen_telegram_ask_llm`` switch is on AND ``TELEGRAM_ASK_LLM_API_KEY`` is set
   (neither is, by default). It never sees more than the question text.
@@ -34,7 +41,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -42,12 +49,14 @@ from sqlalchemy.orm import Session
 
 try:
     from app import kiosk_nextgen as ng
+    from app import piper_voice
     from app.db import get_db
-    from app.models import Consumable, ConsumableMovement, TelegramAskLog, Worker
+    from app.models import Consumable, ConsumableMovement, Supplier, TelegramAskLog, Worker
 except ImportError:  # pragma: no cover - flat module layout
     import kiosk_nextgen as ng
+    import piper_voice
     from db import get_db
-    from models import Consumable, ConsumableMovement, TelegramAskLog, Worker
+    from models import Consumable, ConsumableMovement, Supplier, TelegramAskLog, Worker
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -132,6 +141,11 @@ def _stems(*words: str) -> tuple[str, ...]:
 
 STOCK = _stems("πόσα", "πόσο", "πόσες", "πόσοι", "πόσα", "απόθεμα", "αποθέματος", "στοκ", "stock", "υπάρχουν", "υπάρχει",
                "έχουμε", "έχομε", "έμειναν", "έμεινε", "μένουν", "μένει", "διαθέσιμα")
+# «πόσο» alone remains STOCK; these words (or «πόσο» + a verb below) mean purchase price.
+PRICE = _stems("τιμή", "τιμής", "τιμές", "price", "κόστος", "κοστίζει", "κοστίζουν", "κοστίζ", "πληρώνουμε", "πληρώνετε",
+               "πληρώνω", "πληρωμή")
+PRICE_VERBS = _stems("κοστίζει", "κοστίζουν", "κάνει", "κάνουν", "αγοράζουμε", "αγοράζετε", "αγοράζω",
+                     "πληρώνουμε", "πληρώνετε", "πληρώνω")
 CONSUME = _stems("καταναλώσαμε", "κατανάλωση", "καταναλώθηκ", "ξοδέψαμε", "ξόδεψαν", "φύγανε", "φύγαν", "βγήκαν", "βγήκε",
                  "πήραμε", "χρησιμοποιήσαμε", "χρησιμοποιήθηκ", "κινήσεις", "πάρθηκαν", "πάρθηκε", "πήγαν")
 TOOK = _stems("πήρε", "πήραν", "έβγαλε", "έβγαλαν", "πάρει")
@@ -207,6 +221,35 @@ def _word_match(query: str, target: str) -> bool:
     if len(query) >= 5 and len(target) >= 5:
         return difflib.SequenceMatcher(None, query, target).ratio() >= 0.8
     return False
+
+
+
+_VOICE_PREFIX = re.compile(
+    r"^\s*(?:πες\s+μου|πεσμου|pesmu|pes\s+mo[uy]?|pesmou|αθην[άα]|athina|athena)\s*[,:.\-–;]?\s*",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def strip_voice_trigger(text: str) -> tuple[str, bool]:
+    """If the question starts with «πες μου» or «Αθηνά», strip it and ask for a voice reply."""
+    raw = text or ""
+    folded = re.sub(r"\s+", " ", _strip(raw)).strip()
+    if not re.match(r"^(πες μου|πεσμου|pesmu|pes mou|pes mu|pesmou|αθηνα|athina|athena)(\s|$|[,:.\-;])", folded):
+        if folded not in {"πες μου", "πεσμου", "pesmu", "pes mou", "pes mu", "pesmou", "αθηνα", "athina", "athena"}:
+            return raw, False
+    stripped = _VOICE_PREFIX.sub("", raw, count=1)
+    if stripped == raw:
+        return raw, False
+    return stripped, True
+
+
+def _is_price_question(toks: list[str]) -> bool:
+    """True when the question is about purchase price, including «πόσο κοστίζει/κάνει/…»."""
+    if any(_has(tok, PRICE) or tok in PRICE for tok in toks):
+        return True
+    has_poso = any(tok in _stems("πόσο", "poso") or _has(tok, _stems("πόσο"), exact=True) for tok in toks)
+    has_verb = any(_has(tok, PRICE_VERBS) or tok in PRICE_VERBS for tok in toks)
+    return has_poso and has_verb
 
 
 # --------------------------------------------------------------------- parsing
@@ -318,16 +361,22 @@ def parse(text: str, db: Session, *, today: date) -> Parsed:
         raw = f"{mapping.get(command, '')} {rest}".strip()
     toks = tokens(raw)
     period, used = parse_period(toks, today)
-    flags = {"stock": False, "consume": False, "took": False, "runout": False, "order": False, "help": False, "when": False}
+    flags = {"stock": False, "consume": False, "took": False, "runout": False, "order": False, "help": False, "when": False, "price": False}
     content: list[str] = []
     worker_hits: dict[int, Worker] = {}
     workers = _worker_index(db)
+    price_question = _is_price_question(toks)
+    if price_question:
+        flags["price"] = True
     for i, tok in enumerate(toks):
         if i in used:
             continue
         if _has(tok, HELP) or _has(tok, GREET, exact=True):
             flags["help"] = True
-        elif _has(tok, ORDER):
+        elif price_question and (_has(tok, PRICE) or tok in PRICE or _has(tok, PRICE_VERBS) or tok in PRICE_VERBS
+                                 or tok in _stems("πόσο", "poso")):
+            continue
+        elif (not price_question) and _has(tok, ORDER):
             flags["order"] = True
         elif _has(tok, RUNOUT):
             flags["runout"] = True
@@ -357,6 +406,8 @@ def parse(text: str, db: Session, *, today: date) -> Parsed:
         return Parsed("worker", content, period, [w.id for w in chosen], label)
     if flags["help"] and not content:
         return Parsed("help")
+    if flags["price"]:
+        return Parsed("price", content, period)
     if flags["order"]:
         return Parsed("reorder", content, period)
     if flags["runout"] or (flags["when"] and content) or (any(_has(t, FEW_PHRASE, exact=True) for t in toks) and not content):
@@ -499,6 +550,8 @@ HELP_TEXT = (
     "• τι τελειώνει;\n"
     "• πότε τελειώνει το χαρτί μεγάλο;\n"
     "• τι να παραγγείλω;\n"
+    "• τιμή σάλτσα ντομάτας; / πόσο αγοράζουμε το Χ;\n"
+    "Για φωνή, ξεκίνα με «πες μου» ή «Αθηνά».\n"
     "Περίοδοι: σήμερα, χθες, αυτή/προηγούμενη εβδομάδα, αυτόν/προηγούμενο μήνα, Νοέμβριο, τελευταίες 7 μέρες.\n"
     "Μόνο ανάγνωση — δεν αλλάζω απόθεμα και δεν στέλνω παραγγελίες."
 )
@@ -528,6 +581,91 @@ def _last_take(db: Session, item_id: int) -> str:
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
     return moment.astimezone(ATHENS).strftime("%d/%m/%Y")
+
+
+
+def _pack_meaning(item: Consumable) -> str:
+    """Human pack wording, e.g. «ανά συσκευασία 3kg»."""
+    unit = (item.unit or "").strip()
+    name = item.name or ""
+    notes = item.notes or ""
+    weight = None
+    found = re.search(r"(\d+(?:[.,]\d+)?\s*(?:kg|κιλ[αάοί]?))\b", name, re.IGNORECASE)
+    if not found:
+        found = re.search(r"(\d+(?:[.,]\d+)?\s*(?:kg|κιλ[αάοί]?))\b", notes, re.IGNORECASE)
+    if found:
+        weight = re.sub(r"\s+", "", found.group(1), flags=re.I).replace("ΚΙΛ", "κιλ").replace("Kg", "kg")
+        weight = re.sub(r"(?i)κιλα$", "kg", weight)
+        weight = re.sub(r"(?i)κιλο$", "kg", weight)
+    key = unit.casefold()
+    if key in {"kg", "κιλό", "κιλά", "kilo"}:
+        return "ανά κιλό"
+    if key in {"δέμα"}:
+        return f"ανά δέμα {weight}" if weight else "ανά δέμα"
+    if key in {"κιβώτιο", "κιβώτια", "box", "κούτ.", "κουτί"}:
+        return f"ανά κιβώτιο {weight}" if weight else "ανά κιβώτιο"
+    if key in {"πακέτο", "πακέτα", "pack"}:
+        return f"ανά πακέτο {weight}" if weight else "ανά πακέτο"
+    if key in {"τεμάχιο", "τεμάχια", "τεμ.", "τεμ", "pcs"}:
+        return f"ανά συσκευασία {weight}" if weight else "ανά συσκευασία"
+    if unit:
+        return f"ανά {unit}" + (f" {weight}" if weight else "")
+    return f"ανά συσκευασία {weight}" if weight else "ανά συσκευασία"
+
+
+def _fmt_eur(value) -> str:
+    number = Decimal(str(value or 0)).quantize(Decimal("0.01"))
+    if number == number.to_integral_value():
+        return f"{int(number)},00 €"
+    text = f"{number:.2f}".replace(".", ",")
+    return f"{text} €"
+
+
+def _last_purchase_source(db: Session, item: Consumable) -> str | None:
+    movement = (
+        db.query(ConsumableMovement)
+        .filter(ConsumableMovement.consumable_id == item.id, ConsumableMovement.movement_type == "IN")
+        .order_by(ConsumableMovement.created_at.desc(), ConsumableMovement.id.desc())
+        .first()
+    )
+    bits: list[str] = []
+    if movement and (movement.note or "").strip():
+        bits.append(movement.note.strip())
+    elif movement and movement.created_at is not None:
+        bits.append(movement.created_at.astimezone(ATHENS).strftime("%d/%m/%Y"))
+    elif (item.notes or "").strip():
+        bits.append(item.notes.strip())
+    return bits[0] if bits else None
+
+
+def answer_price(db: Session, parsed: Parsed, text: str) -> str:
+    items, leftover = match_items(parsed.words, db.query(Consumable).all())
+    if not items:
+        return _not_found(leftover or parsed.words, _content_text(text, parsed))
+    suppliers = {}
+    ids = {item.supplier_id for item in items if item.supplier_id}
+    if ids:
+        for row in db.query(Supplier).filter(Supplier.id.in_(ids)).all():
+            suppliers[row.id] = row.name
+    lines: list[str] = []
+    for item in items[:MAX_LINES]:
+        cost = Decimal(str(item.cost_per_pack or 0))
+        block = [item.name]
+        if cost == 0:
+            block.append("δεν έχει καταχωρηθεί τιμή")
+        else:
+            block.append(f"{_fmt_eur(cost)} {_pack_meaning(item)}")
+        supplier = suppliers.get(item.supplier_id) if item.supplier_id else None
+        if supplier:
+            block.append(f"Προμηθευτής: {supplier}")
+        source = _last_purchase_source(db, item)
+        if source:
+            block.append(f"Τελευταία αγορά: {source}")
+        lines.append("\n".join(block))
+    extra = len(items) - MAX_LINES
+    if extra > 0:
+        lines.append(f"…και άλλα {extra}.")
+    return "\n\n".join(lines)
 
 
 def answer_stock(db: Session, parsed: Parsed, text: str, now: datetime) -> str:
@@ -706,6 +844,8 @@ def answer(db: Session, text: str, *, now: datetime | None = None) -> tuple[str,
     moment = now or datetime.now(timezone.utc)
     today = moment.astimezone(ATHENS).date()
     parsed = parse(text, db, today=today)
+    if parsed.intent == "price":
+        return parsed.intent, answer_price(db, parsed, text)
     if parsed.intent == "stock":
         return parsed.intent, answer_stock(db, parsed, text, moment)
     if parsed.intent == "consumption":
@@ -769,8 +909,56 @@ def _log(db: Session, *, update_id, chat_id: str, allowed: bool, intent: str, qu
 OK = {"ok": True}
 
 
+def _send_telegram_voice(chat_id, audio: bytes, reply_to=None) -> None:
+    """POST sendVoice to Telegram. Never logs the bot token; skips empty audio."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    if not token or not audio:
+        return
+    boundary = "----whPiperVoice"
+    parts: list[bytes] = []
+
+    def field(name: str, value: str) -> None:
+        parts.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode()
+        )
+
+    field("chat_id", str(chat_id))
+    if reply_to is not None:
+        field("reply_to_message_id", str(reply_to))
+    field("disable_notification", "true")
+    parts.append(
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"voice\"; filename=\"answer.ogg\"\r\n"
+        f"Content-Type: audio/ogg\r\n\r\n".encode()
+        + audio
+        + b"\r\n"
+    )
+    parts.append(f"--{boundary}--\r\n".encode())
+    body = b"".join(parts)
+    url = f"https://api.telegram.org/bot{token}/sendVoice"
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
+        if not payload.get("ok"):
+            logger.warning("sendVoice was not accepted")
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+        # Do not log the exception (the request URL contains the bot token).
+        logger.warning("sendVoice failed status=%s type=%s", getattr(exc, "code", None), type(exc).__name__)
+
+
+def _speak_reply(chat_id, reply: str, reply_to=None) -> None:
+    audio = piper_voice.synthesize_ogg(reply)
+    if audio:
+        _send_telegram_voice(chat_id, audio, reply_to=reply_to)
+
+
 @router.post(WEBHOOK_PATH)
-async def telegram_ask_webhook(request: Request, db: Session = Depends(get_db)):
+async def telegram_ask_webhook(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if not ng.flag_on(db, ng.TELEGRAM_ASK):
         return JSONResponse({"ok": False}, status_code=404)
     secret = webhook_secret()
@@ -803,13 +991,17 @@ async def telegram_ask_webhook(request: Request, db: Session = Depends(get_db)):
         intent = "rate_limited"
     else:
         try:
-            intent, reply = answer(db, text[:300], now=now)
+            question, speak = strip_voice_trigger(text[:300])
+            intent, reply = answer(db, question, now=now)
         except Exception:
             logger.exception("telegram ask failed")
             db.rollback()
             intent, reply = "error", "Κάτι πήγε στραβά με την απάντηση. Δοκίμασε ξανά."
+            speak = False
         if not _log(db, update_id=update_id, chat_id=chat_id, allowed=True, intent=intent, question=text, now=now):
             return JSONResponse(OK)  # Telegram re-delivered an update we already answered
+        if speak and intent not in {"denied"} and background_tasks is not None:
+            background_tasks.add_task(_speak_reply, chat.get("id"), reply, message.get("message_id"))
     return JSONResponse({
         "method": "sendMessage",
         "chat_id": chat.get("id"),
@@ -836,4 +1028,4 @@ def status(db: Session) -> dict:
     }
 
 
-__all__ = ["skeleton", "tokens", "parse", "parse_period", "match_items", "answer", "router", "status", "HELP_TEXT", "WEBHOOK_PATH"]
+__all__ = ["skeleton", "tokens", "parse", "parse_period", "match_items", "answer", "router", "status", "HELP_TEXT", "WEBHOOK_PATH", "strip_voice_trigger"]
