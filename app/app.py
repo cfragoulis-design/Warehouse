@@ -51,6 +51,7 @@ if not runtime_settings.operations_source_mode:
         from app.telegram_ask import router as telegram_ask_router
         from app.accountability import router as accountability_router
         from app.shelf_labels import router as shelf_labels_router
+        from app.transfers import router as transfers_router
         from app.seed import seed_categories, seed_locations
         from app.services import router as services_router
         from app.workshop_message_service import router as workshop_message_router
@@ -76,12 +77,14 @@ if not runtime_settings.operations_source_mode:
         from telegram_ask import router as telegram_ask_router
         from accountability import router as accountability_router
         from shelf_labels import router as shelf_labels_router
+        from transfers import router as transfers_router
         from seed import seed_categories, seed_locations
         from services import router as services_router
         from workshop_message_service import router as workshop_message_router
 
 logger = logging.getLogger(__name__)
 weekly_report_task = None
+transfer_watch_task = None
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR_CANDIDATES = [
@@ -148,24 +151,44 @@ async def weekly_report_scheduler() -> None:
         await asyncio.sleep(300)
 
 
+async def transfer_watch_scheduler() -> None:
+    """Warn when a 109 file has not reached the office PC within 10 minutes."""
+    while True:
+        try:
+            try:
+                from app.transfers import run_transfer_watch
+            except ImportError:
+                from transfers import run_transfer_watch
+            await asyncio.to_thread(run_transfer_watch)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Transfer delivery watch failed")
+        await asyncio.sleep(60)
+
+
 @app.on_event("startup")
 async def start_weekly_report_scheduler() -> None:
-    global weekly_report_task
+    global weekly_report_task, transfer_watch_task
     if not runtime_settings.schedulers_enabled:
         return
     weekly_report_task = asyncio.create_task(weekly_report_scheduler())
+    transfer_watch_task = asyncio.create_task(transfer_watch_scheduler())
 
 
 @app.on_event("shutdown")
 async def stop_weekly_report_scheduler() -> None:
-    global weekly_report_task
-    if weekly_report_task:
-        weekly_report_task.cancel()
-        try:
-            await weekly_report_task
-        except asyncio.CancelledError:
-            pass
-        weekly_report_task = None
+    global weekly_report_task, transfer_watch_task
+    for task_name in ("weekly_report_task", "transfer_watch_task"):
+        task = weekly_report_task if task_name == "weekly_report_task" else transfer_watch_task
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+    weekly_report_task = None
+    transfer_watch_task = None
 
 
 @app.on_event("startup")
@@ -246,6 +269,7 @@ if not runtime_settings.operations_source_mode:
     app.include_router(telegram_ask_router)
     app.include_router(accountability_router)
     app.include_router(shelf_labels_router)
+    app.include_router(transfers_router)
 app.include_router(operations_summary_router)
 
 

@@ -1,0 +1,10 @@
+{
+  "product": "RAWLOGIC Transfer Agent",
+  "version": "1.0.0",
+  "delivery_modes": ["file"],
+  "phase2_delivery_modes": ["api"],
+  "creator": "Christos Fragoulis",
+  "contains_agent_token": false,
+  "writes_to_galaxy": false,
+  "default_inbox": "C:\\RAWLOGIC\\109-INBOX"
+}

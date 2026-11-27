@@ -45,6 +45,8 @@ def test_initial_migration_catalog_is_immutable_and_non_destructive() -> None:
         "20261121_021",
         "20261122_022",
         "20261122_023",
+        "20261123_024",
+        "20261127_025",
     ]
     by_version = {migration.version: migration for migration in catalog}
     profiles_migration = by_version["20260906_001"]

@@ -388,3 +388,9 @@ def load_runtime_settings() -> WarehouseRuntimeSettings:
             "Warehouse Operations source mode requires startup mutations and schedulers disabled"
         )
     return settings
+
+
+def transfers_enabled() -> bool:
+    """Internal-transfer (109) screen. Off until the owner turns it on."""
+
+    return _boolean_environment("TRANSFERS_ENABLED", default=False)

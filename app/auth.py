@@ -128,6 +128,7 @@ WAREHOUSE_ALLOWED_PATHS = (
     "/consumables/take/session",
     "/consumables/take/session/touch",
     "/consumables/take/session/end",
+    "/consumables/take/pin/change",
     "/consumables/take/card",
     "/consumables/take/page-status",
     "/consumables/movements",
@@ -136,14 +137,25 @@ WAREHOUSE_ALLOWED_PATHS = (
     "/sw.js",
 )
 
+# Shared workshop tablet. The check lives inside require_user on purpose:
+# a new role that only the transfer routes tested would still open every
+# page that merely checks "logged in".
+TRANSFER_DEVICE_ROLE = "transfer_device"
+
 
 def is_warehouse_only(user: User | None) -> bool:
     return ((getattr(user, "role", "") or "").lower() == "warehouse")
 
 
+def is_transfer_device(user: User | None) -> bool:
+    return ((getattr(user, "role", "") or "").lower() == TRANSFER_DEVICE_ROLE)
+
+
 def home_for_user(user: User | None) -> str:
     if is_warehouse_only(user):
         return "/consumables/take"
+    if is_transfer_device(user):
+        return "/transfers?kiosk=1"
     return "/dashboard"
 
 
@@ -164,12 +176,27 @@ def _warehouse_path_allowed(path: str) -> bool:
     return path in WAREHOUSE_ALLOWED_PATHS
 
 
+def _transfer_device_path_allowed(path: str) -> bool:
+    """Allow-list for the workshop transfer tablet. Nothing else."""
+    if path.startswith("/static/"):
+        return True
+    if path in {"/transfers", "/logout", "/health", "/sw.js"}:
+        return True
+    if path.startswith("/transfers/"):
+        return True
+    if path.startswith("/api/transfers/"):
+        return True
+    return False
+
+
 def require_user(request: Request, user: User | None = Depends(get_current_user)) -> User:
     _require_same_origin(request)
     if not user:
         raise HTTPException(status_code=303, headers={"Location": "/login"})
     if is_warehouse_only(user) and not _warehouse_path_allowed(request.url.path):
         raise HTTPException(status_code=303, headers={"Location": "/consumables/take"})
+    if is_transfer_device(user) and not _transfer_device_path_allowed(request.url.path):
+        raise HTTPException(status_code=303, headers={"Location": "/transfers"})
     return user
 
 
@@ -353,10 +380,12 @@ def seed_admins(db: Session) -> None:
       INITIAL_ADMIN_PIN       -> username admin, role admin
       INITIAL_ADMIN2_PIN      -> username admin2, role admin
       INITIAL_WAREHOUSE_PIN   -> username warehouse, role warehouse
+      INITIAL_TRANSFER_DEVICE_PIN -> shared workshop tablet, role transfer_device
 
     Optional:
       INITIAL_WAREHOUSE_USERNAME / WAREHOUSE_USERNAME
       WAREHOUSE_PIN (alias for INITIAL_WAREHOUSE_PIN)
+      INITIAL_TRANSFER_DEVICE_USERNAME (default username: transfer)
     """
     changed = False
     changed |= _ensure_user(db, "admin", "admin", os.getenv("INITIAL_ADMIN_PIN", ""))
@@ -369,6 +398,10 @@ def seed_admins(db: Session) -> None:
     )
     warehouse_pin = os.getenv("INITIAL_WAREHOUSE_PIN", "") or os.getenv("WAREHOUSE_PIN", "")
     changed |= _ensure_user(db, warehouse_username, "warehouse", warehouse_pin)
+
+    transfer_username = (os.getenv("INITIAL_TRANSFER_DEVICE_USERNAME", "") or "transfer").strip()
+    transfer_pin = os.getenv("INITIAL_TRANSFER_DEVICE_PIN", "")
+    changed |= _ensure_user(db, transfer_username, TRANSFER_DEVICE_ROLE, transfer_pin)
 
     if changed:
         db.commit()

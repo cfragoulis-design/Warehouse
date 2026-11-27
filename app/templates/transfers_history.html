@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Ιστορικό ενδοδιακινήσεων</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#141b33; --line:#31406a; --text:#f4f7ff; --muted:#b7c2de; --blue:#2f7cf6; --danger:#d45353; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif; font-size:18px; }
+    header { position:sticky; top:0; background:#10182e; border-bottom:1px solid var(--line); padding:12px; display:flex; gap:10px; align-items:center; }
+    h1 { font-size:24px; margin:0; }
+    a.pill, button { min-height:52px; padding:10px 14px; border-radius:14px; border:1px solid var(--line); background:#1b2748; color:var(--text); text-decoration:none; font-weight:800; font:inherit; touch-action:manipulation; }
+    main { max-width:900px; margin:0 auto; padding:12px 12px 40px; }
+    details { background:var(--panel); border:1px solid var(--line); border-radius:16px; margin:0 0 12px; padding:12px; }
+    summary { font-size:20px; font-weight:800; cursor:pointer; min-height:48px; }
+    .muted { color:var(--muted); font-size:16px; }
+    .hash { word-break:break-all; font-family:ui-monospace,monospace; font-size:13px; }
+    ul { padding-left:18px; }
+    form { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    input { min-height:52px; border-radius:12px; border:1px solid var(--line); background:#0e152c; color:var(--text); padding:0 12px; font:inherit; }
+    button.danger { border-color:var(--danger); }
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+  <header>
+    <h1>Ιστορικό</h1>
+    <a class="pill" href="/transfers">Νέα</a>
+    {% if not is_device %}<a class="pill" href="/dashboard">Αρχική</a>{% endif %}
+  </header>
+  <main>
+    {% if not rows %}
+      <p class="muted">Δεν υπάρχει αποστολή ακόμα.</p>
+    {% endif %}
+    {% for row in rows %}
+      {% set batch = row.batch %}
+      <details>
+        <summary>
+          {{ row.status_label }} · {{ batch.filename }}
+          <div class="muted">{{ row.when }} · {{ batch.created_by_name }}{% if row.kg %} · {{ row.kg }} κιλά{% endif %}{% if row.pieces %} · {{ row.pieces }} τεμ.{% endif %}</div>
+        </summary>
+        <p class="muted">{{ row.direction }} · σειρά {{ batch.series }} · {{ batch.delivery_mode }}</p>
+        <ul>
+          {% for line in row.lines %}
+            <li>{{ line.item_code }} {{ line.item_name }} — {{ "%.3f"|format(line.qty)|replace(".", ",") }} {{ "κιλά" if line.unit == "kg" else "τεμ." }}</li>
+          {% endfor %}
+        </ul>
+        <p class="hash">sha256 {{ batch.sha256 }}</p>
+        {% if row.delivered_when %}<p class="muted">Έφτασε: {{ row.delivered_when }}</p>{% endif %}
+        {% if batch.galaxy_doc_no %}<p>Αριθμός 109: {{ batch.galaxy_doc_no }}</p>{% endif %}
+        {% if row.passed_when %}<p class="muted">Πέρασε στο Galaxy: {{ row.passed_when }}</p>{% endif %}
+        {% if batch.last_error %}<p class="muted">{{ batch.last_error }}</p>{% endif %}
+        <p><a href="/transfers/{{ batch.id }}/csv">Λήψη αρχείου</a></p>
+        {% if batch.status == "sent" or (is_admin and batch.status == "delivered") %}
+          <form method="post" action="/transfers/{{ batch.id }}/cancel">
+            <button class="danger" type="submit">Ακύρωση</button>
+          </form>
+        {% endif %}
+        {% if is_admin and batch.status != "cancelled" %}
+          <form method="post" action="/transfers/{{ batch.id }}/done">
+            <input name="doc_no" placeholder="Αριθμός 109 (προαιρετικά)" value="{{ batch.galaxy_doc_no or '' }}" />
+            <button type="submit">Πέρασε στο Galaxy</button>
+          </form>
+        {% endif %}
+      </details>
+    {% endfor %}
+  </main>
+</body>
+</html>

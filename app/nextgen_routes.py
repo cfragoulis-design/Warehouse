@@ -38,6 +38,7 @@ router = APIRouter()
 templates = WarehouseJinja2Templates(directory="app/templates")
 NO_STORE = {"Cache-Control": "no-store"}
 UNIT_WORDS = {"box": ("κούτα", "κούτες"), "pcs": ("τεμάχιο", "τεμάχια"), "kg": ("κιλό", "κιλά"), "τεμ": ("τεμάχιο", "τεμάχια")}
+UNIT_WORDS_EN = {"box": ("box", "boxes"), "pcs": ("piece", "pieces"), "kg": ("kilo", "kilos"), "τεμ": ("piece", "pieces")}
 
 
 def _require(db: Session, key: str) -> None:
@@ -75,8 +76,8 @@ def _favorites(db: Session, worker_id: int | None) -> list[int]:
     return worker_quick_picks(db).get(str(worker_id), [])
 
 
-def _spoken_qty(qty: int, unit: str) -> str:
-    words = UNIT_WORDS.get((unit or "").strip().lower())
+def _spoken_qty(qty: int, unit: str, lang: str = "el") -> str:
+    words = (UNIT_WORDS_EN if lang == "en" else UNIT_WORDS).get((unit or "").strip().lower())
     if not words:
         return str(qty)
     return f"{qty} {words[0] if qty == 1 else words[1]}"
@@ -171,8 +172,8 @@ def voice_greeting_route(
     worker = db.get(Worker, worker_id) if worker_id else None
     if worker is None or not kiosk_voice.greets(db, worker.id):
         return Response(status_code=204, headers=NO_STORE)
-    text = kiosk_voice.greeting_text(kiosk_voice.spoken_name(db, worker))
-    return _audio(kiosk_voice.get_clip(db, text))
+    text, voice = kiosk_voice.worker_greeting(db, worker)
+    return _audio(kiosk_voice.get_clip(db, text, voice=voice))
 
 
 @router.get("/consumables/take/nextgen/voice/confirm")
@@ -180,6 +181,7 @@ def voice_confirm_route(
     item: int,
     qty: int = 1,
     mode: str = "take",
+    lang: str = "el",
     db: Session = Depends(get_db),
     user: User = Depends(require_consumables_stock_user),
 ):
@@ -192,7 +194,12 @@ def voice_confirm_route(
     row = db.get(Consumable, item)
     if row is None or not row.is_active or not 0 < qty <= 9999:
         return Response(status_code=204, headers=NO_STORE)
-    text = kiosk_voice.confirm_text(row.name, _spoken_qty(qty, row.unit or ""), "add" if mode == "add" else "take")
+    move = "add" if mode == "add" else "take"
+    if lang == "en":
+        name = (getattr(row, "name_en", None) or "").strip() or row.name
+        text = kiosk_voice.confirm_text_en(name, _spoken_qty(qty, row.unit or "", "en"), move)
+        return _audio(kiosk_voice.get_clip(db, text, voice=kiosk_voice.VOICE_EN))
+    text = kiosk_voice.confirm_text(row.name, _spoken_qty(qty, row.unit or ""), move)
     return _audio(kiosk_voice.get_clip(db, text))
 
 
