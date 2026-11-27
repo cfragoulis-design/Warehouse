@@ -382,4 +382,4 @@ def test_migration_023_is_additive_idempotent_and_registered() -> None:
         if stripped.startswith(("CREATE TABLE", "CREATE INDEX", "CREATE UNIQUE INDEX")):
             assert "IF NOT EXISTS" in stripped
     versions = [m.version for m in migration_catalog()]
-    assert versions[-1] == "20261122_023" and versions[-2] == "20261122_022"
+    assert versions[versions.index("20261122_023") - 1] == "20261122_022"

@@ -9,6 +9,18 @@ from starlette.background import BackgroundTask
 from starlette.responses import Response
 
 
+def transfers_nav_enabled() -> bool:
+    try:
+        try:
+            from app.runtime_config import transfers_enabled
+        except ImportError:  # pragma: no cover - flat module layout
+            from runtime_config import transfers_enabled
+
+        return transfers_enabled()
+    except Exception:
+        return False
+
+
 class WarehouseJinja2Templates(Jinja2Templates):
     """Keep legacy Warehouse call sites compatible with Starlette 1.x.
 
@@ -16,6 +28,10 @@ class WarehouseJinja2Templates(Jinja2Templates):
     argument. Warehouse historically stores it in the context mapping. This
     adapter is the single migration boundary until templates are modularized.
     """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.env.globals["transfers_nav_enabled"] = transfers_nav_enabled
 
     def TemplateResponse(  # noqa: N802
         self,

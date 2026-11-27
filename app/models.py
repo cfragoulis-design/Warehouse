@@ -1058,3 +1058,116 @@ class FreezerItem(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class GalaxyItemCache(Base):
+    """Read-only copy of Galaxy item codes for the 109 screen.
+
+    Prices, customers and documents are never stored here. ``galaxy_item_id``
+    is kept so a later phase can call the official Galaxy API.
+    """
+
+    __tablename__ = "galaxy_items_cache"
+    __table_args__ = (
+        CheckConstraint("unit IN ('kg', 'piece')", name="ck_galaxy_items_cache_unit"),
+    )
+
+    code: Mapped[str] = mapped_column(String(40), primary_key=True)
+    galaxy_item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    name: Mapped[str] = mapped_column(String(240), nullable=False)
+    unit: Mapped[str] = mapped_column(String(16), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class GalaxyItemsSync(Base):
+    """One row (id=1): last accepted item-list snapshot and agent heartbeat."""
+
+    __tablename__ = "galaxy_items_sync"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_galaxy_items_sync_singleton"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    agent_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rejected_reason: Mapped[str | None] = mapped_column(String(240), nullable=True)
+
+
+class TransferBatch(Base):
+    """One 109 file waiting for, or already handed to, the office PC.
+
+    Direction and series are stored on the row (phase 1 always writes the
+    settings 002 -> 001, series 109.00Α). ``delivery_mode`` is ``file`` now
+    and ``api`` is reserved for a later local Galaxy Web API service.
+    ``galaxy_doc_no`` and ``galaxy_doc_pdf`` stay empty until that phase.
+    """
+
+    __tablename__ = "transfer_batches"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="uq_transfer_batches_request"),
+        UniqueConstraint("filename", name="uq_transfer_batches_filename"),
+        CheckConstraint(
+            "status IN ('sent', 'delivered', 'passed', 'cancelled')",
+            name="ck_transfer_batches_status",
+        ),
+        CheckConstraint(
+            "delivery_mode IN ('file', 'api')",
+            name="ck_transfer_batches_delivery_mode",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    created_by_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    from_wh: Mapped[str] = mapped_column(String(8), nullable=False, default="002")
+    to_wh: Mapped[str] = mapped_column(String(8), nullable=False, default="001")
+    series: Mapped[str] = mapped_column(String(20), nullable=False, default="109.00Α")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="sent")
+    filename: Mapped[str] = mapped_column(String(80), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    csv_text: Mapped[str] = mapped_column(Text, nullable=False)
+    lines_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    delivery_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="file")
+    galaxy_doc_no: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    galaxy_doc_pdf: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    late_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    passed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    passed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(String(240), nullable=True)
+
+
+class TransferLine(Base):
+    __tablename__ = "transfer_lines"
+    __table_args__ = (
+        CheckConstraint("qty > 0", name="ck_transfer_lines_qty_positive"),
+        CheckConstraint("unit IN ('kg', 'piece')", name="ck_transfer_lines_unit"),
+    )
+
+    batch_id: Mapped[int] = mapped_column(
+        ForeignKey("transfer_batches.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    item_code: Mapped[str] = mapped_column(String(40), primary_key=True)
+    galaxy_item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    item_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    unit: Mapped[str] = mapped_column(String(16), nullable=False)
+    qty: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)

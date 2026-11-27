@@ -6,8 +6,9 @@ exactly as it is for them.
 
 A warehouse kiosk is different: nobody is there to type the PIN again if the
 cookie quietly dies. When kiosk mode is on we keep a second signed, HttpOnly
-cookie that is renewed on use and only ever restores a user who is still in
-the warehouse role. It does not grant admin, workshop, or any new path.
+cookie that is renewed on use. It only restores a user who is still in the
+warehouse role or the transfer-device role. It does not grant admin or
+workshop, and it does not open any path those roles are not already limited to.
 """
 
 from __future__ import annotations
@@ -280,6 +281,25 @@ def _is_active_warehouse(db: Session, user_id: int) -> bool:
     return bool(user is not None and is_warehouse_only(user))
 
 
+def _is_kiosk_account(db: Session, user_id: int) -> bool:
+    """Warehouse take-screen and the workshop transfer tablet only.
+
+    The cookie stores a user id, not a role. Restore reads the current role,
+    so the same cookie cannot promote the account to admin or workshop.
+    """
+    try:
+        from app.auth import is_transfer_device, is_warehouse_only
+        from app.models import User
+    except ImportError:  # pragma: no cover - flat module layout
+        from auth import is_transfer_device, is_warehouse_only
+        from models import User
+
+    user = db.get(User, int(user_id))
+    if user is None or not user.is_active:
+        return False
+    return bool(is_warehouse_only(user) or is_transfer_device(user))
+
+
 def decide_kiosk_session(
     *,
     db: Session,
@@ -311,7 +331,7 @@ def decide_kiosk_session(
             return KioskDecision("clear")
         return KioskDecision("ignore")
 
-    if not _is_active_warehouse(db, candidate):
+    if not _is_kiosk_account(db, candidate):
         if mode_on or device_token or kiosk_query == "1":
             session.pop("kiosk_seen", None)
             return KioskDecision("clear")
