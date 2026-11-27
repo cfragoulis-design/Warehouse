@@ -78,7 +78,7 @@ STATUS_LABELS = {
 WH_LABELS = {"002": "Υπ/μα", "001": "Κεντρικό"}
 
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,63}$")
-_ITEM_CODE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,39}$")
+_ITEM_CODE = re.compile(r"^[0-9A-Za-zΑ-Ωα-ωΆΈΉΊΌΎΏάέήίόύώϊϋΐΰΪΫ][0-9A-Za-zΑ-Ωα-ωΆΈΉΊΌΎΏάέήίόύώϊϋΐΰΪΫ._-]{0,39}$")
 _SETTING = re.compile(r"^[0-9A-Za-zΑ-Ωα-ω.\-]{1,20}$")
 _DOC_NO = re.compile(r"^[0-9A-Za-zΑ-Ωα-ω./_-]{1,40}$")
 _KG_TOKENS = ("κιλ", "χιλ", "kg", "kgr", "kilo")
