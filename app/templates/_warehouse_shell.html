@@ -27,6 +27,9 @@
     <a class="warehouse-shell__pill{% if shell_active == 'movements' %} is-active{% endif %}" href="/movements">Κινήσεις</a>
     <a class="warehouse-shell__pill" href="/movements/new">Νέα κίνηση</a>
     <a class="warehouse-shell__pill" href="/admin/labels">Ετικέτες</a>
+    {% if transfers_nav_enabled() and user and (user.role or '')|lower in ['admin', 'workshop'] %}
+    <a class="warehouse-shell__pill{% if shell_active == 'transfers' %} is-active{% endif %}" href="/transfers">Ενδοδιακινήσεις</a>
+    {% endif %}
     <a class="warehouse-shell__pill" href="/products">Προϊόντα</a>
     <details class="warehouse-shell__credits">
       <summary class="warehouse-shell__pill">Σχετικά</summary>

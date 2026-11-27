@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Ενδοδιακινήσεις 109</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#141b33; --line:#31406a; --text:#f4f7ff; --muted:#b7c2de; --blue:#2f7cf6; --good:#1f9d62; --warn:#e7ad3e; --danger:#d45353; }
+    * { box-sizing:border-box; }
+    html, body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif; font-size:20px; }
+    button, input { font:inherit; color:inherit; }
+    button { touch-action:manipulation; }
+    header { position:sticky; top:0; z-index:2; background:#10182e; border-bottom:1px solid var(--line); padding:12px; }
+    .row { display:flex; gap:10px; align-items:center; }
+    h1 { font-size:26px; margin:0; }
+    .dir { margin-top:8px; font-size:18px; font-weight:800; }
+    .meta { color:var(--muted); font-size:16px; margin-top:4px; }
+    .meta.warn { color:var(--warn); }
+    .nav { margin-left:auto; display:flex; gap:8px; }
+    .nav a, .nav button { min-height:52px; padding:10px 14px; border-radius:14px; border:1px solid var(--line); background:#1b2748; color:var(--text); text-decoration:none; font-weight:800; }
+    main { padding:12px 12px 120px; max-width:900px; margin:0 auto; }
+    input[type="search"] { width:100%; min-height:64px; border-radius:16px; border:1px solid var(--line); background:#0e152c; padding:0 16px; font-size:22px; }
+    .list { display:flex; flex-direction:column; gap:10px; margin-top:12px; }
+    .item, .key, .wide, .cartline { min-height:68px; border-radius:16px; border:1px solid var(--line); background:var(--panel); text-align:left; padding:12px 14px; }
+    .item b, .cartline b { display:block; font-size:22px; }
+    .item span, .cartline span { color:var(--muted); font-size:16px; }
+    .pad { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:12px; }
+    .key { font-size:32px; font-weight:800; text-align:center; min-height:78px; }
+    .wide { grid-column:span 3; text-align:center; font-weight:900; background:var(--blue); border-color:transparent; min-height:72px; }
+    .wide.good { background:var(--good); }
+    .wide.ghost { background:#1b2748; }
+    .qtybox { font-size:56px; font-weight:900; text-align:center; margin:12px 0; letter-spacing:1px; }
+    .hidden { display:none; }
+    .bar { position:fixed; left:0; right:0; bottom:0; padding:10px; background:#10182e; border-top:1px solid var(--line); display:flex; gap:10px; }
+    .bar button { flex:1; min-height:68px; border:0; border-radius:16px; font-weight:900; background:var(--blue); }
+    .review .cartline { display:flex; justify-content:space-between; align-items:center; gap:10px; width:100%; }
+    .x { min-width:64px; min-height:64px; border-radius:14px; border:1px solid var(--danger); background:#3a1c24; font-size:28px; }
+    .totals { font-size:22px; font-weight:800; margin:12px 0; }
+    .done { text-align:center; padding:28px 8px; }
+    .done h2 { font-size:32px; margin:0 0 8px; }
+    .mask { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:flex-end; }
+    .sheet { background:#182240; width:100%; padding:18px; border-radius:18px 18px 0 0; }
+    .sheet p { font-size:22px; margin:0 0 14px; }
+  </style>
+  <link rel="stylesheet" href="/static/sr-theme.css" />
+</head>
+<body>
+  <header>
+    <div class="row">
+      <h1>Ενδοδιακινήσεις</h1>
+      <div class="nav">
+        <a href="/transfers/history">Ιστορικό</a>
+        {% if not is_device %}
+        <a href="/dashboard">Αρχική</a>
+        {% endif %}
+        <form method="post" action="/logout"><button type="submit">Έξοδος</button></form>
+      </div>
+    </div>
+    <div class="dir">{{ direction }}</div>
+    <div id="catalog" class="meta{% if catalog.stale or catalog.rejected %} warn{% endif %}">{{ catalog.label }}</div>
+  </header>
+  <main>
+    <section id="pick">
+      <input id="q" type="search" placeholder="Κωδικός ή όνομα" autocomplete="off" enterkeyhint="search" />
+      <div id="results" class="list"></div>
+    </section>
+    <section id="qty" class="hidden">
+      <div id="qtyName"></div>
+      <div id="qtyValue" class="qtybox">0</div>
+      <div class="pad" id="pad"></div>
+    </section>
+    <section id="review" class="hidden">
+      <h2>Έλεγχος</h2>
+      <div id="reviewList" class="list review"></div>
+      <div id="totals" class="totals"></div>
+      <button id="backReview" class="wide ghost" type="button">Πίσω</button>
+      <button id="sendBtn" class="wide good" type="button">ΑΠΟΣΤΟΛΗ</button>
+    </section>
+    <section id="done" class="hidden done">
+      <h2 id="doneTitle">Στάλθηκε</h2>
+      <p id="doneFile"></p>
+      <p id="doneState"></p>
+      <button id="again" class="wide" type="button">Νέα αποστολή</button>
+    </section>
+  </main>
+  <div class="bar" id="bar">
+    <button id="toReview" type="button" disabled>Έλεγχος</button>
+  </div>
+  <div id="mask" class="mask hidden">
+    <div class="sheet">
+      <p id="maskText"></p>
+      <button id="maskYes" class="wide good" type="button">ΝΑΙ, ΑΠΟΣΤΟΛΗ</button>
+      <button id="maskNo" class="wide ghost" type="button">Πίσω</button>
+    </div>
+  </div>
+  <script id="boot" type="application/json">{{ {"items": items} | tojson }}</script>
+  <script>
+    var boot = JSON.parse(document.getElementById("boot").textContent || "{\"items\":[]}");
+    var items = boot.items || [];
+    var cart = {};
+    var selected = null;
+    var qty = "";
+    var requestId = "";
+    var sending = false;
+
+    function fold(value) {
+      var text = (value || "").toLowerCase();
+      var from = "άέήίόύώϊΐϋΰς";
+      var to = "αεηιουωιιυυσ";
+      var out = "";
+      for (var i = 0; i < text.length; i++) {
+        var at = from.indexOf(text.charAt(i));
+        out += at >= 0 ? to.charAt(at) : text.charAt(i);
+      }
+      return out;
+    }
+    function show(id) {
+      ["pick", "qty", "review", "done"].forEach(function (name) {
+        document.getElementById(name).className = name === id ? "" : "hidden";
+      });
+      document.getElementById("bar").style.display = id === "pick" || id === "review" ? "flex" : "none";
+    }
+    function cartCount() {
+      var n = 0;
+      for (var key in cart) if (cart.hasOwnProperty(key)) n += 1;
+      return n;
+    }
+    function refreshBar() {
+      var button = document.getElementById("toReview");
+      var n = cartCount();
+      button.disabled = n === 0;
+      button.textContent = n ? ("Έλεγχος · " + n) : "Έλεγχος";
+    }
+    function renderResults() {
+      var q = fold(document.getElementById("q").value.trim());
+      var host = document.getElementById("results");
+      host.innerHTML = "";
+      if (!q) return;
+      var shown = 0;
+      for (var i = 0; i < items.length && shown < 30; i++) {
+        var item = items[i];
+        if (fold(item.code).indexOf(q) < 0 && fold(item.name).indexOf(q) < 0) continue;
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "item";
+        button.innerHTML = "<b></b><span></span>";
+        button.querySelector("b").textContent = item.code + "  " + item.name;
+        button.querySelector("span").textContent = item.unit_label;
+        button.onclick = (function (picked) {
+          return function () { openQty(picked); };
+        })(item);
+        host.appendChild(button);
+        shown += 1;
+      }
+    }
+    function openQty(item) {
+      selected = item;
+      qty = "";
+      document.getElementById("qtyName").textContent = item.code + " · " + item.name + " · " + item.unit_label;
+      paintQty();
+      paintPad();
+      show("qty");
+    }
+    function paintQty() {
+      var text = qty || "0";
+      document.getElementById("qtyValue").textContent = text.replace(".", ",");
+    }
+    function paintPad() {
+      var host = document.getElementById("pad");
+      host.innerHTML = "";
+      var keys = ["1","2","3","4","5","6","7","8","9", selected.unit === "kg" ? "," : "", "0", "⌫"];
+      keys.forEach(function (key) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "key";
+        button.textContent = key || " ";
+        button.disabled = !key;
+        button.onclick = function () { press(key); };
+        host.appendChild(button);
+      });
+      if (selected.unit === "kg") {
+        addWide("+0,5", function () { nudge(0.5); });
+        addWide("−0,5", function () { nudge(-0.5); });
+      }
+      addWide("Προσθήκη", addSelected);
+      addWide("Πίσω", function () { show("pick"); });
+    }
+    function addWide(label, action) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "wide";
+      button.textContent = label;
+      button.onclick = action;
+      document.getElementById("pad").appendChild(button);
+    }
+    function press(key) {
+      if (key === "⌫") { qty = qty.slice(0, -1); paintQty(); return; }
+      if (key === "," || key === ".") {
+        if (selected.unit !== "kg" || qty.indexOf(".") >= 0) return;
+        qty = (qty || "0") + ".";
+        paintQty();
+        return;
+      }
+      if (selected.unit === "kg" && qty.indexOf(".") >= 0 && qty.split(".")[1].length >= 3) return;
+      if (selected.unit !== "kg" && qty.length >= 5) return;
+      if (qty === "0") qty = key;
+      else qty += key;
+      paintQty();
+    }
+    function nudge(delta) {
+      var current = parseFloat(qty || "0");
+      if (isNaN(current)) current = 0;
+      var next = Math.round((current + delta) * 1000) / 1000;
+      if (next < 0) next = 0;
+      qty = String(next);
+      paintQty();
+    }
+    function addSelected() {
+      var raw = (qty || "").replace(",", ".");
+      var value = parseFloat(raw);
+      if (!value || value <= 0) return;
+      if (selected.unit !== "kg" && Math.round(value) !== value) return;
+      var prev = cart[selected.code] ? cart[selected.code].qty : 0;
+      cart[selected.code] = {
+        code: selected.code,
+        name: selected.name,
+        unit: selected.unit,
+        unit_label: selected.unit_label,
+        qty: Math.round((prev + value) * 1000) / 1000
+      };
+      document.getElementById("q").value = "";
+      renderResults();
+      refreshBar();
+      show("pick");
+    }
+    function qtyText(line) {
+      if (line.unit === "kg") return line.qty.toFixed(3).replace(".", ",");
+      return String(Math.round(line.qty));
+    }
+    function openReview() {
+      var host = document.getElementById("reviewList");
+      host.innerHTML = "";
+      var kg = 0;
+      var pieces = 0;
+      Object.keys(cart).sort().forEach(function (code) {
+        var line = cart[code];
+        if (line.unit === "kg") kg += line.qty;
+        else pieces += line.qty;
+        var row = document.createElement("div");
+        row.className = "cartline";
+        var text = document.createElement("div");
+        text.innerHTML = "<b></b><span></span>";
+        text.querySelector("b").textContent = line.code + "  " + line.name;
+        text.querySelector("span").textContent = qtyText(line) + " " + line.unit_label;
+        var remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "x";
+        remove.textContent = "✕";
+        remove.onclick = function () { delete cart[code]; requestId = ""; openReview(); refreshBar(); };
+        row.appendChild(text);
+        row.appendChild(remove);
+        host.appendChild(row);
+      });
+      var totals = [];
+      if (kg) totals.push("Κιλά: " + kg.toFixed(3).replace(".", ","));
+      if (pieces) totals.push("Τεμάχια: " + Math.round(pieces));
+      document.getElementById("totals").textContent = totals.join(" · ");
+      if (!cartCount()) show("pick");
+      else show("review");
+    }
+    function newRequestId() {
+      return "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    }
+    function needsLarge() {
+      for (var code in cart) {
+        if (cart[code].unit === "kg" && cart[code].qty > 200) return true;
+      }
+      return false;
+    }
+    function send(confirmLarge) {
+      if (sending) return;
+      if (!requestId) requestId = newRequestId();
+      var lines = [];
+      Object.keys(cart).forEach(function (code) {
+        lines.push({ code: code, qty: String(cart[code].qty) });
+      });
+      sending = true;
+      document.getElementById("sendBtn").disabled = true;
+      fetch("/transfers/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ request_id: requestId, confirm_large: !!confirmLarge, lines: lines })
+      }).then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+        .then(function (result) {
+          sending = false;
+          document.getElementById("sendBtn").disabled = false;
+          if (!result.ok && result.data && result.data.error === "confirm_large") {
+            document.getElementById("maskText").textContent = "Ποσότητα πάνω από 200 κιλά. Να σταλεί;";
+            document.getElementById("mask").className = "mask";
+            return;
+          }
+          if (!result.ok) {
+            window.alert((result.data && result.data.message) || "Η αποστολή δεν έγινε.");
+            return;
+          }
+          document.getElementById("mask").className = "mask hidden";
+          showDone(result.data);
+        })
+        .catch(function () {
+          sending = false;
+          document.getElementById("sendBtn").disabled = false;
+          window.alert("Δεν στάλθηκε. Έλεγξε το δίκτυο και ξαναπάτα Αποστολή.");
+        });
+    }
+    function showDone(data) {
+      document.getElementById("doneTitle").textContent = "Στάλθηκε";
+      document.getElementById("doneFile").textContent = data.filename || "";
+      document.getElementById("doneState").textContent = "Περιμένει να το πάρει το γραφείο";
+      show("done");
+      poll(data.id);
+    }
+    function poll(id) {
+      fetch("/transfers/" + id + "/status", { headers: { "Accept": "application/json" } })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (!data || !data.ok) return;
+          if (data.status === "delivered" || data.status === "passed") {
+            document.getElementById("doneTitle").textContent = "Έφτασε";
+            document.getElementById("doneState").textContent = data.status_label || "Έφτασε στο γραφείο";
+            return;
+          }
+          if (data.status === "cancelled") {
+            document.getElementById("doneState").textContent = "Ακυρώθηκε";
+            return;
+          }
+          window.setTimeout(function () { poll(id); }, 5000);
+        })
+        .catch(function () { window.setTimeout(function () { poll(id); }, 5000); });
+    }
+    document.getElementById("q").addEventListener("input", renderResults);
+    document.getElementById("toReview").onclick = openReview;
+    document.getElementById("backReview").onclick = function () { requestId = ""; show("pick"); };
+    document.getElementById("sendBtn").onclick = function () {
+      if (needsLarge()) {
+        document.getElementById("maskText").textContent = "Ποσότητα πάνω από 200 κιλά. Να σταλεί;";
+        document.getElementById("mask").className = "mask";
+        return;
+      }
+      document.getElementById("maskText").textContent = "Να σταλεί η ενδοδιακίνηση;";
+      document.getElementById("mask").className = "mask";
+    };
+    document.getElementById("maskNo").onclick = function () { document.getElementById("mask").className = "mask hidden"; };
+    document.getElementById("maskYes").onclick = function () { document.getElementById("mask").className = "mask hidden"; send(true); };
+    document.getElementById("again").onclick = function () {
+      cart = {};
+      requestId = "";
+      refreshBar();
+      show("pick");
+    };
+    refreshBar();
+    show("pick");
+  </script>
+</body>
+</html>

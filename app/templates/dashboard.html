@@ -47,6 +47,9 @@
     <div class="sectionHead"><div><h2>Ροή βάρδιας</h2><p>Μία άμεση ενέργεια για κάθε βασική εργασία.</p></div></div>
     <section class="taskGrid">
       <a class="taskCard" href="/movements/new"><div class="taskCode">IN</div><h3>Παραλαβή ή διόρθωση</h3><p>Καταχώρισε νέα εισαγωγή, εξαγωγή, μεταφορά ή ουσιαστική διόρθωση.</p><span>Νέα κίνηση →</span></a>
+      {% if transfers_nav_enabled() and (user.role or '')|lower in ['admin', 'workshop'] %}
+      <a class="taskCard" href="/transfers"><div class="taskCode">109</div><h3>Ενδοδιακίνηση</h3><p>Ζύγισε στο tablet και στείλε το αρχείο για το 109 στο γραφείο.</p><span>Άνοιγμα οθόνης →</span></a>
+      {% endif %}
       <a class="taskCard" href="/movements?movement_type=TRANSFER"><div class="taskCode">TR</div><h3>Μεταφορές</h3><p>Δες τι μετακινήθηκε μεταξύ Κεντρικού και Εργαστηρίου.</p><span>Ιστορικό μεταφορών →</span></a>
       <a class="taskCard" href="{% if user.role == 'admin' %}/admin/vet-report/weekly/{% else %}/stock?loc=workshop{% endif %}"><div class="taskCode">PR</div><h3>Παραγωγή</h3><p>{% if user.role == 'admin' %}Άνοιξε τη συγκεντρωτική εικόνα παραγωγής της εβδομάδας.{% else %}Δες τις ανάγκες και το απόθεμα του Εργαστηρίου.{% endif %}</p><span>Άνοιγμα παραγωγής →</span></a>
       <a class="taskCard" href="/admin/labels"><div class="taskCode">LB</div><h3>Ετικέτες</h3><p>Ετοίμασε τις ετικέτες προϊόντων και παρακολούθησε την ουρά εκτύπωσης.</p><span>Κέντρο ετικετών →</span></a>
