@@ -243,7 +243,8 @@ function Invoke-AgentRequest {
         ErrorAction = 'Stop'
     }
     if ($Body) {
-        $parameters.Body = $Body
+        # Windows PowerShell 5.1 sends a string body as ISO-8859-1; send UTF-8 bytes so Greek names survive.
+        $parameters.Body = [Text.Encoding]::UTF8.GetBytes($Body)
         $parameters.ContentType = 'application/json; charset=utf-8'
     }
     return Invoke-RestMethod @parameters
