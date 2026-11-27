@@ -55,7 +55,7 @@ def test_migration_024_is_additive_idempotent_and_registered() -> None:
     assert "preferred_lang" in sql and "pin_must_change" in sql and "name_en" in sql
     assert "DEFAULT 'el'" in sql and "DEFAULT FALSE" in sql
     versions = [m.version for m in migration_catalog()]
-    assert versions[-1] == "20261123_024" and versions[-2] == "20261122_023"
+    assert versions[versions.index("20261123_024") - 1] == "20261122_023"
 
 
 # ------------------------------------------------------------------ language
