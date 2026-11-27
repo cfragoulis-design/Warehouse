@@ -49,13 +49,11 @@ from sqlalchemy.orm import Session
 
 try:
     from app import kiosk_nextgen as ng
-    from app import piper_voice
     from app import telegram_voice
     from app.db import get_db
     from app.models import Consumable, ConsumableMovement, Supplier, TelegramAskLog, Worker
 except ImportError:  # pragma: no cover - flat module layout
     import kiosk_nextgen as ng
-    import piper_voice
     import telegram_voice
     from db import get_db
     from models import Consumable, ConsumableMovement, Supplier, TelegramAskLog, Worker
